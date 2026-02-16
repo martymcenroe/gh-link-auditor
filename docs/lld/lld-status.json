@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-02-16T17:14:42.040588+00:00",
+  "issues": {
+    "11": {
+      "lld_path": "docs\\lld\\active\\LLD-011.md",
+      "status": "approved",
+      "has_gemini_review": true,
+      "final_verdict": "APPROVED",
+      "last_review_date": "2026-02-16T17:14:42.040426+00:00",
+      "review_count": 2
+    }
+  }
+}
