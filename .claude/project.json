@@ -1,0 +1,11 @@
+{
+  "variables": {
+    "PROJECT_ROOT": "/c/Users/mcwiz/Projects/gh-link-auditor",
+    "PROJECT_ROOT_WINDOWS": "C:\\Users\\mcwiz\\Projects\\gh-link-auditor",
+    "PROJECT_NAME": "gh-link-auditor",
+    "GITHUB_REPO": "martymcenroe/gh-link-auditor",
+    "TOOLS_DIR": "/c/Users/mcwiz/Projects/gh-link-auditor/tools",
+    "WORKTREE_PATTERN": "gh-link-auditor-{ID}"
+  },
+  "inherit_from": "C:\\Users\\mcwiz\\Projects\\AssemblyZero"
+}
