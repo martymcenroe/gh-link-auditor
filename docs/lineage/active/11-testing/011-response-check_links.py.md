@@ -1,3 +1,6 @@
+
+
+```python
 """Link checking utility for gh-link-auditor.
 
 Extracts and validates HTTP/HTTPS URLs from files, reporting status
@@ -116,3 +119,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```

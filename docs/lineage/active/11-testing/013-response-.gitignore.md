@@ -1,3 +1,6 @@
+
+
+```
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 
@@ -55,3 +58,4 @@ coverage.xml
 
 # Unleashed session transcripts (auto-generated, untracked)
 data/unleashed/
+```
