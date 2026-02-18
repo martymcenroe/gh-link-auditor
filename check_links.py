@@ -2,19 +2,87 @@
 
 Extracts and validates HTTP/HTTPS URLs from files, reporting status
 via structured logging. See LLD #11 for design rationale.
+Anti-bot fallback via network.py integration per LLD #1.
 """
 
-import http.client
 import re
-import ssl
-import time
-import urllib.error
-import urllib.request
+from typing import TypedDict
 
+from gh_link_auditor.network import check_url as network_check_url
+from gh_link_auditor.network import create_backoff_config, create_request_config, should_retry
 from src.logging_config import setup_logging
 
 # LLD §2.5 step 3.2: Module-level logger
 logger = setup_logging("check_links")
+
+
+# ---------------------------------------------------------------------------
+# LLD #1 — Anti-bot fallback data structures and helpers
+# ---------------------------------------------------------------------------
+
+
+class LinkCheckResult(TypedDict):
+    """Result of a link check with fallback metadata."""
+
+    url: str
+    status_code: int | None
+    method_used: str
+    fallback_used: bool
+    error: str | None
+
+
+def should_fallback_to_get(status_code: int) -> bool:
+    """Check if a HEAD response should trigger a GET fallback.
+
+    Delegates to ``network.should_retry`` and returns the ``try_get_fallback`` flag.
+
+    Args:
+        status_code: HTTP status code from a HEAD request.
+
+    Returns:
+        ``True`` if the status code warrants a GET fallback (e.g. 403, 405).
+    """
+    _retry, try_get = should_retry(status_code, None)
+    return try_get
+
+
+def log_fallback_attempt(url: str, head_status: int) -> None:
+    """Log that a GET fallback is being attempted for a URL.
+
+    Args:
+        url: The URL being checked.
+        head_status: The HTTP status code received from the HEAD request.
+    """
+    logger.info("HEAD returned %d for %s — falling back to GET", head_status, url)
+
+
+def check_link_with_fallback(url: str, timeout: int = 10) -> LinkCheckResult:
+    """Check a URL using network.check_url with HEAD→GET fallback.
+
+    Creates a ``RequestConfig`` with ``verify_ssl=False`` (matching the original
+    ``check_links`` behaviour) and delegates to ``network.check_url``.
+
+    Args:
+        url: The URL to check.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        A ``LinkCheckResult`` with status and fallback metadata.
+    """
+    req_cfg = create_request_config(timeout=float(timeout), verify_ssl=False)
+    result = network_check_url(url, request_config=req_cfg)
+
+    fallback_used = result["method"] == "GET"
+    if fallback_used:
+        log_fallback_attempt(url, 0)
+
+    return LinkCheckResult(
+        url=result["url"],
+        status_code=result["status_code"],
+        method_used=result["method"],
+        fallback_used=fallback_used,
+        error=result["error"],
+    )
 
 
 def find_urls(filepath: str) -> list[str]:
@@ -38,53 +106,39 @@ def find_urls(filepath: str) -> list[str]:
 
 
 def check_url(url: str, retries: int = 2) -> str:
+    """Check a single URL and return a human-readable status string.
+
+    Delegates to :func:`check_link_with_fallback` (which uses ``network.check_url``
+    with HEAD→GET fallback) and formats the result to match the original output.
+
+    Args:
+        url: The URL to validate.
+        retries: Maximum number of retries (maps to ``backoff_config.max_retries``).
+
+    Returns:
+        A formatted status string (e.g. ``"[  OK  ] (Code: 200) - https://…"``).
     """
-    Checks a single URL. Returns a status string.
-    Uses a standard User-Agent to avoid 403 Forbidden errors.
-    """
-    # Create a default SSL context that does not verify certs
-    # This helps avoid SSL certificate verification errors, which are common
-    # but don't necessarily mean the link is "broken" for our purposes.
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    req_cfg = create_request_config(timeout=10.0, verify_ssl=False)
+    backoff_cfg = create_backoff_config(max_retries=retries)
+    result = network_check_url(url, request_config=req_cfg, backoff_config=backoff_cfg)
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/58.0.3029.110 Safari/537.36"
-        )
-    }
+    if result["method"] == "GET":
+        log_fallback_attempt(url, 0)
 
-    req = urllib.request.Request(url, headers=headers, method="HEAD")
+    status = result["status"]
+    code = result["status_code"]
 
-    for attempt in range(retries):
-        try:
-            # Set a 10-second timeout
-            with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
-                return f"[  OK  ] (Code: {response.status}) - {url}"
-        except urllib.error.HTTPError as e:
-            # Server responded, but with an error code (404, 403, 500, etc.)
-            return f"[ ERROR ] (Code: {e.code}) - {url}"
-        except urllib.error.URLError as e:
-            # URL-related error (e.g., DNS failure, timeout)
-            if "timed out" in str(e.reason):
-                if attempt < retries - 1:
-                    time.sleep(1)  # Wait before retry
-                    continue  # Try again
-                return f"[ TIMEOUT ] - {url}"
-            return f"[ FAILED ] (Reason: {e.reason}) - {url}"
-        except (http.client.RemoteDisconnected, ConnectionResetError):
-            if attempt < retries - 1:
-                time.sleep(1)
-                continue
-            return f"[ DISCONNECTED ] - {url}"
-        except Exception as e:
-            # Catch-all for other issues (e.g., invalid URL format)
-            return f"[ INVALID ] (Error: {type(e).__name__}) - {url}"
-
-    return f"[ FAILED ] (All retries) - {url}"
+    if status == "ok":
+        return f"[  OK  ] (Code: {code}) - {url}"
+    if status == "timeout":
+        return f"[ TIMEOUT ] - {url}"
+    if status == "disconnected":
+        return f"[ DISCONNECTED ] - {url}"
+    if status == "error":
+        return f"[ ERROR ] (Code: {code}) - {url}"
+    if status == "failed":
+        return f"[ FAILED ] (Reason: {result['error']}) - {url}"
+    return f"[ INVALID ] (Error: {result['error']}) - {url}"
 
 
 def main():
