@@ -1,0 +1,73 @@
+{
+  "batch_id": "test-batch-resume-001",
+  "config": {
+    "target_list_path": "tests/fixtures/batch/sample_target_list.json",
+    "concurrency": 1,
+    "max_repos": null,
+    "dry_run": false,
+    "checkpoint_interval": 10,
+    "clone_dir": "/tmp/batch_clones",
+    "max_disk_gb": 10.0
+  },
+  "current_index": 3,
+  "started_at": "2026-01-15T10:00:00+00:00",
+  "last_checkpoint_at": "2026-01-15T10:05:00+00:00",
+  "total_api_calls": 45,
+  "tasks": [
+    {
+      "repo_full_name": "octocat/hello-world",
+      "clone_url": "https://github.com/octocat/hello-world.git",
+      "status": "completed",
+      "error_message": null,
+      "links_found": 10,
+      "broken_links": 2,
+      "fixes_generated": 1,
+      "pr_submitted": true,
+      "pr_url": "https://github.com/octocat/hello-world/pull/42"
+    },
+    {
+      "repo_full_name": "torvalds/linux",
+      "clone_url": "https://github.com/torvalds/linux.git",
+      "status": "completed",
+      "error_message": null,
+      "links_found": 100,
+      "broken_links": 5,
+      "fixes_generated": 3,
+      "pr_submitted": true,
+      "pr_url": "https://github.com/torvalds/linux/pull/999"
+    },
+    {
+      "repo_full_name": "rust-lang/rust",
+      "clone_url": "https://github.com/rust-lang/rust.git",
+      "status": "failed",
+      "error_message": "Clone timeout",
+      "links_found": 0,
+      "broken_links": 0,
+      "fixes_generated": 0,
+      "pr_submitted": false,
+      "pr_url": null
+    },
+    {
+      "repo_full_name": "python/cpython",
+      "clone_url": "https://github.com/python/cpython.git",
+      "status": "pending",
+      "error_message": null,
+      "links_found": 0,
+      "broken_links": 0,
+      "fixes_generated": 0,
+      "pr_submitted": false,
+      "pr_url": null
+    },
+    {
+      "repo_full_name": "microsoft/vscode",
+      "clone_url": "https://github.com/microsoft/vscode.git",
+      "status": "pending",
+      "error_message": null,
+      "links_found": 0,
+      "broken_links": 0,
+      "fixes_generated": 0,
+      "pr_submitted": false,
+      "pr_url": null
+    }
+  ]
+}

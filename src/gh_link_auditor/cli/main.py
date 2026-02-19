@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from gh_link_auditor.cli.batch_cmd import build_batch_parser
+from gh_link_auditor.cli.metrics_cmd import build_metrics_parser
 from gh_link_auditor.cli.run import build_run_parser
 
 
@@ -24,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     build_run_parser(subparsers)
+    build_batch_parser(subparsers)
+    build_metrics_parser(subparsers)
 
     return parser
 
