@@ -6,9 +6,9 @@ Covers: GitHubResolver.is_github_url(), resolve_repo_redirect(),
         reconstruct_file_url(), _parse_github_url()
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from gh_link_auditor.github_resolver import GitHubResolver
+from gh_link_auditor.github_resolver import GitHubResolver, _github_api_get
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -162,3 +162,81 @@ class TestReconstructFileUrl:
         assert "new-owner" in result
         assert "new-repo" in result
         assert "file.txt" in result
+
+
+# ---------------------------------------------------------------------------
+# Internal _github_api_get coverage
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubApiGet:
+    def test_api_get_success(self):
+        """_github_api_get returns parsed JSON on success."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"full_name": "owner/repo"}'
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", return_value=mock_resp):
+            result = _github_api_get("https://api.github.com/repos/owner/repo")
+        assert result == {"full_name": "owner/repo"}
+
+    def test_api_get_with_token(self):
+        """_github_api_get includes auth header when token provided."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"full_name": "owner/repo"}'
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", return_value=mock_resp) as mock_open:
+            _github_api_get("https://api.github.com/repos/owner/repo", token="ghp_test123")
+        # Verify the request was made (token applied in Request headers)
+        mock_open.assert_called_once()
+
+    def test_api_get_404(self):
+        """_github_api_get returns None on 404."""
+        import urllib.error
+
+        err = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
+        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", side_effect=err):
+            result = _github_api_get("https://api.github.com/repos/owner/gone")
+        assert result is None
+
+    def test_api_get_non_404_error(self):
+        """_github_api_get returns None on non-404 HTTP error."""
+        import urllib.error
+
+        err = urllib.error.HTTPError("url", 403, "Rate Limited", {}, None)
+        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", side_effect=err):
+            result = _github_api_get("https://api.github.com/repos/owner/repo")
+        assert result is None
+
+    def test_api_get_url_error(self):
+        """_github_api_get returns None on URLError."""
+        import urllib.error
+
+        with patch(
+            "gh_link_auditor.github_resolver.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("DNS failure"),
+        ):
+            result = _github_api_get("https://api.github.com/repos/owner/repo")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Token from env
+# ---------------------------------------------------------------------------
+
+
+class TestTokenFromEnv:
+    def test_reads_token_from_env(self):
+        """GitHubResolver reads GITHUB_TOKEN from environment."""
+        with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_envtoken"}):
+            resolver = GitHubResolver()
+        assert resolver._token == "ghp_envtoken"
+
+    def test_explicit_token_overrides_env(self):
+        """Explicit token takes precedence over env."""
+        with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_envtoken"}):
+            resolver = GitHubResolver(token="ghp_explicit")
+        assert resolver._token == "ghp_explicit"

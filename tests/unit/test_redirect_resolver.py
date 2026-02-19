@@ -6,11 +6,11 @@ Covers: RedirectResolver.follow_redirects(), test_url_mutations(),
         verify_live(), _validate_not_private_ip(), SSRFBlocked
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gh_link_auditor.redirect_resolver import RedirectResolver, SSRFBlocked
+from gh_link_auditor.redirect_resolver import RedirectResolver, SSRFBlocked, _http_head
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -296,3 +296,143 @@ class TestVerifyLive:
             side_effect=Exception("connection failed"),
         ):
             assert resolver.verify_live("https://example.com") is False
+
+
+# ---------------------------------------------------------------------------
+# Internal _http_head coverage
+# ---------------------------------------------------------------------------
+
+
+class TestHttpHead:
+    def test_http_head_success(self):
+        """_http_head returns status_code and location on success."""
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.headers = MagicMock()
+        mock_resp.headers.get.return_value = None
+
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+
+        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=mock_opener):
+            result = _http_head("https://example.com")
+        assert result["status_code"] == 200
+
+    def test_http_head_http_error(self):
+        """_http_head returns status from HTTPError."""
+        import urllib.error
+
+        mock_headers = MagicMock()
+        mock_headers.get.return_value = "https://new.com"
+        err = urllib.error.HTTPError("https://old.com", 301, "Moved", mock_headers, None)
+
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = err
+
+        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=mock_opener):
+            result = _http_head("https://old.com")
+        assert result["status_code"] == 301
+        assert result["location"] == "https://new.com"
+
+    def test_http_head_url_error(self):
+        """_http_head returns None status on URLError."""
+        import urllib.error
+
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = urllib.error.URLError("DNS failure")
+
+        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=mock_opener):
+            result = _http_head("https://nonexistent.example.com")
+        assert result["status_code"] is None
+        assert result["location"] is None
+
+
+# ---------------------------------------------------------------------------
+# Additional mutation coverage
+# ---------------------------------------------------------------------------
+
+
+class TestUrlMutationsAdditional:
+    def test_remove_trailing_slash_mutation(self):
+        """Tests removing trailing slash."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            if url == "https://example.com/docs":
+                return {"status_code": 200, "location": None}
+            return {"status_code": 404, "location": None}
+
+        with patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head):
+            mutations = resolver.test_url_mutations("https://example.com/docs/")
+        assert any(m[1] == "remove_trailing_slash" for m in mutations)
+
+    def test_www_toggle_add(self):
+        """Tests adding www prefix."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            if "www." in url:
+                return {"status_code": 200, "location": None}
+            return {"status_code": 404, "location": None}
+
+        with patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head):
+            mutations = resolver.test_url_mutations("https://example.com/page")
+        assert any(m[1] == "add_www" for m in mutations)
+
+    def test_www_toggle_remove(self):
+        """Tests removing www prefix."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            if "www." not in url and "example.com" in url:
+                return {"status_code": 200, "location": None}
+            return {"status_code": 404, "location": None}
+
+        with patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head):
+            mutations = resolver.test_url_mutations("https://www.example.com/page")
+        assert any(m[1] == "remove_www" for m in mutations)
+
+
+# ---------------------------------------------------------------------------
+# Redirect loop detection
+# ---------------------------------------------------------------------------
+
+
+class TestRedirectLoop:
+    def test_redirect_loop_detected(self):
+        """Circular redirect chain is detected and stopped."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            if url == "https://a.com":
+                return {"status_code": 301, "location": "https://b.com"}
+            if url == "https://b.com":
+                return {"status_code": 301, "location": "https://a.com"}
+            return {"status_code": 200, "location": None}
+
+        with (
+            patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head),
+            patch("gh_link_auditor.redirect_resolver.socket.getaddrinfo", side_effect=_mock_public_dns),
+        ):
+            final_url, log = resolver.follow_redirects("https://a.com")
+        assert final_url is None
+        assert any("loop" in entry.lower() for entry in log)
+
+
+# ---------------------------------------------------------------------------
+# SSRF DNS resolution failure
+# ---------------------------------------------------------------------------
+
+
+class TestSSRFDnsFailure:
+    def test_dns_failure_raises_ssrf_blocked(self):
+        """Unresolvable hostname raises SSRFBlocked."""
+        resolver = _make_resolver()
+        import socket as _socket
+
+        with patch(
+            "gh_link_auditor.redirect_resolver.socket.getaddrinfo",
+            side_effect=_socket.gaierror("Name resolution failed"),
+        ):
+            with pytest.raises(SSRFBlocked):
+                resolver._validate_not_private_ip("unresolvable.invalid")
