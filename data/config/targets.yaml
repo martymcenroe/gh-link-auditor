@@ -1,0 +1,8 @@
+# Repository targets for Doc-Fix Bot
+# See LLD #2 for specification
+
+repositories:
+  - owner: example-org
+    repo: example-repo
+    priority: 8
+    enabled: true

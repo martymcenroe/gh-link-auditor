@@ -1,0 +1,4 @@
+# Repositories that have opted out of Doc-Fix Bot
+# Add owner/repo entries to block scanning
+
+blocked: []
