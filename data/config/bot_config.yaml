@@ -1,0 +1,7 @@
+# Doc-Fix Bot configuration
+# See LLD #2 for specification
+
+max_prs_per_day: 10
+max_api_calls_per_hour: 500
+http_timeout: 10.0
+min_fix_confidence: 0.8
