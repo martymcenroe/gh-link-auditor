@@ -1,7 +1,8 @@
 """Pydantic models for database entities.
 
-Defines InteractionRecord, BlacklistEntry, and InteractionStatus
-for the state database. See LLD Issue #5 for full specification.
+Defines InteractionRecord, BlacklistEntry, InteractionStatus,
+and PipelineRunRecord for the state database.
+See LLD Issue #5 and #22 for full specifications.
 """
 
 from __future__ import annotations
@@ -44,3 +45,17 @@ class BlacklistEntry(BaseModel):
     reason: str = ""
     created_at: datetime
     expires_at: datetime | None = None
+
+
+class PipelineRunRecord(BaseModel):
+    """Record of a pipeline run. See LLD #22 §2.3."""
+
+    run_id: str
+    target: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    status: str = "running"  # "running", "completed", "failed", "halted"
+    exit_code: int | None = None
+    total_cost_usd: float = 0.0
+    dead_links_found: int = 0
+    fixes_generated: int = 0
