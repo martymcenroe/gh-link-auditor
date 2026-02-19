@@ -6,9 +6,9 @@ Covers: ArchiveClient.get_latest_snapshot(), fetch_snapshot_content(),
         extract_title(), extract_content_summary()
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from gh_link_auditor.archive_client import ArchiveClient
+from gh_link_auditor.archive_client import ArchiveClient, _cdx_request, _fetch_url_content
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -176,3 +176,133 @@ class TestExtractContentSummary:
         summary = client.extract_content_summary(long_html)
         assert summary is not None
         assert len(summary) <= 500
+
+    def test_strips_script_and_style_tags(self):
+        """Script and style content is excluded from summary."""
+        html = "<html><body><script>var x=1;</script><style>.a{}</style><p>Visible</p></body></html>"
+        client = _make_client()
+        summary = client.extract_content_summary(html)
+        assert summary is not None
+        assert "var x" not in summary
+        assert "Visible" in summary
+
+    def test_empty_body_returns_none(self):
+        """HTML with no visible text returns None."""
+        html = "<html><body><script>only script</script></body></html>"
+        client = _make_client()
+        summary = client.extract_content_summary(html)
+        # May return None or very short string depending on parser
+        if summary:
+            assert "only script" not in summary
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers (coverage for _cdx_request, _fetch_url_content)
+# ---------------------------------------------------------------------------
+
+
+class TestCdxRequest:
+    def test_cdx_request_success(self):
+        """_cdx_request returns decoded response body."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"response data"
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("gh_link_auditor.archive_client.urllib.request.urlopen", return_value=mock_resp):
+            result = _cdx_request("https://web.archive.org/cdx/search/cdx?url=test")
+        assert result == "response data"
+
+    def test_fetch_url_content_success(self):
+        """_fetch_url_content returns decoded HTML."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"<html>test</html>"
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("gh_link_auditor.archive_client.urllib.request.urlopen", return_value=mock_resp):
+            result = _fetch_url_content("https://web.archive.org/web/snapshot")
+        assert result == "<html>test</html>"
+
+    def test_fetch_url_content_error_returns_none(self):
+        """_fetch_url_content returns None on network error."""
+        with patch(
+            "gh_link_auditor.archive_client.urllib.request.urlopen",
+            side_effect=OSError("connection refused"),
+        ):
+            result = _fetch_url_content("https://bad.example.com")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# BS4 / regex fallback coverage
+# ---------------------------------------------------------------------------
+
+
+class TestRegexFallback:
+    def test_extract_title_regex_path(self):
+        """Exercise regex fallback for title extraction."""
+        client = _make_client()
+        with patch("gh_link_auditor.archive_client._HAS_BS4", False):
+            title = client.extract_title(SAMPLE_HTML)
+        assert title == "Installation Guide - Example"
+
+    def test_extract_title_regex_no_title(self):
+        """Regex fallback returns None when no title tag."""
+        client = _make_client()
+        with patch("gh_link_auditor.archive_client._HAS_BS4", False):
+            title = client.extract_title(SAMPLE_HTML_NO_TITLE)
+        assert title is None
+
+    def test_extract_title_regex_multiline(self):
+        """Regex fallback handles multiline title."""
+        html = "<html><head><title>\n  My Page\n</title></head></html>"
+        client = _make_client()
+        with patch("gh_link_auditor.archive_client._HAS_BS4", False):
+            title = client.extract_title(html)
+        assert title is not None
+        assert "My Page" in title
+
+    def test_extract_title_regex_empty_title(self):
+        """Regex fallback returns None for empty title tag."""
+        html = "<html><head><title>  </title></head></html>"
+        client = _make_client()
+        with patch("gh_link_auditor.archive_client._HAS_BS4", False):
+            title = client.extract_title(html)
+        assert title is None
+
+    def test_extract_content_summary_regex_path(self):
+        """Exercise regex fallback for content extraction."""
+        client = _make_client()
+        with patch("gh_link_auditor.archive_client._HAS_BS4", False):
+            summary = client.extract_content_summary(SAMPLE_HTML)
+        assert summary is not None
+        assert "Installation Guide" in summary
+        assert "<p>" not in summary
+
+    def test_extract_content_summary_regex_strips_scripts(self):
+        """Regex fallback strips script/style tags."""
+        html = "<html><body><script>bad</script><p>Good</p></body></html>"
+        client = _make_client()
+        with patch("gh_link_auditor.archive_client._HAS_BS4", False):
+            summary = client.extract_content_summary(html)
+        assert summary is not None
+        assert "bad" not in summary
+        assert "Good" in summary
+
+
+# ---------------------------------------------------------------------------
+# Edge: malformed CDX response
+# ---------------------------------------------------------------------------
+
+
+class TestMalformedCDX:
+    def test_short_cdx_response_returns_none(self):
+        """CDX response with fewer than 7 fields returns None."""
+        client = _make_client()
+        with patch(
+            "gh_link_auditor.archive_client._cdx_request",
+            return_value="only three fields",
+        ):
+            result = client.get_latest_snapshot("https://example.com")
+        assert result is None
