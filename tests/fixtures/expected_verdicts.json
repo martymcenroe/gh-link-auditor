@@ -1,0 +1,41 @@
+{
+  "description": "Pre-computed expected verdicts for sample_forensic_report.json. Used to validate scorer output.",
+  "notes": "Exact confidence values depend on signal implementations. This fixture documents expected tiers and structural invariants.",
+  "expected": [
+    {
+      "dead_url": "https://example.com/docs/install",
+      "expected_tier": "varies",
+      "expected_candidate_count": 3,
+      "has_replacement": true,
+      "notes": "3 candidates with mixed signal strength"
+    },
+    {
+      "dead_url": "https://example.com/blog/old-post",
+      "expected_tier": "varies",
+      "expected_candidate_count": 1,
+      "has_replacement": true,
+      "notes": "Single candidate"
+    },
+    {
+      "dead_url": "https://example.com/api/v1/reference",
+      "expected_tier": "varies",
+      "expected_candidate_count": 5,
+      "has_replacement": true,
+      "notes": "5 candidates, best should win"
+    },
+    {
+      "dead_url": "https://example.com/removed-page",
+      "expected_tier": "INSUFFICIENT",
+      "expected_candidate_count": 0,
+      "has_replacement": false,
+      "notes": "Zero candidates must produce INSUFFICIENT with confidence=0"
+    },
+    {
+      "dead_url": "https://example.com/docs/tutorial",
+      "expected_tier": "varies",
+      "expected_candidate_count": 10,
+      "has_replacement": true,
+      "notes": "10 candidates, highest score wins"
+    }
+  ]
+}

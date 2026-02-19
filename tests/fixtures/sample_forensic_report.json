@@ -1,0 +1,124 @@
+{
+  "dead_links": [
+    {
+      "dead_url": "https://example.com/docs/install",
+      "archived_url": "https://web.archive.org/web/20240315/https://example.com/docs/install",
+      "archived_title": "Installation Guide - Example",
+      "archived_content": "Welcome to the installation guide. Follow these steps to install the software on your machine.",
+      "investigation_method": "redirect_chain",
+      "candidates": [
+        {
+          "url": "https://example.com/docs/setup",
+          "source": "wayback_redirect"
+        },
+        {
+          "url": "https://example.org/docs/install",
+          "source": "domain_crawl"
+        },
+        {
+          "url": "https://newsite.com/docs/install",
+          "source": "search"
+        }
+      ]
+    },
+    {
+      "dead_url": "https://example.com/blog/old-post",
+      "archived_url": "https://web.archive.org/web/20230101/https://example.com/blog/old-post",
+      "archived_title": "Old Blog Post Title",
+      "archived_content": "This is the content of the old blog post about Python programming.",
+      "investigation_method": "archive_only",
+      "candidates": [
+        {
+          "url": "https://example.com/blog/new-post",
+          "source": "search"
+        }
+      ]
+    },
+    {
+      "dead_url": "https://example.com/api/v1/reference",
+      "archived_url": "https://web.archive.org/web/20240601/https://example.com/api/v1/reference",
+      "archived_title": "API Reference v1",
+      "archived_content": "API reference documentation for version 1 of the Example API.",
+      "investigation_method": "url_heuristic",
+      "candidates": [
+        {
+          "url": "https://example.com/api/v2/reference",
+          "source": "url_pattern"
+        },
+        {
+          "url": "https://example.com/api/v3/reference",
+          "source": "url_pattern"
+        },
+        {
+          "url": "https://docs.example.com/api/reference",
+          "source": "search"
+        },
+        {
+          "url": "https://example.io/api/reference",
+          "source": "domain_crawl"
+        },
+        {
+          "url": "https://github.com/example/project/wiki/api",
+          "source": "search"
+        }
+      ]
+    },
+    {
+      "dead_url": "https://example.com/removed-page",
+      "archived_url": null,
+      "archived_title": "",
+      "archived_content": "",
+      "investigation_method": "none",
+      "candidates": []
+    },
+    {
+      "dead_url": "https://example.com/docs/tutorial",
+      "archived_url": "https://web.archive.org/web/20240801/https://example.com/docs/tutorial",
+      "archived_title": "Getting Started Tutorial",
+      "archived_content": "Learn how to get started with Example in this comprehensive tutorial.",
+      "investigation_method": "redirect_chain",
+      "candidates": [
+        {
+          "url": "https://example.com/learn/tutorial",
+          "source": "wayback_redirect"
+        },
+        {
+          "url": "https://example.com/guides/getting-started",
+          "source": "search"
+        },
+        {
+          "url": "https://tutorial.example.com/start",
+          "source": "domain_crawl"
+        },
+        {
+          "url": "https://example.com/docs/quickstart",
+          "source": "url_pattern"
+        },
+        {
+          "url": "https://learn.example.com/tutorial",
+          "source": "search"
+        },
+        {
+          "url": "https://example.com/education/tutorial",
+          "source": "search"
+        },
+        {
+          "url": "https://example.com/help/tutorial",
+          "source": "search"
+        },
+        {
+          "url": "https://example.com/resources/tutorial",
+          "source": "search"
+        },
+        {
+          "url": "https://community.example.com/tutorial",
+          "source": "search"
+        },
+        {
+          "url": "https://wiki.example.com/tutorial",
+          "source": "search"
+        }
+      ]
+    }
+  ]
+}
