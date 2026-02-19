@@ -542,19 +542,13 @@ class TestMainModule:
         assert exc_info.value.code == 0
 
 
-class TestDashboardStub:
-    """Tests for dashboard stub (Step 5b placeholder)."""
-
-    def test_start_dashboard_raises_not_implemented(self):
-        """Dashboard stub raises NotImplementedError."""
-        from slant.dashboard import start_dashboard
-
-        with pytest.raises(NotImplementedError):
-            start_dashboard(Path("verdicts.json"))
+class TestDashboardIntegration:
+    """Tests verifying CLI integrates with dashboard module."""
 
     def test_cmd_dashboard_calls_start_dashboard(self):
         """CLI dashboard subcommand calls start_dashboard."""
         from slant.cli import main
 
-        with pytest.raises(NotImplementedError):
+        with patch("slant.dashboard.start_dashboard") as mock_start:
             main(["dashboard", "--verdicts", "verdicts.json"])
+            mock_start.assert_called_once()
