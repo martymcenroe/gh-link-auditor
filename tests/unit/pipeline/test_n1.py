@@ -130,9 +130,7 @@ class TestRunLinkScan:
     def test_scans_local_files(self, tmp_path: Path) -> None:
         md = tmp_path / "test.md"
         md.write_text("Check [link](https://httpstat.us/404)\n")
-        with patch(
-            "gh_link_auditor.pipeline.nodes.n1_scan._check_single_url"
-        ) as mock_check:
+        with patch("gh_link_auditor.pipeline.nodes.n1_scan._check_single_url") as mock_check:
             mock_check.return_value = {
                 "url": "https://httpstat.us/404",
                 "status": "dead",
@@ -158,9 +156,7 @@ class TestRunLinkScan:
         md1.write_text("[link](https://httpstat.us/404)\n")
         md2 = tmp_path / "b.md"
         md2.write_text("[link](https://httpstat.us/404)\n")
-        with patch(
-            "gh_link_auditor.pipeline.nodes.n1_scan._check_single_url"
-        ) as mock_check:
+        with patch("gh_link_auditor.pipeline.nodes.n1_scan._check_single_url") as mock_check:
             mock_check.return_value = {
                 "url": "https://httpstat.us/404",
                 "status": "dead",
@@ -174,25 +170,24 @@ class TestRunLinkScan:
 
     def test_handles_file_with_multiple_links(self, tmp_path: Path) -> None:
         md = tmp_path / "multi.md"
-        md.write_text(
-            "[a](https://httpstat.us/404)\n"
-            "[b](https://httpstat.us/410)\n"
-            "[c](https://httpstat.us/200)\n"
-        )
-        with patch(
-            "gh_link_auditor.pipeline.nodes.n1_scan._check_single_url"
-        ) as mock_check:
+        md.write_text("[a](https://httpstat.us/404)\n[b](https://httpstat.us/410)\n[c](https://httpstat.us/200)\n")
+        with patch("gh_link_auditor.pipeline.nodes.n1_scan._check_single_url") as mock_check:
+
             def side_effect(url):
                 if "200" in url:
                     return {
-                        "url": url, "status": "ok",
-                        "status_code": 200, "method": "HEAD",
+                        "url": url,
+                        "status": "ok",
+                        "status_code": 200,
+                        "method": "HEAD",
                         "response_time_ms": 50,
                     }
                 return {
-                    "url": url, "status": "dead",
+                    "url": url,
+                    "status": "dead",
                     "status_code": int(url.split("/")[-1]),
-                    "method": "HEAD", "response_time_ms": 100,
+                    "method": "HEAD",
+                    "response_time_ms": 100,
                 }
 
             mock_check.side_effect = side_effect

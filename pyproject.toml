@@ -14,6 +14,10 @@ select = ["E", "F", "W", "I"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "src"]
+addopts = "--import-mode=importlib"
+markers = [
+    "integration: marks tests as integration tests (may require external resources)",
+]
 
 [tool.poetry.dependencies]
 pydantic = "^2.12.5"

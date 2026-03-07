@@ -53,9 +53,13 @@ def _http_head(url: str) -> dict:
         Dict with ``status_code`` (int) and ``location`` (str | None).
     """
     try:
-        req = urllib.request.Request(url, method="HEAD", headers={
-            "User-Agent": "gh-link-auditor/1.0",
-        })
+        req = urllib.request.Request(
+            url,
+            method="HEAD",
+            headers={
+                "User-Agent": "gh-link-auditor/1.0",
+            },
+        )
         # Don't follow redirects automatically
         opener = urllib.request.build_opener(urllib.request.HTTPHandler, urllib.request.HTTPSHandler)
 

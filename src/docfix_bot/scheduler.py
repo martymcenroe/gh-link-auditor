@@ -137,8 +137,7 @@ def run_daily_scan(
 
             # Check for already-fixed links
             new_broken = [
-                bl for bl in result["broken_links"]
-                if not state.was_link_already_fixed(target, bl["original_url"])
+                bl for bl in result["broken_links"] if not state.was_link_already_fixed(target, bl["original_url"])
             ]
 
             if not new_broken:
@@ -152,9 +151,7 @@ def run_daily_scan(
             pr_title = generate_pr_title(fixable)
             pr_body = generate_pr_body(fixable)
 
-            submission = execute_fix_workflow(
-                target, fixable, config, pr_title, pr_body
-            )
+            submission = execute_fix_workflow(target, fixable, config, pr_title, pr_body)
 
             if submission["status"] == "submitted":
                 state.record_pr_submission(submission)
@@ -179,9 +176,7 @@ def generate_daily_report(
         "timestamp": now_iso(),
         "repos_scanned": len(scan_results),
         "prs_submitted": len(submissions),
-        "total_broken_links": sum(
-            len(r["broken_links"]) for r in scan_results
-        ),
+        "total_broken_links": sum(len(r["broken_links"]) for r in scan_results),
         "scan_results": scan_results,
         "submissions": submissions,
     }

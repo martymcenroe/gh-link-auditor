@@ -23,27 +23,36 @@ def build_run_parser(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser("run", help="Execute the GHLA pipeline")
     parser.add_argument("target", help="Repository URL or local path")
     parser.add_argument(
-        "--max-links", type=int, default=50,
+        "--max-links",
+        type=int,
+        default=50,
         help="Circuit breaker threshold (default: 50)",
     )
     parser.add_argument(
-        "--max-cost", type=float, default=5.00,
+        "--max-cost",
+        type=float,
+        default=5.00,
         help="Cost limit in USD (default: 5.00)",
     )
     parser.add_argument(
-        "--confidence", type=float, default=0.8,
+        "--confidence",
+        type=float,
+        default=0.8,
         help="Min confidence for auto-approval (default: 0.8)",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Execute N0-N3 only, output verdicts as JSON",
     )
     parser.add_argument(
-        "--verbose", action="store_true",
+        "--verbose",
+        action="store_true",
         help="Detailed logging",
     )
     parser.add_argument(
-        "--db-path", default=None,
+        "--db-path",
+        default=None,
         help="Path to state database",
     )
     parser.set_defaults(func=cmd_run)
@@ -83,8 +92,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if result.get("circuit_breaker_triggered"):
         count = len(result.get("dead_links", []))
         print(
-            f"Circuit breaker triggered: {count} dead links "
-            f"(max: {args.max_links})",
+            f"Circuit breaker triggered: {count} dead links (max: {args.max_links})",
             file=sys.stderr,
         )
         return 2

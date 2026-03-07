@@ -40,9 +40,7 @@ def _score_candidates(
     weights = get_default_weights()
 
     # Convert pipeline types to Slant types
-    slant_candidates = [
-        CandidateEntry(url=c["url"], source=c["source"]) for c in candidates
-    ]
+    slant_candidates = [CandidateEntry(url=c["url"], source=c["source"]) for c in candidates]
     entry = ForensicReportEntry(
         dead_url=dead_link["url"],
         archived_url="",

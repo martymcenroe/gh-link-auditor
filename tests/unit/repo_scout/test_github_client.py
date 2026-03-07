@@ -105,9 +105,7 @@ class TestRequest:
     def test_http_error(self) -> None:
         client = GitHubClient(rate_limit_delay=0.0)
 
-        with patch.object(
-            client._client, "get", side_effect=httpx.ConnectError("fail")
-        ):
+        with patch.object(client._client, "get", side_effect=httpx.ConnectError("fail")):
             result = client.request("/repos/owner/name")
         assert result is None
         client.close()
@@ -201,9 +199,7 @@ class TestGetStarred:
             {"owner": {"login": f"o{i}"}, "name": f"r{i}", "description": None, "stargazers_count": 0}
             for i in range(100)
         ]
-        page2 = [
-            {"owner": {"login": "final"}, "name": "repo", "description": None, "stargazers_count": 0}
-        ]
+        page2 = [{"owner": {"login": "final"}, "name": "repo", "description": None, "stargazers_count": 0}]
 
         with patch.object(client, "request", side_effect=[page1, page2]):
             records = client.get_starred("user1")

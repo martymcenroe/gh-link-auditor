@@ -43,9 +43,7 @@ class TestShouldContinue:
 
 class TestRunDailyScan:
     @patch("docfix_bot.scheduler.load_targets")
-    def test_invalid_targets_returns_empty(
-        self, mock_load: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_invalid_targets_returns_empty(self, mock_load: MagicMock, tmp_path: Path) -> None:
         mock_load.side_effect = ValueError("not found")
         state = StateStore(tmp_path / "state.json")
         config = {"targets_path": str(tmp_path / "targets.yaml")}
@@ -79,8 +77,12 @@ class TestRunDailyScan:
         mock_clone.return_value = tmp_path
 
         link = make_broken_link(
-            "README.md", 5, "https://old.com", 404,
-            suggested_fix="https://new.com", fix_confidence=0.9,
+            "README.md",
+            5,
+            "https://old.com",
+            404,
+            suggested_fix="https://new.com",
+            fix_confidence=0.9,
         )
         mock_scan.return_value = {
             "repository": target,
@@ -255,6 +257,7 @@ class TestRunDailyScan:
         state = StateStore(tmp_path / "state.json")
         # Mark as recently scanned
         from datetime import datetime, timezone
+
         state.record_scan(target, datetime.now(timezone.utc).isoformat())
 
         config = {"targets_path": str(tmp_path / "targets.yaml")}
@@ -287,8 +290,12 @@ class TestRunDailyScan:
         mock_clone.return_value = tmp_path
 
         link = make_broken_link(
-            "README.md", 5, "https://old.com", 404,
-            suggested_fix="https://new.com", fix_confidence=0.9,
+            "README.md",
+            5,
+            "https://old.com",
+            404,
+            suggested_fix="https://new.com",
+            fix_confidence=0.9,
         )
         mock_scan.return_value = {
             "repository": target,
@@ -302,6 +309,7 @@ class TestRunDailyScan:
         state = StateStore(tmp_path / "state.json")
         # Record that this link was already fixed
         from docfix_bot.models import PRSubmission
+
         submission: PRSubmission = {
             "repository": target,
             "branch_name": "fix/test",

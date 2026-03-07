@@ -47,8 +47,12 @@ class TestMakeBrokenLink:
 
     def test_with_fix(self) -> None:
         bl = make_broken_link(
-            "doc.md", 10, "https://old.com", 404,
-            suggested_fix="https://new.com", fix_confidence=0.9,
+            "doc.md",
+            10,
+            "https://old.com",
+            404,
+            suggested_fix="https://new.com",
+            fix_confidence=0.9,
         )
         assert bl["suggested_fix"] == "https://new.com"
         assert bl["fix_confidence"] == 0.9
@@ -68,41 +72,53 @@ class TestNowIso:
 class TestTypedDicts:
     def test_target_repository(self) -> None:
         t: TargetRepository = {
-            "owner": "o", "repo": "r", "priority": 1,
-            "last_scanned": None, "enabled": True,
+            "owner": "o",
+            "repo": "r",
+            "priority": 1,
+            "last_scanned": None,
+            "enabled": True,
         }
         assert t["owner"] == "o"
 
     def test_scan_result(self) -> None:
         t = make_target("o", "r")
         sr: ScanResult = {
-            "repository": t, "scan_time": now_iso(),
-            "broken_links": [], "error": None,
-            "files_scanned": 0, "links_checked": 0,
+            "repository": t,
+            "scan_time": now_iso(),
+            "broken_links": [],
+            "error": None,
+            "files_scanned": 0,
+            "links_checked": 0,
         }
         assert sr["files_scanned"] == 0
 
     def test_pr_submission(self) -> None:
         t = make_target("o", "r")
         pr: PRSubmission = {
-            "repository": t, "branch_name": "fix/test",
-            "pr_number": 1, "pr_url": "https://github.com",
-            "status": "submitted", "broken_links_fixed": [],
+            "repository": t,
+            "branch_name": "fix/test",
+            "pr_number": 1,
+            "pr_url": "https://github.com",
+            "status": "submitted",
+            "broken_links_fixed": [],
             "submitted_at": now_iso(),
         }
         assert pr["status"] == "submitted"
 
     def test_bot_state(self) -> None:
         bs: BotState = {
-            "last_run": now_iso(), "total_prs_submitted": 0,
+            "last_run": now_iso(),
+            "total_prs_submitted": 0,
             "total_links_fixed": 0,
         }
         assert bs["total_prs_submitted"] == 0
 
     def test_url_validation_result(self) -> None:
         vr: URLValidationResult = {
-            "url": "https://example.com", "is_safe": True,
-            "resolved_ip": "93.184.216.34", "rejection_reason": None,
+            "url": "https://example.com",
+            "is_safe": True,
+            "resolved_ip": "93.184.216.34",
+            "rejection_reason": None,
         }
         assert vr["is_safe"] is True
 

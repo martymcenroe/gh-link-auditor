@@ -62,9 +62,7 @@ class TestParseGitHubUrl:
 
     def test_repo_with_file(self):
         resolver = _make_resolver()
-        owner, repo, file_path = resolver._parse_github_url(
-            "https://github.com/owner/repo/blob/main/README.md"
-        )
+        owner, repo, file_path = resolver._parse_github_url("https://github.com/owner/repo/blob/main/README.md")
         assert owner == "owner"
         assert repo == "repo"
         assert file_path == "blob/main/README.md"

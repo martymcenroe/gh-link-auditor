@@ -34,7 +34,10 @@ class TestCheckUrl:
 
     def test_404_returns_error(self):
         result_from_network = _make_result(
-            status="error", status_code=404, method="HEAD", error="HTTP 404",
+            status="error",
+            status_code=404,
+            method="HEAD",
+            error="HTTP 404",
         )
         with patch("check_links.network_check_url", return_value=result_from_network):
             result = check_url("https://example.com")
@@ -43,7 +46,10 @@ class TestCheckUrl:
 
     def test_timeout_returns_timeout_after_retries(self):
         result_from_network = _make_result(
-            status="timeout", status_code=None, method="HEAD", error="Request timed out",
+            status="timeout",
+            status_code=None,
+            method="HEAD",
+            error="Request timed out",
         )
         with patch("check_links.network_check_url", return_value=result_from_network):
             result = check_url("https://example.com", retries=2)
@@ -51,7 +57,10 @@ class TestCheckUrl:
 
     def test_dns_failure_returns_failed(self):
         result_from_network = _make_result(
-            status="failed", status_code=None, method="HEAD", error="DNS resolution failed",
+            status="failed",
+            status_code=None,
+            method="HEAD",
+            error="DNS resolution failed",
         )
         with patch("check_links.network_check_url", return_value=result_from_network):
             result = check_url("https://nonexistent.invalid")

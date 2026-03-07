@@ -77,10 +77,7 @@ class TestGenerateUnifiedDiff:
 
     def test_handles_multiple_occurrences(self, tmp_path: Path) -> None:
         md = tmp_path / "doc.md"
-        md.write_text(
-            "See https://old.example.com/page here.\n"
-            "Also https://old.example.com/page there.\n"
-        )
+        md.write_text("See https://old.example.com/page here.\nAlso https://old.example.com/page there.\n")
         diff = generate_unified_diff(
             str(md),
             "https://old.example.com/page",

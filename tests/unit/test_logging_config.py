@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+from unittest.mock import patch
 
 import pytest
 
@@ -176,3 +177,18 @@ class TestGracefulFallback:
         logger = setup_logging(name="test_fallback", log_dir="/dev/null/impossible", console=True, file=True)
         # Should still have a console handler despite file failure
         assert any(isinstance(h, logging.StreamHandler) for h in logger.handlers)
+
+    def test_fallback_creates_console_handler_when_console_disabled(self):
+        """When file=True, console=False, and log dir creation fails,
+        a fallback StreamHandler is created automatically."""
+        with patch("logging_config.os.makedirs", side_effect=OSError("forced")):
+            logger = setup_logging(
+                name="test_fallback_no_console",
+                log_dir="/tmp/fake_logs",
+                console=False,
+                file=True,
+            )
+        # Should have exactly one fallback StreamHandler despite console=False
+        assert len(logger.handlers) == 1
+        assert isinstance(logger.handlers[0], logging.StreamHandler)
+        assert not isinstance(logger.handlers[0], RotatingFileHandler)

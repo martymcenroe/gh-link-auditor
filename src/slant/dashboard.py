@@ -128,11 +128,11 @@ body {{ font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #
   <p><strong>Candidate:</strong> <span class="url">{candidate_link}</span></p>
   <p><strong>Confidence:</strong> <span class="score">{confidence}</span> ({tier})</p>
   <div class="breakdown">
-    <span>Redirect: {breakdown['redirect']:.1f}</span>
-    <span>Title: {breakdown['title_match']:.1f}</span>
-    <span>Content: {breakdown['content_similarity']:.1f}</span>
-    <span>URL Path: {breakdown['url_similarity']:.1f}</span>
-    <span>Domain: {breakdown['domain_match']:.1f}</span>
+    <span>Redirect: {breakdown["redirect"]:.1f}</span>
+    <span>Title: {breakdown["title_match"]:.1f}</span>
+    <span>Content: {breakdown["content_similarity"]:.1f}</span>
+    <span>URL Path: {breakdown["url_similarity"]:.1f}</span>
+    <span>Domain: {breakdown["domain_match"]:.1f}</span>
   </div>
 </div>
 <div class="iframes">
@@ -188,10 +188,7 @@ def render_summary_html(verdicts_file: VerdictsFile) -> str:
         d = v.get("human_decision") or "pending"
         counts[d] = counts.get(d, 0) + 1
 
-    counts_html = "".join(
-        f"<li><strong>{html.escape(k)}:</strong> {v}</li>"
-        for k, v in sorted(counts.items())
-    )
+    counts_html = "".join(f"<li><strong>{html.escape(k)}:</strong> {v}</li>" for k, v in sorted(counts.items()))
 
     rows_html = ""
     for v in verdicts_file["verdicts"]:

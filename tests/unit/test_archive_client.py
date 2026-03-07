@@ -14,10 +14,7 @@ from gh_link_auditor.archive_client import ArchiveClient, _cdx_request, _fetch_u
 # Helpers
 # ---------------------------------------------------------------------------
 
-SAMPLE_CDX_LINE = (
-    "org,example)/docs/install 20240315120000 https://example.org/docs/install "
-    "text/html 200 ABC123 1234"
-)
+SAMPLE_CDX_LINE = "org,example)/docs/install 20240315120000 https://example.org/docs/install text/html 200 ABC123 1234"
 
 SAMPLE_HTML = """<!DOCTYPE html>
 <html>

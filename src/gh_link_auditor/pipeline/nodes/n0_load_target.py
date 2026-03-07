@@ -16,9 +16,7 @@ from gh_link_auditor.pipeline.state import PipelineState
 
 _DOC_EXTENSIONS = {".md", ".rst", ".txt", ".adoc"}
 
-_URL_PATTERN = re.compile(
-    r"^https?://(github\.com|gitlab\.com|bitbucket\.org)/[^/]+/[^/]+"
-)
+_URL_PATTERN = re.compile(r"^https?://(github\.com|gitlab\.com|bitbucket\.org)/[^/]+/[^/]+")
 
 
 def validate_target(target: str) -> tuple[str, Literal["url", "local"]]:

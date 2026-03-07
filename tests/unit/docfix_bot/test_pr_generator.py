@@ -54,7 +54,10 @@ class TestGeneratePrBody:
     def test_shows_suggested_fix(self) -> None:
         links = [
             make_broken_link(
-                "README.md", 5, "https://old.com", 404,
+                "README.md",
+                5,
+                "https://old.com",
+                404,
                 suggested_fix="https://new.com",
             ),
         ]

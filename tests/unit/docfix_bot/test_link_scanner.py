@@ -85,7 +85,9 @@ class TestCheckLink:
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     def test_ssrf_blocked(self, mock_validate: MagicMock) -> None:
         mock_validate.return_value = {
-            "is_safe": False, "url": "", "resolved_ip": "127.0.0.1",
+            "is_safe": False,
+            "url": "",
+            "resolved_ip": "127.0.0.1",
             "rejection_reason": "Private IP",
         }
         config = get_default_config()
@@ -96,9 +98,7 @@ class TestCheckLink:
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     @patch("docfix_bot.link_scanner.httpx.head")
     @patch("docfix_bot.link_scanner.httpx.get")
-    def test_antibot_retry(
-        self, mock_get: MagicMock, mock_head: MagicMock, mock_validate: MagicMock
-    ) -> None:
+    def test_antibot_retry(self, mock_get: MagicMock, mock_head: MagicMock, mock_validate: MagicMock) -> None:
         mock_validate.return_value = {"is_safe": True, "url": "", "resolved_ip": None, "rejection_reason": None}
         mock_head.return_value = MagicMock(status_code=403)
         mock_get.return_value = MagicMock(status_code=200)
@@ -181,9 +181,7 @@ class TestSuggestFix:
 class TestScanRepository:
     @patch("docfix_bot.link_scanner.check_link")
     @patch("docfix_bot.link_scanner.suggest_fix")
-    def test_finds_broken_links(
-        self, mock_suggest: MagicMock, mock_check: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_finds_broken_links(self, mock_suggest: MagicMock, mock_check: MagicMock, tmp_path: Path) -> None:
         # Create a markdown file with a link
         md_file = tmp_path / "README.md"
         md_file.write_text("[Test](https://example.com/broken)\n")

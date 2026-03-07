@@ -248,8 +248,12 @@ class TestTypedDicts:
 
     def test_verdict_fields(self) -> None:
         dl = DeadLink(
-            url="u", source_file="f", line_number=1,
-            link_text="t", http_status=404, error_type="http_error",
+            url="u",
+            source_file="f",
+            line_number=1,
+            link_text="t",
+            http_status=404,
+            error_type="http_error",
         )
         v = Verdict(
             dead_link=dl,

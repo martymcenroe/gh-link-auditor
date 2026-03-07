@@ -66,7 +66,10 @@ class TestCheckLinksWithFallback:
     # T040 — HEAD 404 → no fallback, error returned
     def test_head_404_no_fallback(self):
         result_from_network = _make_result(
-            status="error", status_code=404, method="HEAD", error="HTTP 404",
+            status="error",
+            status_code=404,
+            method="HEAD",
+            error="HTTP 404",
         )
         with patch("check_links.network_check_url", return_value=result_from_network):
             result = check_link_with_fallback("https://example.com")
@@ -79,7 +82,10 @@ class TestCheckLinksWithFallback:
     # T050 — GET fallback returns actual GET status code
     def test_get_fallback_returns_get_status_code(self):
         result_from_network = _make_result(
-            status="error", status_code=503, method="GET", error="HTTP 503",
+            status="error",
+            status_code=503,
+            method="GET",
+            error="HTTP 503",
         )
         with patch("check_links.network_check_url", return_value=result_from_network):
             result = check_link_with_fallback("https://example.com")

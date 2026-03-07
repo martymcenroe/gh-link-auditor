@@ -57,8 +57,7 @@ class StateStore:
             True if a fix was already submitted.
         """
         results = self._submissions.search(
-            (where("repository")["owner"] == target["owner"])
-            & (where("repository")["repo"] == target["repo"])
+            (where("repository")["owner"] == target["owner"]) & (where("repository")["repo"] == target["repo"])
         )
 
         for result in results:
@@ -75,9 +74,7 @@ class StateStore:
             Number of PRs submitted today.
         """
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        results = self._submissions.search(
-            where("submitted_at").test(lambda v: v.startswith(today))
-        )
+        results = self._submissions.search(where("submitted_at").test(lambda v: v.startswith(today)))
         return len(results)
 
     def get_hourly_api_count(self) -> int:
@@ -88,16 +85,16 @@ class StateStore:
         """
         now = datetime.now(timezone.utc)
         hour_prefix = now.strftime("%Y-%m-%dT%H")
-        results = self._api_calls.search(
-            where("timestamp").test(lambda v: v.startswith(hour_prefix))
-        )
+        results = self._api_calls.search(where("timestamp").test(lambda v: v.startswith(hour_prefix)))
         return len(results)
 
     def increment_api_count(self) -> None:
         """Record an API call for rate limiting."""
-        self._api_calls.insert({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        self._api_calls.insert(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     def record_scan(
         self,
@@ -110,11 +107,13 @@ class StateStore:
             target: Repository that was scanned.
             scan_time: ISO 8601 timestamp.
         """
-        self._scans.insert({
-            "owner": target["owner"],
-            "repo": target["repo"],
-            "scan_time": scan_time,
-        })
+        self._scans.insert(
+            {
+                "owner": target["owner"],
+                "repo": target["repo"],
+                "scan_time": scan_time,
+            }
+        )
 
     def was_recently_scanned(
         self,
@@ -130,10 +129,7 @@ class StateStore:
         Returns:
             True if scanned recently.
         """
-        results = self._scans.search(
-            (where("owner") == target["owner"])
-            & (where("repo") == target["repo"])
-        )
+        results = self._scans.search((where("owner") == target["owner"]) & (where("repo") == target["repo"]))
 
         if not results:
             return False

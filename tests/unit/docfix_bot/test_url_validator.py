@@ -87,6 +87,7 @@ class TestValidateIpSafety:
     @patch("docfix_bot.url_validator.socket.getaddrinfo")
     def test_dns_failure(self, mock_dns: object) -> None:
         import socket
+
         mock_dns.side_effect = socket.gaierror("Name resolution failed")  # type: ignore[attr-defined]
         result = validate_ip_safety("https://nonexistent.invalid")
         assert result["is_safe"] is False

@@ -100,16 +100,12 @@ def check_link(
     for attempt in range(max_retries):
         try:
             # Try HEAD first (faster)
-            response = httpx.head(
-                url, headers=headers, timeout=timeout, follow_redirects=True
-            )
+            response = httpx.head(url, headers=headers, timeout=timeout, follow_redirects=True)
 
             # Anti-bot: retry with GET + browser headers on 403/405
             if response.status_code in (403, 405) and attempt < max_retries - 1:
                 headers.update(_BROWSER_HEADERS)
-                response = httpx.get(
-                    url, headers=headers, timeout=timeout, follow_redirects=True
-                )
+                response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
 
             return (response.status_code, None)
 

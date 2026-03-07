@@ -61,12 +61,14 @@ class PolicyCheckResult(TypedDict):
 
 
 # Keywords that cause a repository to be blocked.
-_BLOCKING_KEYWORDS = frozenset({
-    PolicyKeyword.NO_BOT,
-    PolicyKeyword.NO_PR,
-    PolicyKeyword.SKIP_DOC_PRS,
-    PolicyKeyword.CONTACT_FIRST,
-})
+_BLOCKING_KEYWORDS = frozenset(
+    {
+        PolicyKeyword.NO_BOT,
+        PolicyKeyword.NO_PR,
+        PolicyKeyword.SKIP_DOC_PRS,
+        PolicyKeyword.CONTACT_FIRST,
+    }
+)
 
 # Locations to check for CONTRIBUTING.md (in priority order).
 _CONTRIBUTING_PATHS = [
@@ -88,9 +90,13 @@ def _fetch_raw_url(url: str) -> str | None:
     a non-2xx status or a network error occurs.
     """
     try:
-        req = urllib.request.Request(url, method="GET", headers={
-            "User-Agent": "gh-link-auditor/0.1 policy-checker",
-        })
+        req = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "User-Agent": "gh-link-auditor/0.1 policy-checker",
+            },
+        )
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
             if 200 <= resp.status < 400:
                 return resp.read().decode("utf-8", errors="replace")
@@ -235,7 +241,9 @@ def log_policy_result(result: PolicyCheckResult, db: StateDatabase) -> None:
         reason = result["block_reason"] or "policy-blacklisted"
         db.add_to_blacklist(repo_url=result["repo_url"], reason=reason)
         logger.info(
-            "Blacklisted %s: %s", result["repo_url"], reason,
+            "Blacklisted %s: %s",
+            result["repo_url"],
+            reason,
         )
     else:
         logger.info(

@@ -1,0 +1,57 @@
+[
+  {
+    "owner": "octocat",
+    "name": "hello-world",
+    "full_name": "octocat/hello-world",
+    "url": "https://github.com/octocat/hello-world",
+    "description": "My first repository",
+    "stars": 1500,
+    "sources": ["awesome_list"],
+    "discovered_at": "2026-01-15T10:00:00+00:00",
+    "metadata": {}
+  },
+  {
+    "owner": "torvalds",
+    "name": "linux",
+    "full_name": "torvalds/linux",
+    "url": "https://github.com/torvalds/linux",
+    "description": "Linux kernel source tree",
+    "stars": 180000,
+    "sources": ["starred_repo"],
+    "discovered_at": "2026-01-15T10:00:00+00:00",
+    "metadata": {}
+  },
+  {
+    "owner": "rust-lang",
+    "name": "rust",
+    "full_name": "rust-lang/rust",
+    "url": "https://github.com/rust-lang/rust",
+    "description": "The Rust programming language",
+    "stars": 95000,
+    "sources": ["awesome_list"],
+    "discovered_at": "2026-01-15T10:00:00+00:00",
+    "metadata": {}
+  },
+  {
+    "owner": "python",
+    "name": "cpython",
+    "full_name": "python/cpython",
+    "url": "https://github.com/python/cpython",
+    "description": "The Python programming language",
+    "stars": 60000,
+    "sources": ["starred_repo"],
+    "discovered_at": "2026-01-15T10:00:00+00:00",
+    "metadata": {}
+  },
+  {
+    "owner": "microsoft",
+    "name": "vscode",
+    "full_name": "microsoft/vscode",
+    "url": "https://github.com/microsoft/vscode",
+    "description": "Visual Studio Code",
+    "stars": 160000,
+    "sources": ["awesome_list", "starred_repo"],
+    "discovered_at": "2026-01-15T10:00:00+00:00",
+    "metadata": {}
+  }
+]

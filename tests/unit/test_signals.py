@@ -28,6 +28,7 @@ class TestCheckRedirect:
 
     def test_301_redirect_to_candidate_scores_one(self):
         """T030: 301 redirect to candidate URL scores 1.0."""
+
         def _mock_get(url, *, timeout=10):
             if url == "https://old.example.com/page":
                 return {"status_code": 301, "location": "https://new.example.com/page"}
@@ -41,6 +42,7 @@ class TestCheckRedirect:
 
     def test_302_redirect_to_candidate_scores_one(self):
         """302 redirect to candidate scores 1.0."""
+
         def _mock_get(url, *, timeout=10):
             if url == "https://old.example.com/page":
                 return {"status_code": 302, "location": "https://new.example.com/page"}
@@ -52,6 +54,7 @@ class TestCheckRedirect:
 
     def test_redirect_to_different_url_scores_zero(self):
         """Redirect to a URL that is NOT the candidate scores 0.0."""
+
         def _mock_get(url, *, timeout=10):
             if url == "https://old.example.com/page":
                 return {"status_code": 301, "location": "https://other.example.com/page"}
@@ -63,6 +66,7 @@ class TestCheckRedirect:
 
     def test_no_redirect_scores_zero(self):
         """Dead URL returns 200 (no redirect) scores 0.0."""
+
         def _mock_get(url, *, timeout=10):
             return {"status_code": 200, "location": None}
 
@@ -72,6 +76,7 @@ class TestCheckRedirect:
 
     def test_404_scores_zero(self):
         """Dead URL returns 404 scores 0.0."""
+
         def _mock_get(url, *, timeout=10):
             return {"status_code": 404, "location": None}
 
@@ -81,6 +86,7 @@ class TestCheckRedirect:
 
     def test_timeout_scores_zero(self):
         """T210: Redirect timeout scores 0.0."""
+
         def _mock_get(url, *, timeout=10):
             return {"status_code": None, "location": None}
 
@@ -90,6 +96,7 @@ class TestCheckRedirect:
 
     def test_connection_error_scores_zero(self):
         """Connection error scores 0.0."""
+
         def _mock_get(url, *, timeout=10):
             raise OSError("Connection refused")
 
@@ -99,6 +106,7 @@ class TestCheckRedirect:
 
     def test_multi_hop_redirect_to_candidate(self):
         """Multi-hop redirect chain ending at candidate scores 1.0."""
+
         def _mock_get(url, *, timeout=10):
             if url == "https://old.example.com/page":
                 return {"status_code": 301, "location": "https://mid.example.com/page"}
@@ -125,6 +133,7 @@ class TestCheckRedirect:
 
     def test_redirect_url_normalization(self):
         """Redirect with trailing slash differences still matches."""
+
         def _mock_get(url, *, timeout=10):
             if url == "https://example.com/page":
                 return {"status_code": 301, "location": "https://example.com/new-page/"}
@@ -136,6 +145,7 @@ class TestCheckRedirect:
 
     def test_score_range_zero_to_one(self):
         """Score is always in [0.0, 1.0] range."""
+
         def _mock_get(url, *, timeout=10):
             return {"status_code": 200, "location": None}
 
@@ -154,6 +164,7 @@ class TestMatchTitle:
 
     def test_identical_title_scores_near_one(self):
         """T040: Identical title from candidate page scores ~1.0."""
+
         def _mock_fetch(url, *, timeout=10):
             return "<html><head><title>Installation Guide</title></head><body></body></html>"
 
@@ -163,6 +174,7 @@ class TestMatchTitle:
 
     def test_completely_different_title_scores_low(self):
         """Completely different title scores low."""
+
         def _mock_fetch(url, *, timeout=10):
             return "<html><head><title>XYZ Quantum Baking 2000</title></head><body></body></html>"
 
@@ -172,6 +184,7 @@ class TestMatchTitle:
 
     def test_partial_title_match_scores_medium(self):
         """Partial title overlap scores between 0.3 and 0.9."""
+
         def _mock_fetch(url, *, timeout=10):
             return "<html><head><title>Installation Guide - Updated</title></head><body></body></html>"
 
@@ -181,6 +194,7 @@ class TestMatchTitle:
 
     def test_fetch_error_scores_zero(self):
         """Network error fetching candidate title scores 0.0."""
+
         def _mock_fetch(url, *, timeout=10):
             return None
 
@@ -190,6 +204,7 @@ class TestMatchTitle:
 
     def test_no_title_tag_scores_zero(self):
         """Page with no title tag scores 0.0."""
+
         def _mock_fetch(url, *, timeout=10):
             return "<html><body><h1>No title here</h1></body></html>"
 
@@ -199,6 +214,7 @@ class TestMatchTitle:
 
     def test_empty_archived_title_scores_zero(self):
         """Empty archived title scores 0.0."""
+
         def _mock_fetch(url, *, timeout=10):
             return "<html><head><title>Some Title</title></head></html>"
 
@@ -208,6 +224,7 @@ class TestMatchTitle:
 
     def test_case_insensitive_matching(self):
         """Title matching is case insensitive."""
+
         def _mock_fetch(url, *, timeout=10):
             return "<html><head><title>INSTALLATION GUIDE</title></head></html>"
 
@@ -278,6 +295,7 @@ class TestCompareContent:
 
     def test_fetch_error_scores_zero(self):
         """T220: Content fetch error scores 0.0."""
+
         def _mock_fetch(url, *, timeout=10):
             return None
 
@@ -287,6 +305,7 @@ class TestCompareContent:
 
     def test_exception_scores_zero(self):
         """Exception during fetch scores 0.0."""
+
         def _mock_fetch(url, *, timeout=10):
             raise OSError("Connection refused")
 
@@ -296,6 +315,7 @@ class TestCompareContent:
 
     def test_empty_archived_content_scores_zero(self):
         """Empty archived content scores 0.0."""
+
         def _mock_fetch(url, *, timeout=10):
             return "<html><body>Some page content</body></html>"
 
@@ -492,8 +512,11 @@ class TestHttpGetHelper:
 
         def _raise_http_error(*args, **kwargs):
             raise urllib.error.HTTPError(
-                "https://example.com", 404, "Not Found",
-                {"Location": None}, None,
+                "https://example.com",
+                404,
+                "Not Found",
+                {"Location": None},
+                None,
             )
 
         class MockOpener:

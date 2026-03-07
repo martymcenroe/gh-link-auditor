@@ -177,9 +177,7 @@ def create_pull_request(
         if response.status_code == 201:
             data = response.json()
             return (data.get("number"), data.get("html_url"))
-        logger.warning(
-            "PR creation failed: %d %s", response.status_code, response.text[:200]
-        )
+        logger.warning("PR creation failed: %d %s", response.status_code, response.text[:200])
         return (None, None)
     except httpx.HTTPError:
         logger.exception("Failed to create PR")
@@ -256,16 +254,11 @@ def execute_fix_workflow(
         # Step 6: Push
         token = config.get("github_token", "")
         if token:
-            push_url = (
-                f"https://x-access-token:{token}@github.com"
-                f"/{target['owner']}/{target['repo']}.git"
-            )
+            push_url = f"https://x-access-token:{token}@github.com/{target['owner']}/{target['repo']}.git"
             repo.git.push(push_url, branch)
 
         # Step 7: Create PR
-        pr_number, pr_url = create_pull_request(
-            target, branch, pr_title, pr_body, config
-        )
+        pr_number, pr_url = create_pull_request(target, branch, pr_title, pr_body, config)
 
     # Temp dir auto-cleaned at this point
 

@@ -189,12 +189,14 @@ class LinkDetective:
         try:
             mutations = self._redirect_resolver.test_url_mutations(dead_url)
             for live_url, mutation_type in mutations:
-                candidates.append(CandidateReplacement(
-                    url=live_url,
-                    method=InvestigationMethod.URL_MUTATION,
-                    similarity_score=0.90,
-                    verified_live=True,
-                ))
+                candidates.append(
+                    CandidateReplacement(
+                        url=live_url,
+                        method=InvestigationMethod.URL_MUTATION,
+                        similarity_score=0.90,
+                        verified_live=True,
+                    )
+                )
                 log.append(f"URL mutation found: {mutation_type} -> {live_url}")
         except Exception as e:
             log.append(f"URL mutation check failed: {e}")
@@ -203,9 +205,7 @@ class LinkDetective:
         try:
             snapshot = self._archive_client.get_latest_snapshot(dead_url)
             if snapshot:
-                snapshot_url = (
-                    f"https://web.archive.org/web/{snapshot['timestamp']}/{snapshot['url']}"
-                )
+                snapshot_url = f"https://web.archive.org/web/{snapshot['timestamp']}/{snapshot['url']}"
                 archive_snapshot = snapshot_url
                 html = self._archive_client.fetch_snapshot_content(snapshot_url)
                 if html:
@@ -222,9 +222,7 @@ class LinkDetective:
             try:
                 domain = parsed.hostname or ""
                 original_path = parsed.path
-                candidate_urls = self._url_heuristic.generate_candidates(
-                    domain, archive_title, original_path
-                )
+                candidate_urls = self._url_heuristic.generate_candidates(domain, archive_title, original_path)
                 live_urls = self._url_heuristic.probe_candidates(candidate_urls, max_results=3)
 
                 for url in live_urls:
@@ -238,12 +236,14 @@ class LinkDetective:
                         score = 0.3
 
                     if score >= 0.5:
-                        candidates.append(CandidateReplacement(
-                            url=url,
-                            method=InvestigationMethod.URL_HEURISTIC,
-                            similarity_score=score,
-                            verified_live=True,
-                        ))
+                        candidates.append(
+                            CandidateReplacement(
+                                url=url,
+                                method=InvestigationMethod.URL_HEURISTIC,
+                                similarity_score=score,
+                                verified_live=True,
+                            )
+                        )
                         log.append(f"Heuristic candidate: {url} (score={score:.2f})")
             except Exception as e:
                 log.append(f"URL heuristic check failed: {e}")
@@ -256,24 +256,28 @@ class LinkDetective:
                 if new_repo_url:
                     new_file_url = self._github_resolver.reconstruct_file_url(dead_url, new_repo_url)
                     if self._redirect_resolver.verify_live(new_file_url):
-                        candidates.append(CandidateReplacement(
-                            url=new_file_url,
-                            method=InvestigationMethod.GITHUB_API_REDIRECT,
-                            similarity_score=1.0,
-                            verified_live=True,
-                        ))
+                        candidates.append(
+                            CandidateReplacement(
+                                url=new_file_url,
+                                method=InvestigationMethod.GITHUB_API_REDIRECT,
+                                similarity_score=1.0,
+                                verified_live=True,
+                            )
+                        )
                         log.append(f"GitHub redirect: {dead_url} -> {new_file_url}")
             except Exception as e:
                 log.append(f"GitHub resolution failed: {e}")
 
         # 9. Archive-only fallback
         if archive_snapshot and not any(c.verified_live for c in candidates):
-            candidates.append(CandidateReplacement(
-                url=archive_snapshot,
-                method=InvestigationMethod.ARCHIVE_ONLY,
-                similarity_score=0.0,
-                verified_live=False,
-            ))
+            candidates.append(
+                CandidateReplacement(
+                    url=archive_snapshot,
+                    method=InvestigationMethod.ARCHIVE_ONLY,
+                    similarity_score=0.0,
+                    verified_live=False,
+                )
+            )
             log.append(f"Archive-only fallback: {archive_snapshot}")
 
         # 10. Sort candidates by similarity_score descending

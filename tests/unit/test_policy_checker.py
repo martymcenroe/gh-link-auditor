@@ -184,9 +184,7 @@ class TestDetermineBlockStatus:
 
     # T130: Mixed keywords — blocking wins (REQ-3)
     def test_determine_blocked_mixed(self):
-        is_blocked, reason = determine_block_status(
-            [PolicyKeyword.TYPOS_WELCOME, PolicyKeyword.NO_BOT]
-        )
+        is_blocked, reason = determine_block_status([PolicyKeyword.TYPOS_WELCOME, PolicyKeyword.NO_BOT])
         assert is_blocked is True
 
 
@@ -257,3 +255,125 @@ class TestCheckRepositoryPolicy:
         assert result["is_blocked"] is False
         assert result["status"] == PolicyStatus.UNKNOWN
         assert result["contributing_found"] is False
+
+
+# ---------------------------------------------------------------------------
+# _fetch_raw_url coverage (internal helper)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchRawUrl:
+    def test_successful_fetch(self):
+        """_fetch_raw_url returns decoded content on 200 response."""
+        from gh_link_auditor.policy_checker import _fetch_raw_url
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b"# Contributing\nWelcome!"
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("gh_link_auditor.policy_checker.urllib.request.urlopen", return_value=mock_resp):
+            result = _fetch_raw_url("https://example.com/CONTRIBUTING.md")
+
+        assert result == "# Contributing\nWelcome!"
+
+    def test_returns_none_on_http_error(self):
+        """_fetch_raw_url returns None when urlopen raises HTTPError."""
+        import urllib.error
+
+        from gh_link_auditor.policy_checker import _fetch_raw_url
+
+        with patch(
+            "gh_link_auditor.policy_checker.urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                url="https://example.com", code=404, msg="Not Found", hdrs=None, fp=None
+            ),
+        ):
+            result = _fetch_raw_url("https://example.com/missing.md")
+
+        assert result is None
+
+    def test_returns_none_on_url_error(self):
+        """_fetch_raw_url returns None when urlopen raises URLError."""
+        import urllib.error
+
+        from gh_link_auditor.policy_checker import _fetch_raw_url
+
+        with patch(
+            "gh_link_auditor.policy_checker.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("DNS failure"),
+        ):
+            result = _fetch_raw_url("https://unreachable.example.com")
+
+        assert result is None
+
+    def test_returns_none_on_non_2xx_status(self):
+        """_fetch_raw_url returns None when response status >= 400."""
+        from gh_link_auditor.policy_checker import _fetch_raw_url
+
+        mock_resp = MagicMock()
+        mock_resp.status = 500
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("gh_link_auditor.policy_checker.urllib.request.urlopen", return_value=mock_resp):
+            result = _fetch_raw_url("https://example.com/error")
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# fetch_contributing_content — invalid URL format
+# ---------------------------------------------------------------------------
+
+
+class TestFetchContributingEdgeCases:
+    def test_invalid_repo_url_returns_none(self):
+        """fetch_contributing_content returns None for malformed repo URLs."""
+        result = fetch_contributing_content("https://github.com/onlyone")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# log_policy_result — additional branches
+# ---------------------------------------------------------------------------
+
+
+class TestLogPolicyResultEdgeCases:
+    def test_log_blocked_with_none_reason_uses_default(self):
+        """When block_reason is None, fallback to 'policy-blacklisted'."""
+        from gh_link_auditor.policy_checker import log_policy_result
+
+        mock_db = MagicMock()
+        result = PolicyCheckResult(
+            repo_url="https://github.com/org/repo",
+            contributing_found=True,
+            contributing_path="CONTRIBUTING.md",
+            keywords_found=[PolicyKeyword.NO_BOT],
+            is_blocked=True,
+            block_reason=None,
+            status=PolicyStatus.BLOCKED,
+        )
+        log_policy_result(result, mock_db)
+        mock_db.add_to_blacklist.assert_called_once_with(
+            repo_url="https://github.com/org/repo",
+            reason="policy-blacklisted",
+        )
+
+    def test_log_allowed_result_does_not_blacklist(self):
+        """Non-blocked result is not added to blacklist."""
+        from gh_link_auditor.policy_checker import log_policy_result
+
+        mock_db = MagicMock()
+        result = PolicyCheckResult(
+            repo_url="https://github.com/org/repo",
+            contributing_found=True,
+            contributing_path="CONTRIBUTING.md",
+            keywords_found=[PolicyKeyword.TYPOS_WELCOME],
+            is_blocked=False,
+            block_reason=None,
+            status=PolicyStatus.ALLOWED,
+        )
+        log_policy_result(result, mock_db)
+        mock_db.add_to_blacklist.assert_not_called()
