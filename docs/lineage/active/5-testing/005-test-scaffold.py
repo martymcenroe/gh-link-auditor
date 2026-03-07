@@ -30,6 +30,7 @@ def test_client():
 # Unit Tests
 # -----------
 
+
 def test_id():
     """
     Test Description | Expected Behavior | Status
@@ -42,7 +43,7 @@ def test_id():
 
     # TDD: Assert
     # Verify test_id works correctly
-    assert False, 'TDD RED: test_id not implemented'
+    assert False, "TDD RED: test_id not implemented"
 
 
 def test_t010(mock_external_service):
@@ -57,7 +58,7 @@ def test_t010(mock_external_service):
 
     # TDD: Assert
     # Verify test_t010 works correctly
-    assert False, 'TDD RED: test_t010 not implemented'
+    assert False, "TDD RED: test_t010 not implemented"
 
 
 def test_t020():
@@ -72,7 +73,7 @@ def test_t020():
 
     # TDD: Assert
     # Verify test_t020 works correctly
-    assert False, 'TDD RED: test_t020 not implemented'
+    assert False, "TDD RED: test_t020 not implemented"
 
 
 def test_t030():
@@ -87,7 +88,7 @@ def test_t030():
 
     # TDD: Assert
     # Verify test_t030 works correctly
-    assert False, 'TDD RED: test_t030 not implemented'
+    assert False, "TDD RED: test_t030 not implemented"
 
 
 def test_t040():
@@ -102,7 +103,7 @@ def test_t040():
 
     # TDD: Assert
     # Verify test_t040 works correctly
-    assert False, 'TDD RED: test_t040 not implemented'
+    assert False, "TDD RED: test_t040 not implemented"
 
 
 def test_t050():
@@ -117,7 +118,7 @@ def test_t050():
 
     # TDD: Assert
     # Verify test_t050 works correctly
-    assert False, 'TDD RED: test_t050 not implemented'
+    assert False, "TDD RED: test_t050 not implemented"
 
 
 def test_t060():
@@ -132,7 +133,7 @@ def test_t060():
 
     # TDD: Assert
     # Verify test_t060 works correctly
-    assert False, 'TDD RED: test_t060 not implemented'
+    assert False, "TDD RED: test_t060 not implemented"
 
 
 def test_t070():
@@ -147,7 +148,7 @@ def test_t070():
 
     # TDD: Assert
     # Verify test_t070 works correctly
-    assert False, 'TDD RED: test_t070 not implemented'
+    assert False, "TDD RED: test_t070 not implemented"
 
 
 def test_t080():
@@ -162,7 +163,7 @@ def test_t080():
 
     # TDD: Assert
     # Verify test_t080 works correctly
-    assert False, 'TDD RED: test_t080 not implemented'
+    assert False, "TDD RED: test_t080 not implemented"
 
 
 def test_t090():
@@ -177,7 +178,7 @@ def test_t090():
 
     # TDD: Assert
     # Verify test_t090 works correctly
-    assert False, 'TDD RED: test_t090 not implemented'
+    assert False, "TDD RED: test_t090 not implemented"
 
 
 def test_t100():
@@ -192,7 +193,7 @@ def test_t100():
 
     # TDD: Assert
     # Verify test_t100 works correctly
-    assert False, 'TDD RED: test_t100 not implemented'
+    assert False, "TDD RED: test_t100 not implemented"
 
 
 def test_t110():
@@ -207,7 +208,7 @@ def test_t110():
 
     # TDD: Assert
     # Verify test_t110 works correctly
-    assert False, 'TDD RED: test_t110 not implemented'
+    assert False, "TDD RED: test_t110 not implemented"
 
 
 def test_t120():
@@ -222,7 +223,7 @@ def test_t120():
 
     # TDD: Assert
     # Verify test_t120 works correctly
-    assert False, 'TDD RED: test_t120 not implemented'
+    assert False, "TDD RED: test_t120 not implemented"
 
 
 def test_t130():
@@ -237,7 +238,7 @@ def test_t130():
 
     # TDD: Assert
     # Verify test_t130 works correctly
-    assert False, 'TDD RED: test_t130 not implemented'
+    assert False, "TDD RED: test_t130 not implemented"
 
 
 def test_t140(mock_external_service):
@@ -252,7 +253,7 @@ def test_t140(mock_external_service):
 
     # TDD: Assert
     # Verify test_t140 works correctly
-    assert False, 'TDD RED: test_t140 not implemented'
+    assert False, "TDD RED: test_t140 not implemented"
 
 
 def test_010(mock_external_service):
@@ -268,7 +269,7 @@ def test_010(mock_external_service):
 
     # TDD: Assert
     # Verify test_010 works correctly
-    assert False, 'TDD RED: test_010 not implemented'
+    assert False, "TDD RED: test_010 not implemented"
 
 
 def test_020():
@@ -284,7 +285,7 @@ def test_020():
 
     # TDD: Assert
     # Verify test_020 works correctly
-    assert False, 'TDD RED: test_020 not implemented'
+    assert False, "TDD RED: test_020 not implemented"
 
 
 def test_030():
@@ -300,7 +301,7 @@ def test_030():
 
     # TDD: Assert
     # Verify test_030 works correctly
-    assert False, 'TDD RED: test_030 not implemented'
+    assert False, "TDD RED: test_030 not implemented"
 
 
 def test_040():
@@ -316,7 +317,7 @@ def test_040():
 
     # TDD: Assert
     # Verify test_040 works correctly
-    assert False, 'TDD RED: test_040 not implemented'
+    assert False, "TDD RED: test_040 not implemented"
 
 
 def test_050():
@@ -332,7 +333,7 @@ def test_050():
 
     # TDD: Assert
     # Verify test_050 works correctly
-    assert False, 'TDD RED: test_050 not implemented'
+    assert False, "TDD RED: test_050 not implemented"
 
 
 def test_060():
@@ -348,7 +349,7 @@ def test_060():
 
     # TDD: Assert
     # Verify test_060 works correctly
-    assert False, 'TDD RED: test_060 not implemented'
+    assert False, "TDD RED: test_060 not implemented"
 
 
 def test_070():
@@ -364,7 +365,7 @@ def test_070():
 
     # TDD: Assert
     # Verify test_070 works correctly
-    assert False, 'TDD RED: test_070 not implemented'
+    assert False, "TDD RED: test_070 not implemented"
 
 
 def test_080():
@@ -380,7 +381,7 @@ def test_080():
 
     # TDD: Assert
     # Verify test_080 works correctly
-    assert False, 'TDD RED: test_080 not implemented'
+    assert False, "TDD RED: test_080 not implemented"
 
 
 def test_090():
@@ -396,7 +397,7 @@ def test_090():
 
     # TDD: Assert
     # Verify test_090 works correctly
-    assert False, 'TDD RED: test_090 not implemented'
+    assert False, "TDD RED: test_090 not implemented"
 
 
 def test_100():
@@ -412,7 +413,7 @@ def test_100():
 
     # TDD: Assert
     # Verify test_100 works correctly
-    assert False, 'TDD RED: test_100 not implemented'
+    assert False, "TDD RED: test_100 not implemented"
 
 
 def test_110():
@@ -428,7 +429,7 @@ def test_110():
 
     # TDD: Assert
     # Verify test_110 works correctly
-    assert False, 'TDD RED: test_110 not implemented'
+    assert False, "TDD RED: test_110 not implemented"
 
 
 def test_120():
@@ -444,7 +445,7 @@ def test_120():
 
     # TDD: Assert
     # Verify test_120 works correctly
-    assert False, 'TDD RED: test_120 not implemented'
+    assert False, "TDD RED: test_120 not implemented"
 
 
 def test_140():
@@ -460,12 +461,12 @@ def test_140():
 
     # TDD: Assert
     # Verify test_140 works correctly
-    assert False, 'TDD RED: test_140 not implemented'
-
+    assert False, "TDD RED: test_140 not implemented"
 
 
 # Integration Tests
 # -----------------
+
 
 @pytest.mark.integration
 def test_130(test_client):
@@ -481,5 +482,4 @@ def test_130(test_client):
 
     # TDD: Assert
     # Verify test_130 works correctly
-    assert False, 'TDD RED: test_130 not implemented'
-
+    assert False, "TDD RED: test_130 not implemented"
