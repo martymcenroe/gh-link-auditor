@@ -17,6 +17,7 @@ from repo_scout.llm_brainstormer import suggest_repos
 from repo_scout.models import RepositoryRecord
 from repo_scout.output_writer import write_output
 from repo_scout.star_walker import walk_starred_repos
+from repo_scout.stargazer_harvester import harvest_from_stargazers
 
 
 def print_progress(message: str, current: int, total: int) -> None:
@@ -83,6 +84,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max depth for star walking (default: 2)",
     )
     parser.add_argument(
+        "--seed-repos",
+        nargs="*",
+        default=[],
+        help="Repos whose stargazers to harvest (e.g. anthropics/claude-code)",
+    )
+    parser.add_argument(
+        "--max-stargazers",
+        type=int,
+        default=100,
+        help="Max stargazers per seed repo (default: 100)",
+    )
+    parser.add_argument(
+        "--max-repo-age-months",
+        type=int,
+        default=6,
+        help="Only repos active within N months (default: 6)",
+    )
+    parser.add_argument(
         "--output",
         default="targets.json",
         help="Output file path (default: targets.json)",
@@ -129,6 +148,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.keywords:
             existing = [r["full_name"] for r in all_repos]
             repos = suggest_repos(args.keywords, existing)
+            all_repos.extend(repos)
+
+        # Source 4: Stargazer harvesting
+        if args.seed_repos:
+            repos = harvest_from_stargazers(
+                seed_repos=args.seed_repos,
+                github_client=client,
+                max_stargazers=args.max_stargazers,
+                max_repo_age_months=args.max_repo_age_months,
+                progress_callback=print_progress,
+            )
             all_repos.extend(repos)
 
         # Deduplicate and sort

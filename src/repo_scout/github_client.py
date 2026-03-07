@@ -118,6 +118,65 @@ class GitHubClient:
             page += 1
         return records
 
+    def get_stargazers(self, owner: str, repo: str, max_count: int = 100) -> list[str]:
+        """Fetch usernames who starred a repository.
+
+        Args:
+            owner: Repository owner.
+            repo: Repository name.
+            max_count: Maximum stargazers to return.
+
+        Returns:
+            List of GitHub usernames.
+        """
+        usernames: list[str] = []
+        page = 1
+        while len(usernames) < max_count:
+            data = self.request(f"/repos/{owner}/{repo}/stargazers?per_page=100&page={page}")
+            if not data or not isinstance(data, list) or len(data) == 0:
+                break
+            for user in data:
+                if len(usernames) >= max_count:
+                    break
+                usernames.append(user.get("login", ""))
+            if len(data) < 100:
+                break
+            page += 1
+        return usernames
+
+    def get_user_repos(self, username: str) -> list[RepositoryRecord]:
+        """Fetch repositories owned by a user, excluding forks and archives.
+
+        Args:
+            username: GitHub username.
+
+        Returns:
+            List of RepositoryRecords with STARGAZER_TARGET source.
+        """
+        data = self.request(f"/users/{username}/repos?type=owner&sort=updated&per_page=100")
+        if not data or not isinstance(data, list):
+            return []
+
+        records: list[RepositoryRecord] = []
+        for repo in data:
+            if repo.get("fork", False) or repo.get("archived", False):
+                continue
+            records.append(
+                make_repo_record(
+                    owner=repo.get("owner", {}).get("login", username),
+                    name=repo.get("name", ""),
+                    source=DiscoverySource.STARGAZER_TARGET,
+                    description=repo.get("description"),
+                    stars=repo.get("stargazers_count"),
+                    metadata={
+                        "pushed_at": repo.get("pushed_at"),
+                        "has_issues": repo.get("has_issues", False),
+                        "language": repo.get("language"),
+                    },
+                )
+            )
+        return records
+
     def repo_exists(self, full_name: str) -> bool:
         """Check if a repository exists.
 

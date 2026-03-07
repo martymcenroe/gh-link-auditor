@@ -28,6 +28,9 @@ class TestBuildParser:
         assert args.star_depth == 2
         assert args.output == "targets.json"
         assert args.format == "json"
+        assert args.seed_repos == []
+        assert args.max_stargazers == 100
+        assert args.max_repo_age_months == 6
 
     def test_awesome_lists(self) -> None:
         parser = build_parser()
@@ -54,6 +57,21 @@ class TestBuildParser:
         args = parser.parse_args(["--output", "out.txt", "--format", "txt"])
         assert args.output == "out.txt"
         assert args.format == "txt"
+
+    def test_seed_repos(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--seed-repos", "anthropics/claude-code", "org/repo"])
+        assert args.seed_repos == ["anthropics/claude-code", "org/repo"]
+
+    def test_max_stargazers(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--max-stargazers", "50"])
+        assert args.max_stargazers == 50
+
+    def test_max_repo_age_months(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--max-repo-age-months", "12"])
+        assert args.max_repo_age_months == 12
 
 
 class TestPrintProgress:
@@ -179,6 +197,41 @@ class TestMain:
         exit_code = main(["--awesome-lists", "https://example.com"])
         assert exit_code == 1
         mock_client.close.assert_called_once()
+
+    @patch("repo_scout.cli.harvest_from_stargazers")
+    @patch("repo_scout.cli.GitHubClient")
+    @patch("repo_scout.cli.write_output")
+    def test_seed_repos_calls_harvester(
+        self,
+        mock_write: MagicMock,
+        mock_client_cls: MagicMock,
+        mock_harvest: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_harvest.return_value = [_repo("alice", "tool", "stargazer_target")]
+        mock_write.return_value = 1
+
+        output = str(tmp_path / "out.json")
+        exit_code = main(
+            [
+                "--seed-repos",
+                "anthropics/claude-code",
+                "--max-stargazers",
+                "50",
+                "--max-repo-age-months",
+                "3",
+                "--output",
+                output,
+            ]
+        )
+        assert exit_code == 0
+        mock_harvest.assert_called_once()
+        call_kwargs = mock_harvest.call_args
+        assert call_kwargs[1]["seed_repos"] == ["anthropics/claude-code"]
+        assert call_kwargs[1]["max_stargazers"] == 50
+        assert call_kwargs[1]["max_repo_age_months"] == 3
 
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.write_output")
