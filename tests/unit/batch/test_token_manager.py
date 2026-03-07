@@ -100,10 +100,13 @@ class TestUpdateTokenState:
 
     def test_updates_remaining_and_reset(self) -> None:
         tm = TokenManager(["mytoken"])
-        tm.update_token_state("mytoken", {
-            "X-RateLimit-Remaining": "42",
-            "X-RateLimit-Reset": "1700000000",
-        })
+        tm.update_token_state(
+            "mytoken",
+            {
+                "X-RateLimit-Remaining": "42",
+                "X-RateLimit-Reset": "1700000000",
+            },
+        )
         assert tm._states[0].remaining == 42
         assert tm._states[0].reset_at is not None
 

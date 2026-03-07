@@ -93,9 +93,7 @@ def n2_investigate(state: PipelineState) -> PipelineState:
             candidates[url] = found
         except Exception:
             logger.exception("Error investigating %s", url)
-            state["errors"] = state.get("errors", []) + [
-                f"Investigation error for {url}"
-            ]
+            state["errors"] = state.get("errors", []) + [f"Investigation error for {url}"]
             candidates[url] = []
 
     state["candidates"] = candidates

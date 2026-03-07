@@ -95,8 +95,7 @@ class TestSequentialBatchRun:
 
     def test_sequential_three_repos_succeed(self, tmp_path) -> None:
         targets = [
-            {"full_name": f"owner/repo{i}", "clone_url": f"https://github.com/owner/repo{i}.git"}
-            for i in range(3)
+            {"full_name": f"owner/repo{i}", "clone_url": f"https://github.com/owner/repo{i}.git"} for i in range(3)
         ]
         target_file = tmp_path / "targets.json"
         target_file.write_text(json.dumps(targets))
@@ -118,8 +117,7 @@ class TestFailureIsolation:
 
     def test_one_repo_failure_others_succeed(self, tmp_path) -> None:
         targets = [
-            {"full_name": f"owner/repo{i}", "clone_url": f"https://github.com/owner/repo{i}.git"}
-            for i in range(3)
+            {"full_name": f"owner/repo{i}", "clone_url": f"https://github.com/owner/repo{i}.git"} for i in range(3)
         ]
         target_file = tmp_path / "targets.json"
         target_file.write_text(json.dumps(targets))
@@ -372,9 +370,7 @@ class TestProcessSingleRepoErrors:
 
         rl.acquire = bad_acquire
 
-        result = asyncio.run(
-            _process_single_repo(task, None, rl, BatchConfig(target_list_path=Path("/dev/null")))
-        )
+        result = asyncio.run(_process_single_repo(task, None, rl, BatchConfig(target_list_path=Path("/dev/null"))))
         assert result.status == TaskStatus.FAILED
         assert "network error" in (result.error_message or "")
 
@@ -390,9 +386,7 @@ class TestProcessSingleRepoErrors:
 
         rl.acquire = timeout_acquire
 
-        result = asyncio.run(
-            _process_single_repo(task, None, rl, BatchConfig(target_list_path=Path("/dev/null")))
-        )
+        result = asyncio.run(_process_single_repo(task, None, rl, BatchConfig(target_list_path=Path("/dev/null"))))
         assert result.status == TaskStatus.FAILED
         assert result.error_message == "timeout"
 
@@ -402,13 +396,18 @@ class TestResumeErrors:
 
     def test_resume_no_config_raises(self, tmp_path) -> None:
         checkpoint = tmp_path / "bad_cp.json"
-        checkpoint.write_text(json.dumps({
-            "batch_id": "test",
-            "tasks": [],
-            "current_index": 0,
-        }))
+        checkpoint.write_text(
+            json.dumps(
+                {
+                    "batch_id": "test",
+                    "tasks": [],
+                    "current_index": 0,
+                }
+            )
+        )
 
         from gh_link_auditor.batch.exceptions import BatchInputError
+
         with pytest.raises(BatchInputError, match="no config"):
             asyncio.run(resume_batch(checkpoint))
 
@@ -417,6 +416,7 @@ class TestResumeErrors:
         bad_file.write_text("{invalid json")
 
         from gh_link_auditor.batch.exceptions import BatchInputError
+
         with pytest.raises(BatchInputError, match="Failed to load"):
             asyncio.run(resume_batch(bad_file))
 
@@ -426,10 +426,7 @@ class TestConcurrency:
 
     def test_concurrent_three_workers(self, tmp_path) -> None:
         """T240: Concurrent execution with 3 workers (REQ-1)."""
-        targets = [
-            {"full_name": f"owner/repo{i}"}
-            for i in range(5)
-        ]
+        targets = [{"full_name": f"owner/repo{i}"} for i in range(5)]
         target_file = tmp_path / "targets.json"
         target_file.write_text(json.dumps(targets))
 

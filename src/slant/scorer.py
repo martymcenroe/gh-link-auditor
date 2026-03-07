@@ -121,8 +121,11 @@ def score_dead_link(entry: ForensicReportEntry, weights: SignalWeights) -> Verdi
             confidence=0,
             replacement_url=None,
             scoring_breakdown=ScoringBreakdown(
-                redirect=0, title_match=0, content_similarity=0,
-                url_similarity=0, domain_match=0,
+                redirect=0,
+                title_match=0,
+                content_similarity=0,
+                url_similarity=0,
+                domain_match=0,
             ),
             human_decision=None,
             decided_at=None,
@@ -189,10 +192,7 @@ def score_report(report_path: Path, weights: SignalWeights | None = None) -> Ver
             archived_title=entry_data.get("archived_title", ""),
             archived_content=entry_data.get("archived_content", ""),
             investigation_method=entry_data.get("investigation_method", ""),
-            candidates=[
-                CandidateEntry(url=c["url"], source=c["source"])
-                for c in entry_data.get("candidates", [])
-            ],
+            candidates=[CandidateEntry(url=c["url"], source=c["source"]) for c in entry_data.get("candidates", [])],
         )
         verdict = score_dead_link(entry, weights)
         verdicts.append(verdict)

@@ -174,9 +174,7 @@ class TestScoreCandidate:
             patch("slant.scorer.compare_url_paths", return_value=1.0),
             patch("slant.scorer.match_domain", return_value=1.0),
         ):
-            score, breakdown = score_candidate(
-                "https://example.com/old", candidate, "Title", "Content", weights
-            )
+            score, breakdown = score_candidate("https://example.com/old", candidate, "Title", "Content", weights)
         assert score == 100
         assert breakdown["redirect"] == 40
         assert breakdown["title_match"] == 25
@@ -196,9 +194,7 @@ class TestScoreCandidate:
             patch("slant.scorer.compare_url_paths", return_value=0.0),
             patch("slant.scorer.match_domain", return_value=0.0),
         ):
-            score, breakdown = score_candidate(
-                "https://example.com/old", candidate, "Title", "Content", weights
-            )
+            score, breakdown = score_candidate("https://example.com/old", candidate, "Title", "Content", weights)
         assert score == 0
         assert breakdown["redirect"] == 0
         assert breakdown["title_match"] == 0
@@ -215,9 +211,7 @@ class TestScoreCandidate:
             patch("slant.scorer.compare_url_paths", return_value=0.0),
             patch("slant.scorer.match_domain", return_value=1.0),
         ):
-            score, breakdown = score_candidate(
-                "https://example.com/old", candidate, "Title", "Content", weights
-            )
+            score, breakdown = score_candidate("https://example.com/old", candidate, "Title", "Content", weights)
         # redirect=40, title=12.5, content=0, url_path=0, domain=5 = 57.5
         assert breakdown["redirect"] == 40
         assert breakdown["title_match"] == pytest.approx(12.5)
@@ -266,12 +260,16 @@ class TestScoreDeadLink:
 
         def _mock_score_candidate(dead_url, candidate, title, content, w):
             if candidate["url"] == "https://good.com/page":
-                return (85, ScoringBreakdown(
-                    redirect=40, title_match=20, content_similarity=15, url_similarity=5, domain_match=5
-                ))
-            return (20, ScoringBreakdown(
-                redirect=0, title_match=5, content_similarity=10, url_similarity=5, domain_match=0
-            ))
+                return (
+                    85,
+                    ScoringBreakdown(
+                        redirect=40, title_match=20, content_similarity=15, url_similarity=5, domain_match=5
+                    ),
+                )
+            return (
+                20,
+                ScoringBreakdown(redirect=0, title_match=5, content_similarity=10, url_similarity=5, domain_match=0),
+            )
 
         with patch("slant.scorer.score_candidate", side_effect=_mock_score_candidate):
             verdict = score_dead_link(entry, weights)
@@ -290,10 +288,13 @@ class TestScoreDeadLink:
         )
         weights = get_default_weights()
 
-        with patch("slant.scorer.score_candidate", return_value=(
-            96,
-            ScoringBreakdown(redirect=40, title_match=25, content_similarity=18, url_similarity=8, domain_match=5),
-        )):
+        with patch(
+            "slant.scorer.score_candidate",
+            return_value=(
+                96,
+                ScoringBreakdown(redirect=40, title_match=25, content_similarity=18, url_similarity=8, domain_match=5),
+            ),
+        ):
             verdict = score_dead_link(entry, weights)
         assert verdict["verdict"] == "AUTO-APPROVE"
         assert verdict["human_decision"] == "auto"
@@ -311,10 +312,13 @@ class TestScoreDeadLink:
         )
         weights = get_default_weights()
 
-        with patch("slant.scorer.score_candidate", return_value=(
-            80,
-            ScoringBreakdown(redirect=20, title_match=20, content_similarity=20, url_similarity=10, domain_match=5),
-        )):
+        with patch(
+            "slant.scorer.score_candidate",
+            return_value=(
+                80,
+                ScoringBreakdown(redirect=20, title_match=20, content_similarity=20, url_similarity=10, domain_match=5),
+            ),
+        ):
             verdict = score_dead_link(entry, weights)
         assert verdict["verdict"] == "HUMAN-REVIEW"
         assert verdict["human_decision"] is None
@@ -332,14 +336,22 @@ class TestScoreDeadLink:
         )
         weights = get_default_weights()
 
-        with patch("slant.scorer.score_candidate", return_value=(
-            50,
-            ScoringBreakdown(redirect=0, title_match=15, content_similarity=20, url_similarity=10, domain_match=5),
-        )):
+        with patch(
+            "slant.scorer.score_candidate",
+            return_value=(
+                50,
+                ScoringBreakdown(redirect=0, title_match=15, content_similarity=20, url_similarity=10, domain_match=5),
+            ),
+        ):
             verdict = score_dead_link(entry, weights)
         required_fields = {
-            "dead_url", "verdict", "confidence", "replacement_url",
-            "scoring_breakdown", "human_decision", "decided_at",
+            "dead_url",
+            "verdict",
+            "confidence",
+            "replacement_url",
+            "scoring_breakdown",
+            "human_decision",
+            "decided_at",
         }
         assert required_fields.issubset(verdict.keys())
 

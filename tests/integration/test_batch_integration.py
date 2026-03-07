@@ -21,10 +21,7 @@ class TestFullMockBatch:
     def test_end_to_end_batch(self, tmp_path) -> None:
         """Full pipeline: load targets, process, checkpoint, report, metrics."""
         # Setup target list
-        targets = [
-            {"full_name": f"org/repo-{i}"}
-            for i in range(3)
-        ]
+        targets = [{"full_name": f"org/repo-{i}"} for i in range(3)]
         target_file = tmp_path / "targets.json"
         target_file.write_text(json.dumps(targets))
 
@@ -97,10 +94,7 @@ class TestFullMockBatch:
 
     def test_mixed_success_failure_integration(self, tmp_path) -> None:
         """Some repos succeed, some fail — error isolation verified."""
-        targets = [
-            {"full_name": f"org/repo-{i}"}
-            for i in range(4)
-        ]
+        targets = [{"full_name": f"org/repo-{i}"} for i in range(4)]
         target_file = tmp_path / "targets.json"
         target_file.write_text(json.dumps(targets))
 

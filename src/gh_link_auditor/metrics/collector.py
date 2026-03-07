@@ -166,12 +166,8 @@ class MetricsCollector:
                     repo_full_name=row[1],
                     submitted_at=datetime.fromisoformat(row[2]),
                     status=row[3],
-                    merged_at=(
-                        datetime.fromisoformat(row[4]) if row[4] else None
-                    ),
-                    closed_at=(
-                        datetime.fromisoformat(row[5]) if row[5] else None
-                    ),
+                    merged_at=(datetime.fromisoformat(row[4]) if row[4] else None),
+                    closed_at=(datetime.fromisoformat(row[5]) if row[5] else None),
                     rejection_reason=row[6],
                     time_to_merge_hours=row[7],
                 )

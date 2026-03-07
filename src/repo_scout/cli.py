@@ -59,27 +59,38 @@ def build_parser() -> argparse.ArgumentParser:
         description="Discover GitHub repositories for dead link auditing",
     )
     parser.add_argument(
-        "--awesome-lists", nargs="*", default=[],
+        "--awesome-lists",
+        nargs="*",
+        default=[],
         help="URLs of Awesome list repositories to parse",
     )
     parser.add_argument(
-        "--root-users", nargs="*", default=[],
+        "--root-users",
+        nargs="*",
+        default=[],
         help="GitHub usernames for star walking",
     )
     parser.add_argument(
-        "--keywords", nargs="*", default=[],
+        "--keywords",
+        nargs="*",
+        default=[],
         help="Keywords for LLM suggestions",
     )
     parser.add_argument(
-        "--star-depth", type=int, default=2,
+        "--star-depth",
+        type=int,
+        default=2,
         help="Max depth for star walking (default: 2)",
     )
     parser.add_argument(
-        "--output", default="targets.json",
+        "--output",
+        default="targets.json",
         help="Output file path (default: targets.json)",
     )
     parser.add_argument(
-        "--format", choices=["json", "jsonl", "txt"], default="json",
+        "--format",
+        choices=["json", "jsonl", "txt"],
+        default="json",
         help="Output format (default: json)",
     )
     return parser

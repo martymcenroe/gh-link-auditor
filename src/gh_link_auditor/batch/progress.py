@@ -52,13 +52,7 @@ class BatchProgressTracker:
         """
         processed = self.completed + self.failed
         eta = self._estimate_eta(processed)
-        return (
-            f"{processed}/{self.total} | "
-            f"{self.fixes} fixes | "
-            f"{self.prs} PRs | "
-            f"{self.errors} errors | "
-            f"ETA {eta}"
-        )
+        return f"{processed}/{self.total} | {self.fixes} fixes | {self.prs} PRs | {self.errors} errors | ETA {eta}"
 
     def _estimate_eta(self, processed: int) -> str:
         """Estimate time remaining.

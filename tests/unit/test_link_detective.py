@@ -353,9 +353,7 @@ class TestGitHubResolutionInPipeline:
             mock_gh.is_github_url.return_value = True
             mock_gh._parse_github_url.return_value = ("old-owner", "old-repo", "blob/main/README.md")
             mock_gh.resolve_repo_redirect.return_value = "https://github.com/new-owner/new-repo"
-            mock_gh.reconstruct_file_url.return_value = (
-                "https://github.com/new-owner/new-repo/blob/main/README.md"
-            )
+            mock_gh.reconstruct_file_url.return_value = "https://github.com/new-owner/new-repo/blob/main/README.md"
 
             report = detective.investigate("https://github.com/old-owner/old-repo/blob/main/README.md", 404)
 
@@ -431,8 +429,7 @@ class TestHeuristicWithSimilarity:
                 report = detective.investigate("https://dead.example.com/page", 404)
 
         heuristic_candidates = [
-            c for c in report.investigation.candidate_replacements
-            if c.method == InvestigationMethod.URL_HEURISTIC
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.URL_HEURISTIC
         ]
         assert len(heuristic_candidates) == 0
 
@@ -460,8 +457,7 @@ class TestHeuristicWithSimilarity:
 
         # Score 0.3 < 0.5 threshold, so candidate should NOT be included
         heuristic_candidates = [
-            c for c in report.investigation.candidate_replacements
-            if c.method == InvestigationMethod.URL_HEURISTIC
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.URL_HEURISTIC
         ]
         assert len(heuristic_candidates) == 0
 

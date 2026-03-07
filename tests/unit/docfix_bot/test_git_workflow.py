@@ -77,8 +77,12 @@ class TestApplyFixes:
 
         links = [
             make_broken_link(
-                "README.md", 1, "https://old.com", 404,
-                suggested_fix="https://new.com", fix_confidence=0.9,
+                "README.md",
+                1,
+                "https://old.com",
+                404,
+                suggested_fix="https://new.com",
+                fix_confidence=0.9,
             ),
         ]
         modified = apply_fixes(tmp_path, links)
@@ -92,8 +96,12 @@ class TestApplyFixes:
 
         links = [
             make_broken_link(
-                "README.md", 1, "https://old.com", 404,
-                suggested_fix="https://new.com", fix_confidence=0.3,
+                "README.md",
+                1,
+                "https://old.com",
+                404,
+                suggested_fix="https://new.com",
+                fix_confidence=0.3,
             ),
         ]
         modified = apply_fixes(tmp_path, links)
@@ -111,8 +119,12 @@ class TestApplyFixes:
     def test_missing_file(self, tmp_path: Path) -> None:
         links = [
             make_broken_link(
-                "missing.md", 1, "https://old.com", 404,
-                suggested_fix="https://new.com", fix_confidence=0.9,
+                "missing.md",
+                1,
+                "https://old.com",
+                404,
+                suggested_fix="https://new.com",
+                fix_confidence=0.9,
             ),
         ]
         modified = apply_fixes(tmp_path, links)
@@ -152,6 +164,7 @@ class TestCreatePullRequest:
     @patch("docfix_bot.git_workflow.httpx.post")
     def test_http_error(self, mock_post: MagicMock) -> None:
         import httpx
+
         mock_post.side_effect = httpx.ConnectError("fail")
         target = make_target("org", "repo")
         config = {"github_token": "ghp_test"}
@@ -180,6 +193,7 @@ class TestCloneRepository:
     def test_clone_failure(self, mock_clone: MagicMock, tmp_path: Path) -> None:
         import git as gitmodule
         import pytest
+
         mock_clone.side_effect = gitmodule.GitCommandError("clone", 128)
         target = make_target("org", "repo")
         with pytest.raises(RuntimeError, match="Clone failed"):
@@ -208,8 +222,12 @@ class TestExecuteFixWorkflow:
 
         target = make_target("org", "repo")
         link = make_broken_link(
-            "README.md", 1, "https://old.com", 404,
-            suggested_fix="https://new.com", fix_confidence=0.9,
+            "README.md",
+            1,
+            "https://old.com",
+            404,
+            suggested_fix="https://new.com",
+            fix_confidence=0.9,
         )
         config = {"github_token": "ghp_test"}
 
@@ -248,8 +266,12 @@ class TestExecuteFixWorkflow:
 
         target = make_target("org", "repo")
         link = make_broken_link(
-            "README.md", 1, "https://old.com", 404,
-            suggested_fix="https://new.com", fix_confidence=0.9,
+            "README.md",
+            1,
+            "https://old.com",
+            404,
+            suggested_fix="https://new.com",
+            fix_confidence=0.9,
         )
         config = {"github_token": "ghp_test"}
 
@@ -280,8 +302,12 @@ class TestExecuteFixWorkflow:
 
         target = make_target("org", "repo")
         link = make_broken_link(
-            "README.md", 1, "https://old.com", 404,
-            suggested_fix="https://new.com", fix_confidence=0.9,
+            "README.md",
+            1,
+            "https://old.com",
+            404,
+            suggested_fix="https://new.com",
+            fix_confidence=0.9,
         )
         config = {}  # No token
 

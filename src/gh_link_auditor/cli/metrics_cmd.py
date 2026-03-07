@@ -28,12 +28,8 @@ def build_metrics_parser(subparsers: argparse._SubParsersAction) -> None:
 
     # metrics campaign
     campaign_parser = metrics_sub.add_parser("campaign", help="Campaign-level metrics")
-    campaign_parser.add_argument(
-        "--db-path", default=str(DEFAULT_DB_PATH), help="Metrics DB path"
-    )
-    campaign_parser.add_argument(
-        "--format", choices=["text", "json"], default="text"
-    )
+    campaign_parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="Metrics DB path")
+    campaign_parser.add_argument("--format", choices=["text", "json"], default="text")
     campaign_parser.set_defaults(func=cmd_metrics_campaign)
 
 

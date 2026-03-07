@@ -349,15 +349,11 @@ class StateDatabase:
         stats: dict[str, Any] = {}
 
         # Total interactions
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS cnt FROM interactions"
-        ).fetchone()
+        row = self._conn.execute("SELECT COUNT(*) AS cnt FROM interactions").fetchone()
         stats["total_interactions"] = row["cnt"]
 
         # Counts by status
-        rows = self._conn.execute(
-            "SELECT status, COUNT(*) AS cnt FROM interactions GROUP BY status"
-        ).fetchall()
+        rows = self._conn.execute("SELECT status, COUNT(*) AS cnt FROM interactions GROUP BY status").fetchall()
         by_status: dict[str, int] = {}
         for r in rows:
             by_status[r["status"]] = r["cnt"]
@@ -375,9 +371,7 @@ class StateDatabase:
         stats["active_blacklist_entries"] = row["cnt"]
 
         # Total blacklist entries (including expired)
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS cnt FROM blacklist"
-        ).fetchone()
+        row = self._conn.execute("SELECT COUNT(*) AS cnt FROM blacklist").fetchone()
         stats["total_blacklist_entries"] = row["cnt"]
 
         return stats
@@ -416,9 +410,5 @@ def _row_to_blacklist(row: sqlite3.Row) -> BlacklistEntry:
         maintainer=row["maintainer"],
         reason=row["reason"],
         created_at=datetime.fromisoformat(row["created_at"]),
-        expires_at=(
-            datetime.fromisoformat(row["expires_at"])
-            if row["expires_at"] is not None
-            else None
-        ),
+        expires_at=(datetime.fromisoformat(row["expires_at"]) if row["expires_at"] is not None else None),
     )

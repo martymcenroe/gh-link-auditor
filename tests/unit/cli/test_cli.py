@@ -36,14 +36,20 @@ class TestBuildParser:
 
     def test_run_custom_options(self) -> None:
         parser = build_parser()
-        args = parser.parse_args([
-            "run", "t",
-            "--max-links", "100",
-            "--max-cost", "10.0",
-            "--confidence", "0.9",
-            "--dry-run",
-            "--verbose",
-        ])
+        args = parser.parse_args(
+            [
+                "run",
+                "t",
+                "--max-links",
+                "100",
+                "--max-cost",
+                "10.0",
+                "--confidence",
+                "0.9",
+                "--dry-run",
+                "--verbose",
+            ]
+        )
         assert args.max_links == 100
         assert args.max_cost == 10.0
         assert args.confidence == 0.9

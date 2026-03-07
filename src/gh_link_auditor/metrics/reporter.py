@@ -25,22 +25,14 @@ def generate_run_report(state: BatchState) -> RunReport:
     completed_at = now_utc()
     started_at = state.started_at or completed_at
 
-    repos_succeeded = sum(
-        1 for t in state.tasks if t.status == TaskStatus.COMPLETED
-    )
-    repos_failed = sum(
-        1 for t in state.tasks if t.status == TaskStatus.FAILED
-    )
-    repos_skipped = sum(
-        1 for t in state.tasks if t.status == TaskStatus.SKIPPED
-    )
+    repos_succeeded = sum(1 for t in state.tasks if t.status == TaskStatus.COMPLETED)
+    repos_failed = sum(1 for t in state.tasks if t.status == TaskStatus.FAILED)
+    repos_skipped = sum(1 for t in state.tasks if t.status == TaskStatus.SKIPPED)
 
     errors = []
     for t in state.tasks:
         if t.status == TaskStatus.FAILED and t.error_message:
-            errors.append(
-                {"repo": t.repo_full_name, "error_message": t.error_message}
-            )
+            errors.append({"repo": t.repo_full_name, "error_message": t.error_message})
 
     duration = (completed_at - started_at).total_seconds()
 
@@ -87,11 +79,7 @@ def generate_campaign_metrics(db_path: Path) -> CampaignMetrics:
     denominator = merged + rejected
     acceptance_rate = merged / denominator if denominator > 0 else 0.0
 
-    merge_times = [
-        o.time_to_merge_hours
-        for o in outcomes
-        if o.time_to_merge_hours is not None
-    ]
+    merge_times = [o.time_to_merge_hours for o in outcomes if o.time_to_merge_hours is not None]
     avg_ttm = sum(merge_times) / len(merge_times) if merge_times else 0.0
 
     rejection_reasons: dict[str, int] = {}
@@ -199,9 +187,7 @@ def format_campaign_text(metrics: CampaignMetrics) -> str:
     if metrics.rejection_reasons:
         lines.append("")
         lines.append("Rejection reasons:")
-        for reason, count in sorted(
-            metrics.rejection_reasons.items(), key=lambda x: -x[1]
-        ):
+        for reason, count in sorted(metrics.rejection_reasons.items(), key=lambda x: -x[1]):
             lines.append(f"  {reason}: {count}")
 
     return "\n".join(lines)

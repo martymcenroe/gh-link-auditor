@@ -11,9 +11,7 @@ from repo_scout.cli import build_parser, main, print_progress, print_statistics
 from repo_scout.models import DiscoverySource, make_repo_record
 
 
-def _repo(
-    owner: str = "org", name: str = "repo", source: str = "awesome_list"
-) -> dict:
+def _repo(owner: str = "org", name: str = "repo", source: str = "awesome_list") -> dict:
     src = DiscoverySource(source)
     return make_repo_record(owner=owner, name=name, source=src)
 
@@ -101,9 +99,7 @@ class TestMain:
 
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.write_output")
-    def test_no_sources_writes_empty(
-        self, mock_write: MagicMock, mock_client_cls: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_no_sources_writes_empty(self, mock_write: MagicMock, mock_client_cls: MagicMock, tmp_path: Path) -> None:
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_write.return_value = 0
@@ -129,9 +125,7 @@ class TestMain:
         mock_write.return_value = 1
 
         output = str(tmp_path / "out.json")
-        exit_code = main(
-            ["--awesome-lists", "https://github.com/org/awesome", "--output", output]
-        )
+        exit_code = main(["--awesome-lists", "https://github.com/org/awesome", "--output", output])
         assert exit_code == 0
         mock_parse.assert_called_once_with("https://github.com/org/awesome")
 
@@ -151,9 +145,7 @@ class TestMain:
         mock_write.return_value = 1
 
         output = str(tmp_path / "out.json")
-        exit_code = main(
-            ["--root-users", "user1", "--star-depth", "3", "--output", output]
-        )
+        exit_code = main(["--root-users", "user1", "--star-depth", "3", "--output", output])
         assert exit_code == 0
         mock_walk.assert_called_once_with("user1", mock_client, max_depth=3)
 
@@ -179,9 +171,7 @@ class TestMain:
 
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.parse_awesome_list")
-    def test_error_returns_1(
-        self, mock_parse: MagicMock, mock_client_cls: MagicMock
-    ) -> None:
+    def test_error_returns_1(self, mock_parse: MagicMock, mock_client_cls: MagicMock) -> None:
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_parse.side_effect = RuntimeError("Boom")

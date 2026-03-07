@@ -77,9 +77,7 @@ class TokenManager:
                     ts.remaining = int(remaining_str)
                 reset_str = resp.headers.get("X-RateLimit-Reset", "")
                 if reset_str:
-                    ts.reset_at = datetime.fromtimestamp(
-                        int(reset_str), tz=timezone.utc
-                    )
+                    ts.reset_at = datetime.fromtimestamp(int(reset_str), tz=timezone.utc)
 
             except httpx.HTTPError:
                 ts.is_valid = False
@@ -124,9 +122,7 @@ class TokenManager:
                     ts.remaining = int(remaining_str)
                 reset_str = headers.get("X-RateLimit-Reset", "")
                 if reset_str:
-                    ts.reset_at = datetime.fromtimestamp(
-                        int(reset_str), tz=timezone.utc
-                    )
+                    ts.reset_at = datetime.fromtimestamp(int(reset_str), tz=timezone.utc)
                 break
 
     def invalidate_token(self, token: str) -> None:

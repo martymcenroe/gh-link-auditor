@@ -115,27 +115,33 @@ class TestGenerateCampaignMetrics:
 
             # Record 5 PR outcomes: 3 merged, 1 rejected, 1 open
             for i in range(3):
-                collector.record_pr_outcome(PROutcome(
-                    repo_full_name=f"o/merged{i}",
-                    pr_url=f"https://github.com/o/merged{i}/pull/1",
+                collector.record_pr_outcome(
+                    PROutcome(
+                        repo_full_name=f"o/merged{i}",
+                        pr_url=f"https://github.com/o/merged{i}/pull/1",
+                        submitted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                        status="merged",
+                        merged_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                        time_to_merge_hours=24.0,
+                    )
+                )
+            collector.record_pr_outcome(
+                PROutcome(
+                    repo_full_name="o/rejected",
+                    pr_url="https://github.com/o/rejected/pull/1",
                     submitted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                    status="merged",
-                    merged_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
-                    time_to_merge_hours=24.0,
-                ))
-            collector.record_pr_outcome(PROutcome(
-                repo_full_name="o/rejected",
-                pr_url="https://github.com/o/rejected/pull/1",
-                submitted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                status="rejected",
-                rejection_reason="not-wanted",
-            ))
-            collector.record_pr_outcome(PROutcome(
-                repo_full_name="o/open",
-                pr_url="https://github.com/o/open/pull/1",
-                submitted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                status="open",
-            ))
+                    status="rejected",
+                    rejection_reason="not-wanted",
+                )
+            )
+            collector.record_pr_outcome(
+                PROutcome(
+                    repo_full_name="o/open",
+                    pr_url="https://github.com/o/open/pull/1",
+                    submitted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    status="open",
+                )
+            )
         finally:
             collector.close()
 

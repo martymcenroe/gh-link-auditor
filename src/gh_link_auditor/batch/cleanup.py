@@ -25,9 +25,7 @@ async def cleanup_clone(clone_path: Path) -> None:
         shutil.rmtree(clone_path, ignore_errors=True)
 
 
-async def cleanup_remote_branch(
-    repo_full_name: str, branch_name: str, token: str
-) -> bool:
+async def cleanup_remote_branch(repo_full_name: str, branch_name: str, token: str) -> bool:
     """Delete a remote branch via GitHub API after PR merge/close.
 
     Args:
@@ -53,9 +51,7 @@ async def cleanup_remote_branch(
         return False
 
 
-async def prune_stale_forks(
-    forks: list[dict], token: str, max_age_days: int = 90
-) -> list[str]:
+async def prune_stale_forks(forks: list[dict], token: str, max_age_days: int = 90) -> list[str]:
     """Identify forks that are stale (PRs merged/rejected and older than threshold).
 
     Args:
@@ -98,8 +94,6 @@ def check_disk_usage(clone_dir: Path, max_gb: float) -> tuple[float, bool]:
     if not clone_dir.exists():
         return (0.0, False)
 
-    total_bytes = sum(
-        f.stat().st_size for f in clone_dir.rglob("*") if f.is_file()
-    )
+    total_bytes = sum(f.stat().st_size for f in clone_dir.rglob("*") if f.is_file())
     usage_gb = total_bytes / (1024**3)
     return (round(usage_gb, 6), usage_gb > max_gb)

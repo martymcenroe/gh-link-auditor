@@ -16,15 +16,11 @@ from repo_scout.models import DiscoverySource, RepositoryRecord, make_repo_recor
 
 logger = logging.getLogger(__name__)
 
-_GITHUB_LINK_RE = re.compile(
-    r"\[([^\]]*)\]\((https://github\.com/([^/\s]+)/([^/\s\)#]+))[^\)]*\)"
-)
+_GITHUB_LINK_RE = re.compile(r"\[([^\]]*)\]\((https://github\.com/([^/\s]+)/([^/\s\)#]+))[^\)]*\)")
 
 _SECTION_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
-_GITHUB_URL_RE = re.compile(
-    r"^https?://github\.com/([^/]+)/([^/?#]+?)(?:\.git)?/?$"
-)
+_GITHUB_URL_RE = re.compile(r"^https?://github\.com/([^/]+)/([^/?#]+?)(?:\.git)?/?$")
 
 
 def normalize_github_url(url: str) -> tuple[str, str] | None:

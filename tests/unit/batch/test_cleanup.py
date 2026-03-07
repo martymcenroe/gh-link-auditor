@@ -88,9 +88,7 @@ class TestCleanupRemoteBranch:
             mock_client.delete = AsyncMock(return_value=mock_resp)
             mock_client_cls.return_value = mock_client
 
-            result = asyncio.run(
-                cleanup_remote_branch("owner/repo", "fix/branch", "ghp_token")
-            )
+            result = asyncio.run(cleanup_remote_branch("owner/repo", "fix/branch", "ghp_token"))
 
         assert result is True
         mock_client.delete.assert_called_once()
@@ -109,9 +107,7 @@ class TestCleanupRemoteBranch:
             mock_client.delete = AsyncMock(return_value=mock_resp)
             mock_client_cls.return_value = mock_client
 
-            result = asyncio.run(
-                cleanup_remote_branch("owner/repo", "fix/branch", "ghp_token")
-            )
+            result = asyncio.run(cleanup_remote_branch("owner/repo", "fix/branch", "ghp_token"))
 
         assert result is False
 
@@ -129,9 +125,7 @@ class TestCleanupRemoteBranchError:
             mock_client.delete = AsyncMock(side_effect=httpx.ConnectError("network"))
             mock_client_cls.return_value = mock_client
 
-            result = asyncio.run(
-                cleanup_remote_branch("owner/repo", "branch", "token")
-            )
+            result = asyncio.run(cleanup_remote_branch("owner/repo", "branch", "token"))
 
         assert result is False
 

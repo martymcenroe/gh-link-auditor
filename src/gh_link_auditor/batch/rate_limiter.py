@@ -14,9 +14,7 @@ from gh_link_auditor.batch.models import RateLimitSnapshot
 class AdaptiveRateLimiter:
     """Rate limiter that adapts based on GitHub API rate limit headers."""
 
-    def __init__(
-        self, low_watermark: int = 100, high_watermark: int = 1000
-    ) -> None:
+    def __init__(self, low_watermark: int = 100, high_watermark: int = 1000) -> None:
         """Initialize with backpressure thresholds.
 
         Args:
@@ -43,9 +41,7 @@ class AdaptiveRateLimiter:
 
         # Linear interpolation between low and high watermarks
         self._backpressure_active = False
-        ratio = (self.high_watermark - self._remaining) / (
-            self.high_watermark - self.low_watermark
-        )
+        ratio = (self.high_watermark - self._remaining) / (self.high_watermark - self.low_watermark)
         max_delay = self._calculate_sleep_to_reset()
         delay = ratio * min(max_delay, 10.0)
         if delay > 0:
@@ -71,9 +67,7 @@ class AdaptiveRateLimiter:
 
         reset_str = headers.get("X-RateLimit-Reset", "")
         if reset_str:
-            self._reset_at = datetime.fromtimestamp(
-                int(reset_str), tz=timezone.utc
-            )
+            self._reset_at = datetime.fromtimestamp(int(reset_str), tz=timezone.utc)
 
     def snapshot(self) -> RateLimitSnapshot:
         """Return current rate limit state for progress display."""

@@ -88,9 +88,7 @@ async def _run_batch_loop(state: BatchState, config: BatchConfig) -> RunReport:
 
     async def bounded_process(task: RepoTask) -> RepoTask:
         async with semaphore:
-            return await _process_single_repo(
-                task, token_manager, rate_limiter, config
-            )
+            return await _process_single_repo(task, token_manager, rate_limiter, config)
 
     pending_tasks = state.tasks[state.current_index :]
     batch_size = config.concurrency
@@ -108,9 +106,7 @@ async def _run_batch_loop(state: BatchState, config: BatchConfig) -> RunReport:
                     config.max_disk_gb,
                 )
 
-        results = await asyncio.gather(
-            *[bounded_process(task) for task in batch]
-        )
+        results = await asyncio.gather(*[bounded_process(task) for task in batch])
 
         for result in results:
             progress.update(result)
@@ -278,9 +274,7 @@ def _serialize_state(state: BatchState) -> dict:
         "config": config_data,
         "current_index": state.current_index,
         "started_at": state.started_at.isoformat() if state.started_at else None,
-        "last_checkpoint_at": (
-            state.last_checkpoint_at.isoformat() if state.last_checkpoint_at else None
-        ),
+        "last_checkpoint_at": (state.last_checkpoint_at.isoformat() if state.last_checkpoint_at else None),
         "total_api_calls": state.total_api_calls,
         "tasks": [
             {

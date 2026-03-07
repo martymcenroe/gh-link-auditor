@@ -20,10 +20,12 @@ class TestBackpressure:
     def test_low_watermark_sleeps(self) -> None:
         """acquire() sleeps when remaining < low_watermark."""
         rl = AdaptiveRateLimiter(low_watermark=100, high_watermark=1000)
-        rl.update_from_headers({
-            "X-RateLimit-Remaining": "50",
-            "X-RateLimit-Reset": str(int(time.time()) + 60),
-        })
+        rl.update_from_headers(
+            {
+                "X-RateLimit-Remaining": "50",
+                "X-RateLimit-Reset": str(int(time.time()) + 60),
+            }
+        )
 
         start = time.monotonic()
         asyncio.run(rl.acquire())
@@ -37,10 +39,12 @@ class TestBackpressure:
     def test_between_watermarks_proportional_delay(self) -> None:
         """Linear interpolation between low and high watermarks."""
         rl = AdaptiveRateLimiter(low_watermark=100, high_watermark=1000)
-        rl.update_from_headers({
-            "X-RateLimit-Remaining": "500",
-            "X-RateLimit-Reset": str(int(time.time()) + 10),
-        })
+        rl.update_from_headers(
+            {
+                "X-RateLimit-Remaining": "500",
+                "X-RateLimit-Reset": str(int(time.time()) + 10),
+            }
+        )
 
         start = time.monotonic()
         asyncio.run(rl.acquire())
@@ -86,10 +90,12 @@ class TestUpdateFromHeaders:
 
     def test_parses_reset_timestamp(self) -> None:
         rl = AdaptiveRateLimiter()
-        rl.update_from_headers({
-            "X-RateLimit-Remaining": "42",
-            "X-RateLimit-Reset": "1700000000",
-        })
+        rl.update_from_headers(
+            {
+                "X-RateLimit-Remaining": "42",
+                "X-RateLimit-Reset": "1700000000",
+            }
+        )
         snapshot = rl.snapshot()
         assert snapshot["lowest_remaining"] == 42
         assert snapshot["next_reset"] != ""

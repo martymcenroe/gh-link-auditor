@@ -42,8 +42,11 @@ def _make_verdict(
         confidence=confidence,
         replacement_url=replacement_url,
         scoring_breakdown=ScoringBreakdown(
-            redirect=20, title_match=20, content_similarity=20,
-            url_similarity=10, domain_match=5,
+            redirect=20,
+            title_match=20,
+            content_similarity=20,
+            url_similarity=10,
+            domain_match=5,
         ),
         human_decision=human_decision,
         decided_at=decided_at,
@@ -162,9 +165,9 @@ class TestRenderDashboardHtml:
         )
         result = render_dashboard_html(verdict)
         # The injected script in the URL should be escaped
-        assert '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;' in result
+        assert "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;" in result
         # The injected img onerror should be escaped
-        assert '&lt;img onerror=&quot;evil&quot;&gt;' in result
+        assert "&lt;img onerror=&quot;evil&quot;&gt;" in result
 
     def test_shows_confidence_score(self):
         """Dashboard shows the confidence score."""
@@ -190,22 +193,26 @@ class TestRenderSummaryHtml:
 
     def test_shows_summary(self):
         """T190: Summary HTML contains 'Summary' text."""
-        verdicts_file = _make_verdicts_file([
-            _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
-        ])
+        verdicts_file = _make_verdicts_file(
+            [
+                _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
+            ]
+        )
         html = render_summary_html(verdicts_file)
         assert "Summary" in html or "summary" in html
 
     def test_shows_decision_counts(self):
         """Summary shows counts of each decision type."""
-        verdicts_file = _make_verdicts_file([
-            _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
-            _make_verdict(
-                dead_url="https://example.com/other",
-                human_decision="rejected",
-                decided_at="2026-02-18T12:01:00Z",
-            ),
-        ])
+        verdicts_file = _make_verdicts_file(
+            [
+                _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
+                _make_verdict(
+                    dead_url="https://example.com/other",
+                    human_decision="rejected",
+                    decided_at="2026-02-18T12:01:00Z",
+                ),
+            ]
+        )
         html = render_summary_html(verdicts_file)
         assert "approved" in html.lower() or "Approved" in html
         assert "rejected" in html.lower() or "Rejected" in html
@@ -243,10 +250,12 @@ class TestUpdateVerdictFile:
 
     def test_does_not_modify_other_verdicts(self, tmp_path):
         """Only updates the matching verdict, not others."""
-        verdicts_file = _make_verdicts_file([
-            _make_verdict(dead_url="https://example.com/first"),
-            _make_verdict(dead_url="https://example.com/second"),
-        ])
+        verdicts_file = _make_verdicts_file(
+            [
+                _make_verdict(dead_url="https://example.com/first"),
+                _make_verdict(dead_url="https://example.com/second"),
+            ]
+        )
         path = tmp_path / "verdicts.json"
         _write_verdicts_file(path, verdicts_file)
 
@@ -280,7 +289,8 @@ class TestDashboardServer:
         finally:
             # Server is daemon thread, will stop when test ends
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_get_api_next_returns_undecided(self, tmp_path):
@@ -297,14 +307,17 @@ class TestDashboardServer:
             assert data["verdict"]["dead_url"] == "https://example.com/old"
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_get_api_next_returns_done_when_all_decided(self, tmp_path):
         """GET /api/next returns done=true when all decided."""
-        verdicts_file = _make_verdicts_file([
-            _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
-        ])
+        verdicts_file = _make_verdicts_file(
+            [
+                _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
+            ]
+        )
         path = tmp_path / "verdicts.json"
         _write_verdicts_file(path, verdicts_file)
         port, thread = _start_test_server(path)
@@ -315,7 +328,8 @@ class TestDashboardServer:
             assert data["done"] is True
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_post_api_decide_valid(self, tmp_path):
@@ -326,10 +340,12 @@ class TestDashboardServer:
         port, thread = _start_test_server(path)
 
         try:
-            body = json.dumps({
-                "dead_url": "https://example.com/old",
-                "decision": "approved",
-            }).encode()
+            body = json.dumps(
+                {
+                    "dead_url": "https://example.com/old",
+                    "decision": "approved",
+                }
+            ).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/decide",
                 data=body,
@@ -344,7 +360,8 @@ class TestDashboardServer:
             assert data["verdicts"][0]["human_decision"] == "approved"
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_post_api_decide_invalid_decision(self, tmp_path):
@@ -355,10 +372,12 @@ class TestDashboardServer:
         port, thread = _start_test_server(path)
 
         try:
-            body = json.dumps({
-                "dead_url": "https://example.com/old",
-                "decision": "maybe",
-            }).encode()
+            body = json.dumps(
+                {
+                    "dead_url": "https://example.com/old",
+                    "decision": "maybe",
+                }
+            ).encode()
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/decide",
                 data=body,
@@ -370,7 +389,8 @@ class TestDashboardServer:
             assert exc_info.value.code == 400
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_post_api_decide_malformed_json(self, tmp_path):
@@ -393,7 +413,8 @@ class TestDashboardServer:
             assert exc_info.value.code == 400
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_get_unknown_path_returns_404(self, tmp_path):
@@ -409,7 +430,8 @@ class TestDashboardServer:
             assert exc_info.value.code == 404
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_post_unknown_path_returns_404(self, tmp_path):
@@ -431,7 +453,8 @@ class TestDashboardServer:
             assert exc_info.value.code == 404
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_post_missing_fields_returns_400(self, tmp_path):
@@ -454,14 +477,17 @@ class TestDashboardServer:
             assert exc_info.value.code == 400
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )
 
     def test_summary_when_all_decided(self, tmp_path):
         """T190: Summary screen shows when all decided."""
-        verdicts_file = _make_verdicts_file([
-            _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
-        ])
+        verdicts_file = _make_verdicts_file(
+            [
+                _make_verdict(human_decision="approved", decided_at="2026-02-18T12:00:00Z"),
+            ]
+        )
         path = tmp_path / "verdicts.json"
         _write_verdicts_file(path, verdicts_file)
         port, thread = _start_test_server(path)
@@ -472,5 +498,6 @@ class TestDashboardServer:
             assert "Summary" in html or "summary" in html
         finally:
             urllib.request.urlopen(  # noqa: S310
-                f"http://127.0.0.1:{port}/api/shutdown", timeout=2,
+                f"http://127.0.0.1:{port}/api/shutdown",
+                timeout=2,
             )

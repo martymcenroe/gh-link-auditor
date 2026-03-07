@@ -37,7 +37,10 @@ def _make_verdict(confidence: float = 0.95) -> Verdict:
     return Verdict(
         dead_link=_make_dead_link(),
         candidate=ReplacementCandidate(
-            url="https://new.com", source="redirect", title=None, snippet=None,
+            url="https://new.com",
+            source="redirect",
+            title=None,
+            snippet=None,
         ),
         confidence=confidence,
         reasoning="test",
@@ -123,9 +126,7 @@ class TestRunPipeline:
     """Tests for run_pipeline()."""
 
     def test_happy_path_with_mocks(self, tmp_path) -> None:
-        (tmp_path / "README.md").write_text(
-            "Check [link](https://old.example.com/page)\n"
-        )
+        (tmp_path / "README.md").write_text("Check [link](https://old.example.com/page)\n")
         state = create_initial_state(target=str(tmp_path))
 
         with (
@@ -135,12 +136,14 @@ class TestRunPipeline:
             ),
             patch(
                 "gh_link_auditor.pipeline.nodes.n2_investigate.investigate_dead_link",
-                return_value=[{
-                    "url": "https://new.com",
-                    "source": "redirect",
-                    "title": None,
-                    "snippet": None,
-                }],
+                return_value=[
+                    {
+                        "url": "https://new.com",
+                        "source": "redirect",
+                        "title": None,
+                        "snippet": None,
+                    }
+                ],
             ),
             patch(
                 "gh_link_auditor.pipeline.nodes.n3_judge.judge_candidates",

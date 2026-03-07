@@ -23,9 +23,7 @@ class InsufficientScopesError(BatchError):
     def __init__(self, token_suffix: str, missing: list[str]) -> None:
         self.token_suffix = token_suffix
         self.missing = missing
-        super().__init__(
-            f"Token ...{token_suffix} missing scopes: {', '.join(missing)}"
-        )
+        super().__init__(f"Token ...{token_suffix} missing scopes: {', '.join(missing)}")
 
 
 class RateLimitExhaustedError(BatchError):

@@ -23,33 +23,34 @@ from typing import TypedDict
 # Configuration data structures (LLD §2.3)
 # ---------------------------------------------------------------------------
 
+
 class RequestConfig(TypedDict):
     """Configuration for HTTP requests."""
 
-    timeout: float       # Request timeout in seconds (default: 10.0)
-    verify_ssl: bool     # Whether to verify SSL certificates (default: True)
-    user_agent: str      # User-Agent header value
+    timeout: float  # Request timeout in seconds (default: 10.0)
+    verify_ssl: bool  # Whether to verify SSL certificates (default: True)
+    user_agent: str  # User-Agent header value
 
 
 class BackoffConfig(TypedDict):
     """Configuration for retry backoff per standard 00007."""
 
-    base_delay: float    # Initial delay in seconds (default: 1.0)
-    max_delay: float     # Maximum delay ceiling (default: 30.0)
-    max_retries: int     # Maximum retry attempts (default: 2)
+    base_delay: float  # Initial delay in seconds (default: 1.0)
+    max_delay: float  # Maximum delay ceiling (default: 30.0)
+    max_retries: int  # Maximum retry attempts (default: 2)
     jitter_range: float  # Random jitter 0 to this value (default: 1.0)
 
 
 class RequestResult(TypedDict):
     """Result of an HTTP request, compatible with 00008 schema."""
 
-    url: str                     # The requested URL
-    status: str                  # ok, error, timeout, failed, disconnected, invalid
-    status_code: int | None      # HTTP status code or None
-    method: str                  # HEAD or GET
+    url: str  # The requested URL
+    status: str  # ok, error, timeout, failed, disconnected, invalid
+    status_code: int | None  # HTTP status code or None
+    method: str  # HEAD or GET
     response_time_ms: int | None  # Response time in milliseconds
-    retries: int                 # Number of retries attempted
-    error: str | None            # Error description if not ok
+    retries: int  # Number of retries attempted
+    error: str | None  # Error description if not ok
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +67,7 @@ _DEFAULT_USER_AGENT = (
 # ---------------------------------------------------------------------------
 # Factory functions (LLD §2.4)
 # ---------------------------------------------------------------------------
+
 
 def create_request_config(
     timeout: float = 10.0,
@@ -118,6 +120,7 @@ def create_backoff_config(
 # Backoff helpers (LLD §2.4)
 # ---------------------------------------------------------------------------
 
+
 def calculate_backoff_delay(
     attempt: int,
     config: BackoffConfig,
@@ -142,7 +145,7 @@ def calculate_backoff_delay(
         Delay in seconds before the next retry.
     """
     jitter = random.uniform(0.0, config["jitter_range"])  # noqa: S311
-    calculated = config["base_delay"] * (2 ** attempt) + jitter
+    calculated = config["base_delay"] * (2**attempt) + jitter
     if retry_after is not None:
         calculated = max(retry_after, calculated)
     return min(calculated, config["max_delay"])
@@ -192,6 +195,7 @@ def should_retry(status_code: int | None, error_type: str | None) -> tuple[bool,
 # ---------------------------------------------------------------------------
 # Internal helpers (LLD §2.4)
 # ---------------------------------------------------------------------------
+
 
 def _create_ssl_context(verify: bool) -> ssl.SSLContext:
     """Create an SSL context with the specified verification setting.
@@ -301,6 +305,7 @@ def _make_request(
 # Status mapping helpers
 # ---------------------------------------------------------------------------
 
+
 def _classify_status(status_code: int | None, error_type: str | None) -> str:
     """Map a response to a 00008-schema status string.
 
@@ -360,6 +365,7 @@ def _build_error_message(status_code: int | None, error_type: str | None) -> str
 # Public API (LLD §2.4 / §2.5)
 # ---------------------------------------------------------------------------
 
+
 def check_url(
     url: str,
     request_config: RequestConfig | None = None,
@@ -396,7 +402,9 @@ def check_url(
     # Use a while loop (per reviewer suggestion) for cleaner retry/fallback logic.
     while True:
         status_code, error_type, response_time_ms, retry_after_header = _make_request(
-            url, method, request_config,
+            url,
+            method,
+            request_config,
         )
 
         # Success — 2xx/3xx
