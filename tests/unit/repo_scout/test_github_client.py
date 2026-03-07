@@ -215,6 +215,171 @@ class TestGetStarred:
         client.close()
 
 
+class TestGetStargazers:
+    """Tests for get_stargazers method."""
+
+    def test_single_page(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        api_response = [
+            {"login": "alice", "id": 1},
+            {"login": "bob", "id": 2},
+        ]
+        with patch.object(client, "request", return_value=api_response):
+            result = client.get_stargazers("org", "repo")
+        assert result == ["alice", "bob"]
+        client.close()
+
+    def test_empty(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        with patch.object(client, "request", return_value=[]):
+            result = client.get_stargazers("org", "repo")
+        assert result == []
+        client.close()
+
+    def test_multi_page(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        page1 = [{"login": f"u{i}", "id": i} for i in range(100)]
+        page2 = [{"login": "last", "id": 999}]
+        with patch.object(client, "request", side_effect=[page1, page2]):
+            result = client.get_stargazers("org", "repo", max_count=200)
+        assert len(result) == 101
+        client.close()
+
+    def test_max_count_caps_results(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        page1 = [{"login": f"u{i}", "id": i} for i in range(100)]
+        page2 = [{"login": f"v{i}", "id": 100 + i} for i in range(100)]
+        with patch.object(client, "request", side_effect=[page1, page2]):
+            result = client.get_stargazers("org", "repo", max_count=150)
+        assert len(result) == 150
+        client.close()
+
+    def test_non_list_response_returns_empty(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        with patch.object(client, "request", return_value={"error": True}):
+            result = client.get_stargazers("org", "repo")
+        assert result == []
+        client.close()
+
+    def test_none_response_returns_empty(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        with patch.object(client, "request", return_value=None):
+            result = client.get_stargazers("org", "repo")
+        assert result == []
+        client.close()
+
+
+class TestGetUserRepos:
+    """Tests for get_user_repos method."""
+
+    def test_basic(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        api_response = [
+            {
+                "owner": {"login": "alice"},
+                "name": "my-tool",
+                "description": "A tool",
+                "stargazers_count": 42,
+                "pushed_at": "2026-02-01T00:00:00Z",
+                "has_issues": True,
+                "language": "Python",
+                "fork": False,
+                "archived": False,
+            },
+        ]
+        with patch.object(client, "request", return_value=api_response):
+            records = client.get_user_repos("alice")
+        assert len(records) == 1
+        assert records[0]["owner"] == "alice"
+        assert records[0]["name"] == "my-tool"
+        assert records[0]["sources"] == ["stargazer_target"]
+        client.close()
+
+    def test_filters_forks(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        api_response = [
+            {
+                "owner": {"login": "alice"},
+                "name": "forked-repo",
+                "description": None,
+                "stargazers_count": 0,
+                "pushed_at": "2026-01-01T00:00:00Z",
+                "has_issues": True,
+                "language": None,
+                "fork": True,
+                "archived": False,
+            },
+        ]
+        with patch.object(client, "request", return_value=api_response):
+            records = client.get_user_repos("alice")
+        assert records == []
+        client.close()
+
+    def test_filters_archived(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        api_response = [
+            {
+                "owner": {"login": "alice"},
+                "name": "old-repo",
+                "description": None,
+                "stargazers_count": 0,
+                "pushed_at": "2026-01-01T00:00:00Z",
+                "has_issues": True,
+                "language": None,
+                "fork": False,
+                "archived": True,
+            },
+        ]
+        with patch.object(client, "request", return_value=api_response):
+            records = client.get_user_repos("alice")
+        assert records == []
+        client.close()
+
+    def test_empty(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        with patch.object(client, "request", return_value=[]):
+            records = client.get_user_repos("alice")
+        assert records == []
+        client.close()
+
+    def test_metadata_fields(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        api_response = [
+            {
+                "owner": {"login": "alice"},
+                "name": "tool",
+                "description": "desc",
+                "stargazers_count": 5,
+                "pushed_at": "2026-02-15T10:00:00Z",
+                "has_issues": False,
+                "language": "TypeScript",
+                "fork": False,
+                "archived": False,
+            },
+        ]
+        with patch.object(client, "request", return_value=api_response):
+            records = client.get_user_repos("alice")
+        meta = records[0]["metadata"]
+        assert meta["pushed_at"] == "2026-02-15T10:00:00Z"
+        assert meta["has_issues"] is False
+        assert meta["language"] == "TypeScript"
+        client.close()
+
+    def test_none_response_returns_empty(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        with patch.object(client, "request", return_value=None):
+            records = client.get_user_repos("alice")
+        assert records == []
+        client.close()
+
+    def test_non_list_response_returns_empty(self) -> None:
+        client = GitHubClient(rate_limit_delay=0.0)
+        with patch.object(client, "request", return_value={"error": True}):
+            records = client.get_user_repos("alice")
+        assert records == []
+        client.close()
+
+
 class TestRepoExists:
     """Tests for repo_exists method."""
 

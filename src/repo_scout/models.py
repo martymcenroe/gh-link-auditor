@@ -16,6 +16,7 @@ class DiscoverySource(Enum):
     AWESOME_LIST = "awesome_list"
     STARRED_REPO = "starred_repo"
     LLM_SUGGESTION = "llm_suggestion"
+    STARGAZER_TARGET = "stargazer_target"
 
 
 class RepositoryRecord(TypedDict):

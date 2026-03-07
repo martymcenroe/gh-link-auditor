@@ -24,8 +24,11 @@ class TestDiscoverySource:
     def test_llm_suggestion_value(self) -> None:
         assert DiscoverySource.LLM_SUGGESTION.value == "llm_suggestion"
 
+    def test_stargazer_target_value(self) -> None:
+        assert DiscoverySource.STARGAZER_TARGET.value == "stargazer_target"
+
     def test_all_sources(self) -> None:
-        assert len(DiscoverySource) == 3
+        assert len(DiscoverySource) == 4
 
 
 class TestRepositoryRecord:
