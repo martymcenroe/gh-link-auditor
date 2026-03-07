@@ -17,7 +17,7 @@ pythonpath = [".", "src"]
 
 [tool.poetry.dependencies]
 pydantic = "^2.12.5"
-langgraph = "^1.0.8"
+langgraph = "^1.0.10"
 rich = "^14.3.2"
 prompt-toolkit = "^3.0.52"
 httpx = "^0.28.1"
