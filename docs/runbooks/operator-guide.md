@@ -11,21 +11,24 @@ gh-link-auditor finds dead links in GitHub repositories and generates fixes. The
 
 ## Prerequisites
 
-### 1. Create your .env file
+### 1. GitHub authentication
+
+If you already ran `gh auth login`, the tool automatically uses that token. No `.env` needed.
+
+Only create `.env` to **override** the token or set other variables:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your actual values:
-
 ```
+# Optional: override gh auth token with a specific PAT
 GITHUB_TOKEN=github_pat_your_token_here
+# Optional: change the LLM model (default: gpt-4o-mini)
 LLM_MODEL_NAME=gpt-4o-mini
 ```
 
-- `GITHUB_TOKEN` — your Fine-Grained PAT (see AssemblyZero runbook 0925)
-- `LLM_MODEL_NAME` — the model used for link investigation and fix generation (default: `gpt-4o-mini`)
+**Do NOT paste tokens into `.env` if you are running inside a Claude Code session.** The token resolver picks up your `gh auth login` credential automatically and safely.
 
 ### 2. Verify installation
 
@@ -222,9 +225,8 @@ sys.exit(main(['metrics', 'campaign']))
 If you've never run this before, do this:
 
 ```bash
-# 1. Set up .env
-cp .env.example .env
-# Edit .env with your token
+# 1. Authenticate (if not already done)
+gh auth login
 
 # 2. Discover 5 repos from stargazers of a popular project
 poetry run python -c "
@@ -279,7 +281,7 @@ sys.exit(main([
 | Problem | Fix |
 |---------|-----|
 | `ModuleNotFoundError` | Run from project root with `poetry run` |
-| 401 from GitHub API | Token expired or missing — check `.env` |
+| 401 from GitHub API | Token expired or missing — run `gh auth login` or check `.env` |
 | Circuit breaker triggers immediately | Repo has many dead links — raise `--max-links` or pick a different repo |
 | Cost limit reached | Raise `--max-cost` or use a cheaper model in `.env` |
 | No dead links found | Good news — the repo is clean |

@@ -7,7 +7,6 @@ Deviation: uses argparse instead of typer to match codebase conventions.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 from repo_scout.aggregator import deduplicate_repos, sort_by_relevance
@@ -131,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    token = os.environ.get("GITHUB_TOKEN", "")
+    from gh_link_auditor.auth import resolve_github_token
+
+    token = resolve_github_token()
     client = GitHubClient(token=token)
     all_repos: list[RepositoryRecord] = []
 
