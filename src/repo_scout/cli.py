@@ -124,6 +124,10 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code.
     """
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
