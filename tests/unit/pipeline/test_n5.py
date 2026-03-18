@@ -103,6 +103,17 @@ class TestGenerateUnifiedDiff:
         )
         assert diff == ""
 
+    def test_same_url_replacement_returns_empty(self, tmp_path: Path) -> None:
+        """Replacing URL with itself produces empty diff (line 58)."""
+        md = tmp_path / "doc.md"
+        md.write_text("Check https://example.com/page here.\n")
+        diff = generate_unified_diff(
+            str(md),
+            "https://example.com/page",
+            "https://example.com/page",
+        )
+        assert diff == ""
+
 
 class TestN5GenerateFix:
     """Tests for n5_generate_fix() node function."""
