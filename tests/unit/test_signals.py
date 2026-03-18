@@ -615,3 +615,40 @@ class TestNormalizeDomain:
     def test_no_www(self):
         """Keeps domain without www."""
         assert _normalize_domain("example.com") == "example.com"
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+class TestCheckRedirectCoverageGaps:
+    """Tests for uncovered lines in redirect signal."""
+
+    def test_redirect_loop_scores_zero(self):
+        """Redirect loop (current in visited) returns 0.0 (line 82)."""
+
+        def _mock_get(url, *, timeout=10):
+            if url == "https://a.com":
+                return {"status_code": 301, "location": "https://b.com"}
+            if url == "https://b.com":
+                return {"status_code": 301, "location": "https://a.com"}
+            return {"status_code": 200, "location": None}
+
+        with patch("slant.signals.redirect._http_get", side_effect=_mock_get):
+            score = check_redirect("https://a.com", "https://target.com")
+        assert score == 0.0
+
+
+class TestCompareContentCoverageGaps:
+    """Tests for uncovered lines in content signal."""
+
+    def test_empty_stripped_content_scores_zero(self):
+        """HTML with no visible text after strip_html scores 0.0 (line 93)."""
+
+        def _mock_fetch(url, *, timeout=10):
+            return "<html><head></head><body><script>code()</script></body></html>"
+
+        with patch("slant.signals.content._fetch_page", side_effect=_mock_fetch):
+            score = compare_content("https://example.com/page", "Some archived text")
+        assert score == 0.0
