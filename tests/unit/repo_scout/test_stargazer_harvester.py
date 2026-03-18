@@ -52,6 +52,14 @@ class TestIsRecentlyActive:
         # 6 months * 30 days = 180 days; use a date within that window
         assert _is_recently_active("2025-10-01T00:00:00Z", 6) is True
 
+    def test_malformed_date_returns_false(self) -> None:
+        """Malformed date string triggers ValueError path (lines 36-37)."""
+        assert _is_recently_active("not-a-date", 6) is False
+
+    def test_partial_iso_date_returns_false(self) -> None:
+        """Incomplete ISO date triggers ValueError in fromisoformat (lines 36-37)."""
+        assert _is_recently_active("2026-13-45T99:99:99Z", 6) is False
+
 
 class TestHarvestFromStargazers:
     """Tests for harvest_from_stargazers."""
