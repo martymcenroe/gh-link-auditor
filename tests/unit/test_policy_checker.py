@@ -7,7 +7,7 @@ Mock target for HTTP fetching: ``policy_checker.network_check_url``
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from gh_link_auditor.policy_checker import (
     PolicyCheckResult,
@@ -18,6 +18,7 @@ from gh_link_auditor.policy_checker import (
     fetch_contributing_content,
     parse_policy_keywords,
 )
+from tests.fakes.http import FakeURLResponse
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "contributing_samples"
 
@@ -193,11 +194,21 @@ class TestDetermineBlockStatus:
 # ---------------------------------------------------------------------------
 
 
+class _FakeStateDB:
+    """Simple tracking fake for StateDatabase blacklist operations."""
+
+    def __init__(self):
+        self.blacklist_calls: list[dict] = []
+
+    def add_to_blacklist(self, **kwargs):
+        self.blacklist_calls.append(kwargs)
+
+
 class TestLogPolicyResult:
     # T080
     def test_log_policy_blacklisted_status(self):
         """Blocked result is logged to state database as policy-blacklisted."""
-        mock_db = MagicMock()
+        fake_db = _FakeStateDB()
         result = PolicyCheckResult(
             repo_url="https://github.com/org/repo",
             contributing_found=True,
@@ -210,10 +221,9 @@ class TestLogPolicyResult:
         # Import here so we can call the logging function
         from gh_link_auditor.policy_checker import log_policy_result
 
-        log_policy_result(result, mock_db)
-        mock_db.add_to_blacklist.assert_called_once()
-        call_kwargs = mock_db.add_to_blacklist.call_args
-        assert "policy" in str(call_kwargs).lower()
+        log_policy_result(result, fake_db)
+        assert len(fake_db.blacklist_calls) == 1
+        assert "policy" in str(fake_db.blacklist_calls[0]).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -267,13 +277,9 @@ class TestFetchRawUrl:
         """_fetch_raw_url returns decoded content on 200 response."""
         from gh_link_auditor.policy_checker import _fetch_raw_url
 
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.read.return_value = b"# Contributing\nWelcome!"
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        fake_resp = FakeURLResponse(b"# Contributing\nWelcome!", status=200)
 
-        with patch("gh_link_auditor.policy_checker.urllib.request.urlopen", return_value=mock_resp):
+        with patch("gh_link_auditor.policy_checker.urllib.request.urlopen", return_value=fake_resp):
             result = _fetch_raw_url("https://example.com/CONTRIBUTING.md")
 
         assert result == "# Contributing\nWelcome!"
@@ -312,12 +318,9 @@ class TestFetchRawUrl:
         """_fetch_raw_url returns None when response status >= 400."""
         from gh_link_auditor.policy_checker import _fetch_raw_url
 
-        mock_resp = MagicMock()
-        mock_resp.status = 500
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        fake_resp = FakeURLResponse(b"Error", status=500)
 
-        with patch("gh_link_auditor.policy_checker.urllib.request.urlopen", return_value=mock_resp):
+        with patch("gh_link_auditor.policy_checker.urllib.request.urlopen", return_value=fake_resp):
             result = _fetch_raw_url("https://example.com/error")
 
         assert result is None
@@ -345,7 +348,7 @@ class TestLogPolicyResultEdgeCases:
         """When block_reason is None, fallback to 'policy-blacklisted'."""
         from gh_link_auditor.policy_checker import log_policy_result
 
-        mock_db = MagicMock()
+        fake_db = _FakeStateDB()
         result = PolicyCheckResult(
             repo_url="https://github.com/org/repo",
             contributing_found=True,
@@ -355,17 +358,18 @@ class TestLogPolicyResultEdgeCases:
             block_reason=None,
             status=PolicyStatus.BLOCKED,
         )
-        log_policy_result(result, mock_db)
-        mock_db.add_to_blacklist.assert_called_once_with(
-            repo_url="https://github.com/org/repo",
-            reason="policy-blacklisted",
-        )
+        log_policy_result(result, fake_db)
+        assert len(fake_db.blacklist_calls) == 1
+        assert fake_db.blacklist_calls[0] == {
+            "repo_url": "https://github.com/org/repo",
+            "reason": "policy-blacklisted",
+        }
 
     def test_log_allowed_result_does_not_blacklist(self):
         """Non-blocked result is not added to blacklist."""
         from gh_link_auditor.policy_checker import log_policy_result
 
-        mock_db = MagicMock()
+        fake_db = _FakeStateDB()
         result = PolicyCheckResult(
             repo_url="https://github.com/org/repo",
             contributing_found=True,
@@ -375,5 +379,5 @@ class TestLogPolicyResultEdgeCases:
             block_reason=None,
             status=PolicyStatus.ALLOWED,
         )
-        log_policy_result(result, mock_db)
-        mock_db.add_to_blacklist.assert_not_called()
+        log_policy_result(result, fake_db)
+        assert fake_db.blacklist_calls == []

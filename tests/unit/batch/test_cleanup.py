@@ -11,7 +11,9 @@ Covers LLD-019 scenarios:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
+
+import httpx
 
 from gh_link_auditor.batch.cleanup import (
     check_disk_usage,
@@ -19,6 +21,7 @@ from gh_link_auditor.batch.cleanup import (
     cleanup_remote_branch,
     prune_stale_forks,
 )
+from tests.fakes.http import FakeAsyncHTTPClient, FakeHTTPResponse
 
 
 class TestDiskUsage:
@@ -78,35 +81,23 @@ class TestCleanupRemoteBranch:
 
     def test_deletes_branch(self) -> None:
         """API called with correct params."""
-        mock_resp = AsyncMock()
-        mock_resp.status_code = 204
+        fake_resp = FakeHTTPResponse(status_code=204)
+        fake_client = FakeAsyncHTTPClient(default_response=fake_resp)
 
-        with patch("gh_link_auditor.batch.cleanup.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.delete = AsyncMock(return_value=mock_resp)
-            mock_client_cls.return_value = mock_client
-
+        with patch("gh_link_auditor.batch.cleanup.httpx.AsyncClient", return_value=fake_client):
             result = asyncio.run(cleanup_remote_branch("owner/repo", "fix/branch", "ghp_token"))
 
         assert result is True
-        mock_client.delete.assert_called_once()
-        call_url = mock_client.delete.call_args[0][0]
+        assert len(fake_client.calls) == 1
+        call_url = fake_client.calls[0][1]
         assert "owner/repo" in call_url
         assert "fix/branch" in call_url
 
     def test_failure_returns_false(self) -> None:
-        mock_resp = AsyncMock()
-        mock_resp.status_code = 404
+        fake_resp = FakeHTTPResponse(status_code=404)
+        fake_client = FakeAsyncHTTPClient(default_response=fake_resp)
 
-        with patch("gh_link_auditor.batch.cleanup.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.delete = AsyncMock(return_value=mock_resp)
-            mock_client_cls.return_value = mock_client
-
+        with patch("gh_link_auditor.batch.cleanup.httpx.AsyncClient", return_value=fake_client):
             result = asyncio.run(cleanup_remote_branch("owner/repo", "fix/branch", "ghp_token"))
 
         assert result is False
@@ -116,15 +107,9 @@ class TestCleanupRemoteBranchError:
     """Tests for cleanup_remote_branch error handling."""
 
     def test_http_error_returns_false(self) -> None:
-        import httpx
+        fake_client = FakeAsyncHTTPClient(side_effect=httpx.ConnectError("network"))
 
-        with patch("gh_link_auditor.batch.cleanup.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.delete = AsyncMock(side_effect=httpx.ConnectError("network"))
-            mock_client_cls.return_value = mock_client
-
+        with patch("gh_link_auditor.batch.cleanup.httpx.AsyncClient", return_value=fake_client):
             result = asyncio.run(cleanup_remote_branch("owner/repo", "branch", "token"))
 
         assert result is False

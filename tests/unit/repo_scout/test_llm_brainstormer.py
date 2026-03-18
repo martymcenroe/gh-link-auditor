@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from repo_scout.llm_brainstormer import (
     build_suggestion_prompt,
     parse_llm_response,
     suggest_repos,
     validate_suggestions,
 )
+from tests.fakes.github import FakeGitHubClient
 
 
 class TestBuildSuggestionPrompt:
@@ -82,31 +81,33 @@ class TestValidateSuggestions:
     """Tests for validate_suggestions."""
 
     def test_valid_repos(self) -> None:
-        mock_client = MagicMock()
-        mock_client.repo_exists.return_value = True
+        client = FakeGitHubClient()
+        client.configure_repo("org/repo1", {"name": "repo1"})
+        client.configure_repo("org/repo2", {"name": "repo2"})
 
-        records = validate_suggestions(["org/repo1", "org/repo2"], mock_client)
+        records = validate_suggestions(["org/repo1", "org/repo2"], client)
         assert len(records) == 2
         assert records[0]["full_name"] == "org/repo1"
         assert records[0]["sources"] == ["llm_suggestion"]
 
     def test_invalid_repo_skipped(self) -> None:
-        mock_client = MagicMock()
-        mock_client.repo_exists.side_effect = [True, False]
+        client = FakeGitHubClient()
+        client.configure_repo("org/real", {"name": "real"})
+        # org/fake not configured → repo_exists returns False
 
-        records = validate_suggestions(["org/real", "org/fake"], mock_client)
+        records = validate_suggestions(["org/real", "org/fake"], client)
         assert len(records) == 1
         assert records[0]["full_name"] == "org/real"
 
     def test_bad_format_skipped(self) -> None:
-        mock_client = MagicMock()
-        records = validate_suggestions(["not-a-repo-format"], mock_client)
+        client = FakeGitHubClient()
+        records = validate_suggestions(["not-a-repo-format"], client)
         assert records == []
-        mock_client.repo_exists.assert_not_called()
+        assert client.repo_exists_calls == []
 
     def test_empty_list(self) -> None:
-        mock_client = MagicMock()
-        records = validate_suggestions([], mock_client)
+        client = FakeGitHubClient()
+        records = validate_suggestions([], client)
         assert records == []
 
 
@@ -133,14 +134,14 @@ class TestSuggestRepos:
         assert result[0]["metadata"]["validated"] is False
 
     def test_with_response_and_client(self) -> None:
-        mock_client = MagicMock()
-        mock_client.repo_exists.return_value = True
+        client = FakeGitHubClient()
+        client.configure_repo("org/repo1", {"name": "repo1"})
 
         result = suggest_repos(
             keywords=["python"],
             existing_repos=[],
             llm_response="org/repo1",
-            github_client=mock_client,
+            github_client=client,
         )
         assert len(result) == 1
         assert result[0]["full_name"] == "org/repo1"

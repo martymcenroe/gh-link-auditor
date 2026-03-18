@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from docfix_bot.models import make_broken_link, make_target, now_iso
 from docfix_bot.scheduler import (
@@ -43,7 +43,7 @@ class TestShouldContinue:
 
 class TestRunDailyScan:
     @patch("docfix_bot.scheduler.load_targets")
-    def test_invalid_targets_returns_empty(self, mock_load: MagicMock, tmp_path: Path) -> None:
+    def test_invalid_targets_returns_empty(self, mock_load, tmp_path: Path) -> None:
         mock_load.side_effect = ValueError("not found")
         state = StateStore(tmp_path / "state.json")
         config = {"targets_path": str(tmp_path / "targets.yaml")}
@@ -60,13 +60,13 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_full_workflow(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_contributing: MagicMock,
-        mock_clone: MagicMock,
-        mock_scan: MagicMock,
-        mock_execute: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_contributing,
+        mock_clone,
+        mock_scan,
+        mock_execute,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -121,12 +121,12 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_no_broken_links(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_contributing: MagicMock,
-        mock_clone: MagicMock,
-        mock_scan: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_contributing,
+        mock_clone,
+        mock_scan,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -156,10 +156,10 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_clone_failure(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_clone: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_clone,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -179,9 +179,9 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_blocklisted_repo_skipped(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -202,11 +202,11 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_contributing_disallows_bots(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_contributing: MagicMock,
-        mock_clone: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_contributing,
+        mock_clone,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -241,12 +241,12 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_recently_scanned_skipped(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_contributing: MagicMock,
-        mock_clone: MagicMock,
-        mock_scan: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_contributing,
+        mock_clone,
+        mock_scan,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -274,12 +274,12 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_all_links_already_fixed(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_contributing: MagicMock,
-        mock_clone: MagicMock,
-        mock_scan: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_contributing,
+        mock_clone,
+        mock_scan,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -334,12 +334,12 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_no_fixable_links(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_contributing: MagicMock,
-        mock_clone: MagicMock,
-        mock_scan: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_contributing,
+        mock_clone,
+        mock_scan,
         tmp_path: Path,
     ) -> None:
         target = make_target("org", "repo")
@@ -372,10 +372,10 @@ class TestRunDailyScan:
     @patch("docfix_bot.scheduler.prioritize_targets")
     def test_limit_reached_mid_loop(
         self,
-        mock_prioritize: MagicMock,
-        mock_load: MagicMock,
-        mock_blocklist: MagicMock,
-        mock_should_continue: MagicMock,
+        mock_prioritize,
+        mock_load,
+        mock_blocklist,
+        mock_should_continue,
         tmp_path: Path,
     ) -> None:
         targets = [make_target("org", "repo1"), make_target("org", "repo2")]
@@ -392,7 +392,7 @@ class TestRunDailyScan:
         state.close()
 
     @patch("docfix_bot.scheduler.load_targets")
-    def test_default_config_and_state(self, mock_load: MagicMock, tmp_path: Path) -> None:
+    def test_default_config_and_state(self, mock_load, tmp_path: Path) -> None:
         """When config is None, get_default_config() is used."""
         mock_load.side_effect = ValueError("not found")
         # Pass None for config to trigger the default path

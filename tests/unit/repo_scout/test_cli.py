@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from repo_scout.cli import build_parser, main, print_progress, print_statistics
 from repo_scout.models import DiscoverySource, make_repo_record
+from tests.fakes.github import FakeGitHubClient
 
 
 def _repo(owner: str = "org", name: str = "repo", source: str = "awesome_list") -> dict:
@@ -117,28 +118,28 @@ class TestMain:
 
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.write_output")
-    def test_no_sources_writes_empty(self, mock_write: MagicMock, mock_client_cls: MagicMock, tmp_path: Path) -> None:
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
+    def test_no_sources_writes_empty(self, mock_write, mock_client_cls, tmp_path: Path) -> None:
+        fake_client = FakeGitHubClient()
+        mock_client_cls.return_value = fake_client
         mock_write.return_value = 0
 
         output = str(tmp_path / "out.json")
         exit_code = main(["--output", output])
         assert exit_code == 0
-        mock_client.close.assert_called_once()
+        assert fake_client.close_calls == 1
 
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.parse_awesome_list")
     @patch("repo_scout.cli.write_output")
     def test_awesome_list_source(
         self,
-        mock_write: MagicMock,
-        mock_parse: MagicMock,
-        mock_client_cls: MagicMock,
+        mock_write,
+        mock_parse,
+        mock_client_cls,
         tmp_path: Path,
     ) -> None:
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
+        fake_client = FakeGitHubClient()
+        mock_client_cls.return_value = fake_client
         mock_parse.return_value = [_repo("org", "repo")]
         mock_write.return_value = 1
 
@@ -152,33 +153,33 @@ class TestMain:
     @patch("repo_scout.cli.write_output")
     def test_star_walking_source(
         self,
-        mock_write: MagicMock,
-        mock_walk: MagicMock,
-        mock_client_cls: MagicMock,
+        mock_write,
+        mock_walk,
+        mock_client_cls,
         tmp_path: Path,
     ) -> None:
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
+        fake_client = FakeGitHubClient()
+        mock_client_cls.return_value = fake_client
         mock_walk.return_value = [_repo("org", "starred", "starred_repo")]
         mock_write.return_value = 1
 
         output = str(tmp_path / "out.json")
         exit_code = main(["--root-users", "user1", "--star-depth", "3", "--output", output])
         assert exit_code == 0
-        mock_walk.assert_called_once_with("user1", mock_client, max_depth=3)
+        mock_walk.assert_called_once_with("user1", fake_client, max_depth=3)
 
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.suggest_repos")
     @patch("repo_scout.cli.write_output")
     def test_keywords_source(
         self,
-        mock_write: MagicMock,
-        mock_suggest: MagicMock,
-        mock_client_cls: MagicMock,
+        mock_write,
+        mock_suggest,
+        mock_client_cls,
         tmp_path: Path,
     ) -> None:
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
+        fake_client = FakeGitHubClient()
+        mock_client_cls.return_value = fake_client
         mock_suggest.return_value = []
         mock_write.return_value = 0
 
@@ -189,27 +190,27 @@ class TestMain:
 
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.parse_awesome_list")
-    def test_error_returns_1(self, mock_parse: MagicMock, mock_client_cls: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
+    def test_error_returns_1(self, mock_parse, mock_client_cls) -> None:
+        fake_client = FakeGitHubClient()
+        mock_client_cls.return_value = fake_client
         mock_parse.side_effect = RuntimeError("Boom")
 
         exit_code = main(["--awesome-lists", "https://example.com"])
         assert exit_code == 1
-        mock_client.close.assert_called_once()
+        assert fake_client.close_calls == 1
 
     @patch("repo_scout.cli.harvest_from_stargazers")
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.write_output")
     def test_seed_repos_calls_harvester(
         self,
-        mock_write: MagicMock,
-        mock_client_cls: MagicMock,
-        mock_harvest: MagicMock,
+        mock_write,
+        mock_client_cls,
+        mock_harvest,
         tmp_path: Path,
     ) -> None:
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
+        fake_client = FakeGitHubClient()
+        mock_client_cls.return_value = fake_client
         mock_harvest.return_value = [_repo("alice", "tool", "stargazer_target")]
         mock_write.return_value = 1
 
@@ -236,11 +237,9 @@ class TestMain:
     @patch("repo_scout.cli.GitHubClient")
     @patch("repo_scout.cli.write_output")
     @patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"})
-    def test_reads_github_token_from_env(
-        self, mock_write: MagicMock, mock_client_cls: MagicMock, tmp_path: Path
-    ) -> None:
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
+    def test_reads_github_token_from_env(self, mock_write, mock_client_cls, tmp_path: Path) -> None:
+        fake_client = FakeGitHubClient()
+        mock_client_cls.return_value = fake_client
         mock_write.return_value = 0
 
         output = str(tmp_path / "out.json")

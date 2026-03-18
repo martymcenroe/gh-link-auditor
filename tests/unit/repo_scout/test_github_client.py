@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 
 from repo_scout.github_client import GitHubClient
+from tests.fakes.http import FakeHTTPResponse
 
 
 class TestGitHubClientInit:
@@ -45,7 +46,7 @@ class TestRateLimit:
     """Tests for rate limiting."""
 
     @patch("repo_scout.github_client.time")
-    def test_rate_limit_enforced(self, mock_time: MagicMock) -> None:
+    def test_rate_limit_enforced(self, mock_time) -> None:
         mock_time.time.side_effect = [0.0, 0.5, 1.5]
         client = GitHubClient(rate_limit_delay=1.0)
         client._last_request_time = 0.0
@@ -57,7 +58,7 @@ class TestRateLimit:
         client.close()
 
     @patch("repo_scout.github_client.time")
-    def test_no_wait_if_enough_time_passed(self, mock_time: MagicMock) -> None:
+    def test_no_wait_if_enough_time_passed(self, mock_time) -> None:
         client = GitHubClient(rate_limit_delay=1.0)
         client._last_request_time = 0.0
 
@@ -73,31 +74,27 @@ class TestRequest:
 
     def test_success_200(self) -> None:
         client = GitHubClient(rate_limit_delay=0.0)
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": 1}
+        fake_response = FakeHTTPResponse(status_code=200, body={"id": 1})
 
-        with patch.object(client._client, "get", return_value=mock_response):
+        with patch.object(client._client, "get", return_value=fake_response):
             result = client.request("/repos/owner/name")
         assert result == {"id": 1}
         client.close()
 
     def test_not_found_404(self) -> None:
         client = GitHubClient(rate_limit_delay=0.0)
-        mock_response = MagicMock()
-        mock_response.status_code = 404
+        fake_response = FakeHTTPResponse(status_code=404)
 
-        with patch.object(client._client, "get", return_value=mock_response):
+        with patch.object(client._client, "get", return_value=fake_response):
             result = client.request("/repos/owner/nonexistent")
         assert result is None
         client.close()
 
     def test_other_status_code(self) -> None:
         client = GitHubClient(rate_limit_delay=0.0)
-        mock_response = MagicMock()
-        mock_response.status_code = 403
+        fake_response = FakeHTTPResponse(status_code=403)
 
-        with patch.object(client._client, "get", return_value=mock_response):
+        with patch.object(client._client, "get", return_value=fake_response):
             result = client.request("/repos/owner/name")
         assert result is None
         client.close()
@@ -112,11 +109,9 @@ class TestRequest:
 
     def test_full_url_used_when_no_slash_prefix(self) -> None:
         client = GitHubClient(rate_limit_delay=0.0)
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"ok": True}
+        fake_response = FakeHTTPResponse(status_code=200, body={"ok": True})
 
-        with patch.object(client._client, "get", return_value=mock_response) as mock_get:
+        with patch.object(client._client, "get", return_value=fake_response) as mock_get:
             client.request("https://custom.api/endpoint")
         mock_get.assert_called_once_with("https://custom.api/endpoint")
         client.close()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 
@@ -12,6 +12,7 @@ from repo_scout.awesome_parser import (
     normalize_github_url,
     parse_awesome_list,
 )
+from tests.fakes.http import FakeHTTPResponse
 
 
 class TestNormalizeGitHubUrl:
@@ -132,11 +133,8 @@ class TestFetchMarkdown:
     """Tests for _fetch_markdown."""
 
     @patch("repo_scout.awesome_parser.httpx.get")
-    def test_github_url_converts_to_raw(self, mock_get: MagicMock) -> None:
-        mock_response = MagicMock()
-        mock_response.text = "# Awesome"
-        mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+    def test_github_url_converts_to_raw(self, mock_get) -> None:
+        mock_get.return_value = FakeHTTPResponse(status_code=200, text="# Awesome")
 
         result = _fetch_markdown("https://github.com/org/awesome-list")
         assert result == "# Awesome"
@@ -147,11 +145,8 @@ class TestFetchMarkdown:
         )
 
     @patch("repo_scout.awesome_parser.httpx.get")
-    def test_non_github_url_used_directly(self, mock_get: MagicMock) -> None:
-        mock_response = MagicMock()
-        mock_response.text = "content"
-        mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
+    def test_non_github_url_used_directly(self, mock_get) -> None:
+        mock_get.return_value = FakeHTTPResponse(status_code=200, text="content")
 
         result = _fetch_markdown("https://example.com/list.md")
         assert result == "content"
@@ -162,18 +157,15 @@ class TestFetchMarkdown:
         )
 
     @patch("repo_scout.awesome_parser.httpx.get")
-    def test_http_error_returns_empty(self, mock_get: MagicMock) -> None:
+    def test_http_error_returns_empty(self, mock_get) -> None:
         mock_get.side_effect = httpx.ConnectError("fail")
         result = _fetch_markdown("https://github.com/org/repo")
         assert result == ""
 
     @patch("repo_scout.awesome_parser.httpx.get")
-    def test_raise_for_status_error(self, mock_get: MagicMock) -> None:
-        mock_response = MagicMock()
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404", request=MagicMock(), response=MagicMock()
-        )
-        mock_get.return_value = mock_response
+    def test_raise_for_status_error(self, mock_get) -> None:
+        fake_resp = FakeHTTPResponse(status_code=404, text="Not Found")
+        mock_get.return_value = fake_resp
 
         result = _fetch_markdown("https://github.com/org/repo")
         assert result == ""
@@ -183,7 +175,7 @@ class TestParseAwesomeList:
     """Tests for parse_awesome_list."""
 
     @patch("repo_scout.awesome_parser._fetch_markdown")
-    def test_full_parse(self, mock_fetch: MagicMock) -> None:
+    def test_full_parse(self, mock_fetch) -> None:
         mock_fetch.return_value = """# Awesome
 
 ## Tools
@@ -200,13 +192,13 @@ class TestParseAwesomeList:
         assert records[0]["metadata"]["source_url"] == "https://github.com/org/awesome-list"
 
     @patch("repo_scout.awesome_parser._fetch_markdown")
-    def test_empty_markdown(self, mock_fetch: MagicMock) -> None:
+    def test_empty_markdown(self, mock_fetch) -> None:
         mock_fetch.return_value = ""
         records = parse_awesome_list("https://github.com/org/awesome")
         assert records == []
 
     @patch("repo_scout.awesome_parser._fetch_markdown")
-    def test_dedup_within_list(self, mock_fetch: MagicMock) -> None:
+    def test_dedup_within_list(self, mock_fetch) -> None:
         mock_fetch.return_value = """- [A](https://github.com/org/repo) - First mention
 - [B](https://github.com/org/repo) - Duplicate
 """
@@ -214,28 +206,24 @@ class TestParseAwesomeList:
         assert len(records) == 1
 
     @patch("repo_scout.awesome_parser._fetch_markdown")
-    def test_no_section_metadata(self, mock_fetch: MagicMock) -> None:
+    def test_no_section_metadata(self, mock_fetch) -> None:
         mock_fetch.return_value = "- [Repo](https://github.com/org/repo) - Desc"
         records = parse_awesome_list("https://github.com/org/awesome")
         assert len(records) == 1
         assert "section" not in records[0]["metadata"]
 
     @patch("repo_scout.awesome_parser._fetch_markdown")
-    def test_link_text_in_metadata(self, mock_fetch: MagicMock) -> None:
+    def test_link_text_in_metadata(self, mock_fetch) -> None:
         mock_fetch.return_value = "- [My Tool](https://github.com/org/tool) - Desc"
         records = parse_awesome_list("https://github.com/org/awesome")
         assert records[0]["metadata"]["link_text"] == "My Tool"
 
     @patch("repo_scout.awesome_parser._fetch_markdown")
-    def test_filtered_urls_excluded(self, mock_fetch: MagicMock) -> None:
+    def test_filtered_urls_excluded(self, mock_fetch) -> None:
         mock_fetch.return_value = (
             "- [Features](https://github.com/features/something) - Not a repo\n"
             "- [Real](https://github.com/org/real) - A repo"
         )
         records = parse_awesome_list("https://github.com/org/awesome")
-        # "features/something" won't match _GITHUB_LINK_RE since the regex requires
-        # the link to be in the format github.com/owner/repo, and the link format
-        # in extract_github_links is different from normalize_github_url.
-        # The normalize step will filter it.
         for r in records:
             assert r["owner"] != "features"
