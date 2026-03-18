@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from docfix_bot.git_workflow import (
     apply_fixes,
@@ -14,6 +14,8 @@ from docfix_bot.git_workflow import (
     generate_commit_message,
 )
 from docfix_bot.models import make_broken_link, make_target
+from tests.fakes.git import FakeGitRepo
+from tests.fakes.http import FakeHTTPResponse
 
 
 class TestCreateBranchName:
@@ -133,10 +135,10 @@ class TestApplyFixes:
 
 class TestCreatePullRequest:
     @patch("docfix_bot.git_workflow.httpx.post")
-    def test_success(self, mock_post: MagicMock) -> None:
-        mock_post.return_value = MagicMock(
+    def test_success(self, mock_post) -> None:
+        mock_post.return_value = FakeHTTPResponse(
             status_code=201,
-            json=lambda: {"number": 42, "html_url": "https://github.com/org/repo/pull/42"},
+            body={"number": 42, "html_url": "https://github.com/org/repo/pull/42"},
         )
         target = make_target("org", "repo")
         config = {"github_token": "ghp_test"}
@@ -145,8 +147,8 @@ class TestCreatePullRequest:
         assert pr_url == "https://github.com/org/repo/pull/42"
 
     @patch("docfix_bot.git_workflow.httpx.post")
-    def test_failure(self, mock_post: MagicMock) -> None:
-        mock_post.return_value = MagicMock(
+    def test_failure(self, mock_post) -> None:
+        mock_post.return_value = FakeHTTPResponse(
             status_code=422,
             text="Validation failed",
         )
@@ -162,7 +164,7 @@ class TestCreatePullRequest:
         assert pr_num is None
 
     @patch("docfix_bot.git_workflow.httpx.post")
-    def test_http_error(self, mock_post: MagicMock) -> None:
+    def test_http_error(self, mock_post) -> None:
         import httpx
 
         mock_post.side_effect = httpx.ConnectError("fail")
@@ -174,7 +176,7 @@ class TestCreatePullRequest:
 
 class TestCloneRepository:
     @patch("git.Repo.clone_from")
-    def test_success(self, mock_clone: MagicMock, tmp_path: Path) -> None:
+    def test_success(self, mock_clone, tmp_path: Path) -> None:
         target = make_target("org", "repo")
         result = clone_repository(target, tmp_path, shallow=True)
         assert result == tmp_path / "repo"
@@ -183,14 +185,14 @@ class TestCloneRepository:
         assert call_kwargs.get("depth") == 1
 
     @patch("git.Repo.clone_from")
-    def test_non_shallow(self, mock_clone: MagicMock, tmp_path: Path) -> None:
+    def test_non_shallow(self, mock_clone, tmp_path: Path) -> None:
         target = make_target("org", "repo")
         clone_repository(target, tmp_path, shallow=False)
         call_kwargs = mock_clone.call_args[1]
         assert "depth" not in call_kwargs
 
     @patch("git.Repo.clone_from")
-    def test_clone_failure(self, mock_clone: MagicMock, tmp_path: Path) -> None:
+    def test_clone_failure(self, mock_clone, tmp_path: Path) -> None:
         import git as gitmodule
         import pytest
 
@@ -206,16 +208,16 @@ class TestExecuteFixWorkflow:
     @patch("git.Repo")
     def test_full_workflow(
         self,
-        mock_repo_cls: MagicMock,
-        mock_clone: MagicMock,
-        mock_create_pr: MagicMock,
+        mock_repo_cls,
+        mock_clone,
+        mock_create_pr,
         tmp_path: Path,
     ) -> None:
         mock_clone.return_value = tmp_path
         readme = tmp_path / "README.md"
         readme.write_text("Visit [link](https://old.com) for info.\n")
 
-        mock_repo = MagicMock()
+        mock_repo = FakeGitRepo(tmp_path)
         mock_repo_cls.return_value = mock_repo
 
         mock_create_pr.return_value = (42, "https://github.com/org/repo/pull/42")
@@ -252,16 +254,16 @@ class TestExecuteFixWorkflow:
     @patch("git.Repo")
     def test_no_modifications(
         self,
-        mock_repo_cls: MagicMock,
-        mock_clone: MagicMock,
-        mock_create_pr: MagicMock,
+        mock_repo_cls,
+        mock_clone,
+        mock_create_pr,
         tmp_path: Path,
     ) -> None:
         mock_clone.return_value = tmp_path
         readme = tmp_path / "README.md"
         readme.write_text("No matching URLs here.\n")
 
-        mock_repo = MagicMock()
+        mock_repo = FakeGitRepo(tmp_path)
         mock_repo_cls.return_value = mock_repo
 
         target = make_target("org", "repo")
@@ -286,16 +288,16 @@ class TestExecuteFixWorkflow:
     @patch("git.Repo")
     def test_no_token_push_skipped(
         self,
-        mock_repo_cls: MagicMock,
-        mock_clone: MagicMock,
-        mock_create_pr: MagicMock,
+        mock_repo_cls,
+        mock_clone,
+        mock_create_pr,
         tmp_path: Path,
     ) -> None:
         mock_clone.return_value = tmp_path
         readme = tmp_path / "README.md"
         readme.write_text("Visit [link](https://old.com) for info.\n")
 
-        mock_repo = MagicMock()
+        mock_repo = FakeGitRepo(tmp_path)
         mock_repo_cls.return_value = mock_repo
 
         mock_create_pr.return_value = (None, None)
@@ -313,5 +315,5 @@ class TestExecuteFixWorkflow:
 
         result = execute_fix_workflow(target, [link], config, "title", "body")
 
-        mock_repo.git.push.assert_not_called()
+        assert mock_repo.git.push_calls == []
         assert result["status"] == "pending"

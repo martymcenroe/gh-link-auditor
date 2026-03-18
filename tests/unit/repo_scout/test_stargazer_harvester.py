@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from repo_scout.models import DiscoverySource, make_repo_record
 from repo_scout.stargazer_harvester import (
     _is_recently_active,
     harvest_from_stargazers,
 )
+from tests.fakes.github import FakeGitHubClient
 
 
 def _make_user_repo(
@@ -65,22 +64,25 @@ class TestHarvestFromStargazers:
     """Tests for harvest_from_stargazers."""
 
     def test_basic_harvest(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["alice"]
-        client.get_user_repos.return_value = [
-            make_repo_record(
-                owner="alice",
-                name="cool-tool",
-                source=DiscoverySource.STARGAZER_TARGET,
-                metadata={
-                    "seed_repo": "anthropics/claude-code",
-                    "stargazer_username": "alice",
-                    "pushed_at": "2026-02-01T00:00:00Z",
-                    "has_issues": True,
-                    "language": "Python",
-                },
-            )
-        ]
+        client = FakeGitHubClient()
+        client.configure_stargazers("anthropics/claude-code", ["alice"])
+        client.configure_user_repos(
+            "alice",
+            [
+                make_repo_record(
+                    owner="alice",
+                    name="cool-tool",
+                    source=DiscoverySource.STARGAZER_TARGET,
+                    metadata={
+                        "seed_repo": "anthropics/claude-code",
+                        "stargazer_username": "alice",
+                        "pushed_at": "2026-02-01T00:00:00Z",
+                        "has_issues": True,
+                        "language": "Python",
+                    },
+                )
+            ],
+        )
 
         result = harvest_from_stargazers(
             seed_repos=["anthropics/claude-code"],
@@ -93,45 +95,44 @@ class TestHarvestFromStargazers:
         assert result[0]["sources"] == ["stargazer_target"]
 
     def test_empty_stargazers_returns_empty(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = []
+        client = FakeGitHubClient()
+        # No stargazers configured → returns empty
 
         result = harvest_from_stargazers(
             seed_repos=["org/repo"],
             github_client=client,
         )
         assert result == []
-        client.get_user_repos.assert_not_called()
+        assert client.get_user_repos_calls == []
 
     def test_max_stargazers_respected(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["u1", "u2", "u3"]
-        client.get_user_repos.return_value = []
+        client = FakeGitHubClient()
+        client.configure_stargazers("org/repo", ["u1", "u2", "u3"])
 
         harvest_from_stargazers(
             seed_repos=["org/repo"],
             github_client=client,
             max_stargazers=50,
         )
-        client.get_stargazers.assert_called_once_with("org", "repo", max_count=50)
+        assert len(client.get_stargazers_calls) == 1
+        assert client.get_stargazers_calls[0] == ("org", "repo", 50)
 
     def test_duplicate_stargazers_across_seeds_processed_once(self) -> None:
-        client = MagicMock()
+        client = FakeGitHubClient()
         # Both seeds return the same stargazer
-        client.get_stargazers.side_effect = [["alice"], ["alice"]]
-        client.get_user_repos.return_value = []
+        client.configure_stargazers("org/repo1", ["alice"])
+        client.configure_stargazers("org/repo2", ["alice"])
 
         harvest_from_stargazers(
             seed_repos=["org/repo1", "org/repo2"],
             github_client=client,
         )
         # get_user_repos should only be called once for alice
-        assert client.get_user_repos.call_count == 1
+        assert len(client.get_user_repos_calls) == 1
 
     def test_repo_age_filtering_old_repo_excluded(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["alice"]
-        # get_user_repos returns a repo but with old pushed_at
+        client = FakeGitHubClient()
+        client.configure_stargazers("org/repo", ["alice"])
         old_repo = make_repo_record(
             owner="alice",
             name="old-repo",
@@ -144,7 +145,7 @@ class TestHarvestFromStargazers:
                 "language": "Python",
             },
         )
-        client.get_user_repos.return_value = [old_repo]
+        client.configure_user_repos("alice", [old_repo])
 
         result = harvest_from_stargazers(
             seed_repos=["org/repo"],
@@ -154,8 +155,8 @@ class TestHarvestFromStargazers:
         assert result == []
 
     def test_repo_age_filtering_recent_repo_included(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["alice"]
+        client = FakeGitHubClient()
+        client.configure_stargazers("org/repo", ["alice"])
         recent_repo = make_repo_record(
             owner="alice",
             name="new-repo",
@@ -168,7 +169,7 @@ class TestHarvestFromStargazers:
                 "language": "Python",
             },
         )
-        client.get_user_repos.return_value = [recent_repo]
+        client.configure_user_repos("alice", [recent_repo])
 
         result = harvest_from_stargazers(
             seed_repos=["org/repo"],
@@ -178,8 +179,8 @@ class TestHarvestFromStargazers:
         assert len(result) == 1
 
     def test_repo_age_filtering_none_pushed_at_excluded(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["alice"]
+        client = FakeGitHubClient()
+        client.configure_stargazers("org/repo", ["alice"])
         no_push_repo = make_repo_record(
             owner="alice",
             name="no-push",
@@ -192,7 +193,7 @@ class TestHarvestFromStargazers:
                 "language": None,
             },
         )
-        client.get_user_repos.return_value = [no_push_repo]
+        client.configure_user_repos("alice", [no_push_repo])
 
         result = harvest_from_stargazers(
             seed_repos=["org/repo"],
@@ -202,8 +203,8 @@ class TestHarvestFromStargazers:
         assert result == []
 
     def test_metadata_includes_seed_and_stargazer(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["bob"]
+        client = FakeGitHubClient()
+        client.configure_stargazers("anthropics/claude-code", ["bob"])
         repo = make_repo_record(
             owner="bob",
             name="tool",
@@ -216,7 +217,7 @@ class TestHarvestFromStargazers:
                 "language": "TypeScript",
             },
         )
-        client.get_user_repos.return_value = [repo]
+        client.configure_user_repos("bob", [repo])
 
         result = harvest_from_stargazers(
             seed_repos=["anthropics/claude-code"],
@@ -226,31 +227,34 @@ class TestHarvestFromStargazers:
         assert result[0]["metadata"]["stargazer_username"] == "bob"
 
     def test_invalid_seed_repo_format_skipped(self) -> None:
-        client = MagicMock()
+        client = FakeGitHubClient()
 
         result = harvest_from_stargazers(
             seed_repos=["invalid-no-slash"],
             github_client=client,
         )
         assert result == []
-        client.get_stargazers.assert_not_called()
+        assert client.get_stargazers_calls == []
 
     def test_progress_callback_invoked(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["alice"]
-        client.get_user_repos.return_value = []
-        callback = MagicMock()
+        client = FakeGitHubClient()
+        client.configure_stargazers("org/repo", ["alice"])
+        call_count = 0
+
+        def tracking_callback(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
 
         harvest_from_stargazers(
             seed_repos=["org/repo"],
             github_client=client,
-            progress_callback=callback,
+            progress_callback=tracking_callback,
         )
-        assert callback.call_count >= 1
+        assert call_count >= 1
 
     def test_source_is_stargazer_target(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.return_value = ["alice"]
+        client = FakeGitHubClient()
+        client.configure_stargazers("org/repo", ["alice"])
         repo = make_repo_record(
             owner="alice",
             name="tool",
@@ -263,7 +267,7 @@ class TestHarvestFromStargazers:
                 "language": "Python",
             },
         )
-        client.get_user_repos.return_value = [repo]
+        client.configure_user_repos("alice", [repo])
 
         result = harvest_from_stargazers(
             seed_repos=["org/repo"],
@@ -272,8 +276,9 @@ class TestHarvestFromStargazers:
         assert result[0]["sources"] == ["stargazer_target"]
 
     def test_multiple_seeds_aggregate_results(self) -> None:
-        client = MagicMock()
-        client.get_stargazers.side_effect = [["alice"], ["bob"]]
+        client = FakeGitHubClient()
+        client.configure_stargazers("org/r1", ["alice"])
+        client.configure_stargazers("org/r2", ["bob"])
         repo_a = make_repo_record(
             owner="alice",
             name="a-tool",
@@ -298,7 +303,8 @@ class TestHarvestFromStargazers:
                 "language": None,
             },
         )
-        client.get_user_repos.side_effect = [[repo_a], [repo_b]]
+        client.configure_user_repos("alice", [repo_a])
+        client.configure_user_repos("bob", [repo_b])
 
         result = harvest_from_stargazers(
             seed_repos=["org/r1", "org/r2"],

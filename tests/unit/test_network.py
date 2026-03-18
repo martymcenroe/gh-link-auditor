@@ -27,6 +27,7 @@ from gh_link_auditor.network import (
     create_request_config,
     should_retry,
 )
+from tests.fakes.http import FakeURLResponse
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -52,17 +53,8 @@ def no_retry_backoff_config() -> BackoffConfig:
 
 
 def _mock_urlopen_response(status: int = 200, headers: dict | None = None):
-    """Create a mock response object for urllib.request.urlopen."""
-    resp = mock.MagicMock()
-    resp.status = status
-    resp.headers = mock.MagicMock()
-    if headers:
-        resp.headers.get = lambda key, default=None: headers.get(key, default)
-    else:
-        resp.headers.get = lambda key, default=None: default
-    resp.__enter__ = mock.MagicMock(return_value=resp)
-    resp.__exit__ = mock.MagicMock(return_value=False)
-    return resp
+    """Create a fake response object for urllib.request.urlopen."""
+    return FakeURLResponse(data=b"", status=status, headers=headers or {})
 
 
 # ---------------------------------------------------------------------------
@@ -253,8 +245,7 @@ class TestRetryOn429:
 
     def test_retry_on_429(self):
         """429 twice then 200 → ok with retries=2."""
-        headers_429 = mock.MagicMock()
-        headers_429.get = lambda key, default=None: None
+        headers_429 = {}  # Empty headers dict (no Retry-After)
 
         http_error_429 = urllib.error.HTTPError(
             "https://example.com",
@@ -297,8 +288,7 @@ class TestRetryRespectsRetryAfter:
 
     def test_retry_respects_retry_after(self):
         """429 with Retry-After: 5 → delay ≥ 5 seconds."""
-        headers_429 = mock.MagicMock()
-        headers_429.get = lambda key, default=None: "5" if key == "Retry-After" else default
+        headers_429 = {"Retry-After": "5"}
 
         http_error_429 = urllib.error.HTTPError(
             "https://example.com",
@@ -467,8 +457,7 @@ class TestMaxRetriesHonored:
 
     def test_max_retries_honored(self):
         """Always 429 → stops at max_retries=2, returns error."""
-        headers_429 = mock.MagicMock()
-        headers_429.get = lambda key, default=None: None
+        headers_429 = {}  # Empty headers dict (no Retry-After)
 
         http_error_429 = urllib.error.HTTPError(
             "https://example.com",
@@ -792,8 +781,7 @@ class TestCheckUrlFullFlow:
 
     def test_429_then_405_then_get_success(self):
         """429 → retry → 405 → GET fallback → 200."""
-        headers_429 = mock.MagicMock()
-        headers_429.get = lambda key, default=None: None
+        headers_429 = {}  # Empty headers dict (no Retry-After)
 
         call_count = 0
 
@@ -835,8 +823,7 @@ class TestCheckUrlFullFlow:
 
     def test_503_exhausts_retries(self):
         """503 on every attempt exhausts retries and returns error."""
-        headers_503 = mock.MagicMock()
-        headers_503.get = lambda key, default=None: None
+        headers_503 = {}  # Empty headers dict (no Retry-After)
 
         def side_effect(*args, **kwargs):
             raise urllib.error.HTTPError(

@@ -22,6 +22,12 @@ class FakeGitHubClient:
         self._repos: dict[str, dict] = {}
         self._request_responses: dict[str, dict | list | None] = {}
         self.request_log: list[str] = []
+        # Call tracking for assertion support
+        self.get_stargazers_calls: list[tuple[str, str, int]] = []
+        self.get_user_repos_calls: list[str] = []
+        self.get_starred_calls: list[str] = []
+        self.repo_exists_calls: list[str] = []
+        self.close_calls: int = 0
 
     def configure_stargazers(self, owner_repo: str, users: list[str]) -> None:
         """Set stargazer usernames for a repo (e.g. "owner/repo")."""
@@ -45,15 +51,18 @@ class FakeGitHubClient:
 
     def get_stargazers(self, owner: str, repo: str, max_count: int = 100) -> list[str]:
         """Return configured stargazer usernames."""
+        self.get_stargazers_calls.append((owner, repo, max_count))
         key = f"{owner}/{repo}"
         return self._stargazers.get(key, [])[:max_count]
 
     def get_user_repos(self, username: str) -> list[RepositoryRecord]:
         """Return configured user repos."""
+        self.get_user_repos_calls.append(username)
         return self._user_repos.get(username, [])
 
     def get_starred(self, username: str) -> list[RepositoryRecord]:
         """Return configured starred repos."""
+        self.get_starred_calls.append(username)
         return self._starred.get(username, [])
 
     def get_repo(self, owner: str, name: str) -> RepositoryRecord | None:
@@ -72,6 +81,7 @@ class FakeGitHubClient:
 
     def repo_exists(self, full_name: str) -> bool:
         """Check if a repo was configured."""
+        self.repo_exists_calls.append(full_name)
         return full_name in self._repos
 
     def request(self, endpoint: str) -> dict | list | None:
@@ -80,4 +90,5 @@ class FakeGitHubClient:
         return self._request_responses.get(endpoint)
 
     def close(self) -> None:
-        """No-op close."""
+        """Track close call."""
+        self.close_calls += 1

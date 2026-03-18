@@ -6,9 +6,10 @@ Covers: ArchiveClient.get_latest_snapshot(), fetch_snapshot_content(),
         extract_title(), extract_content_summary()
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from gh_link_auditor.archive_client import ArchiveClient, _cdx_request, _fetch_url_content
+from tests.fakes.http import FakeURLResponse
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -201,23 +202,17 @@ class TestExtractContentSummary:
 class TestCdxRequest:
     def test_cdx_request_success(self):
         """_cdx_request returns decoded response body."""
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = b"response data"
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        fake_resp = FakeURLResponse(data=b"response data")
 
-        with patch("gh_link_auditor.archive_client.urllib.request.urlopen", return_value=mock_resp):
+        with patch("gh_link_auditor.archive_client.urllib.request.urlopen", return_value=fake_resp):
             result = _cdx_request("https://web.archive.org/cdx/search/cdx?url=test")
         assert result == "response data"
 
     def test_fetch_url_content_success(self):
         """_fetch_url_content returns decoded HTML."""
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = b"<html>test</html>"
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        fake_resp = FakeURLResponse(data=b"<html>test</html>")
 
-        with patch("gh_link_auditor.archive_client.urllib.request.urlopen", return_value=mock_resp):
+        with patch("gh_link_auditor.archive_client.urllib.request.urlopen", return_value=fake_resp):
             result = _fetch_url_content("https://web.archive.org/web/snapshot")
         assert result == "<html>test</html>"
 

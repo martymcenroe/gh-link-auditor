@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 
@@ -15,6 +15,7 @@ from docfix_bot.link_scanner import (
     suggest_fix,
 )
 from docfix_bot.models import make_target
+from tests.fakes.http import FakeHTTPResponse
 
 
 class TestExtractLinksFromMarkdown:
@@ -65,9 +66,9 @@ See https://c.com for details.
 class TestCheckLink:
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     @patch("docfix_bot.link_scanner.httpx.head")
-    def test_working_link(self, mock_head: MagicMock, mock_validate: MagicMock) -> None:
+    def test_working_link(self, mock_head, mock_validate) -> None:
         mock_validate.return_value = {"is_safe": True, "url": "", "resolved_ip": None, "rejection_reason": None}
-        mock_head.return_value = MagicMock(status_code=200)
+        mock_head.return_value = FakeHTTPResponse(status_code=200)
         config = get_default_config()
         status, error = check_link("https://example.com", config)
         assert status == 200
@@ -75,15 +76,15 @@ class TestCheckLink:
 
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     @patch("docfix_bot.link_scanner.httpx.head")
-    def test_broken_404(self, mock_head: MagicMock, mock_validate: MagicMock) -> None:
+    def test_broken_404(self, mock_head, mock_validate) -> None:
         mock_validate.return_value = {"is_safe": True, "url": "", "resolved_ip": None, "rejection_reason": None}
-        mock_head.return_value = MagicMock(status_code=404)
+        mock_head.return_value = FakeHTTPResponse(status_code=404)
         config = get_default_config()
         status, error = check_link("https://example.com/missing", config)
         assert status == 404
 
     @patch("docfix_bot.link_scanner.validate_ip_safety")
-    def test_ssrf_blocked(self, mock_validate: MagicMock) -> None:
+    def test_ssrf_blocked(self, mock_validate) -> None:
         mock_validate.return_value = {
             "is_safe": False,
             "url": "",
@@ -98,10 +99,10 @@ class TestCheckLink:
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     @patch("docfix_bot.link_scanner.httpx.head")
     @patch("docfix_bot.link_scanner.httpx.get")
-    def test_antibot_retry(self, mock_get: MagicMock, mock_head: MagicMock, mock_validate: MagicMock) -> None:
+    def test_antibot_retry(self, mock_get, mock_head, mock_validate) -> None:
         mock_validate.return_value = {"is_safe": True, "url": "", "resolved_ip": None, "rejection_reason": None}
-        mock_head.return_value = MagicMock(status_code=403)
-        mock_get.return_value = MagicMock(status_code=200)
+        mock_head.return_value = FakeHTTPResponse(status_code=403)
+        mock_get.return_value = FakeHTTPResponse(status_code=200)
         config = get_default_config()
         status, error = check_link("https://example.com", config)
         assert status == 200
@@ -109,7 +110,7 @@ class TestCheckLink:
 
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     @patch("docfix_bot.link_scanner.httpx.head")
-    def test_timeout_retries(self, mock_head: MagicMock, mock_validate: MagicMock) -> None:
+    def test_timeout_retries(self, mock_head, mock_validate) -> None:
         mock_validate.return_value = {"is_safe": True, "url": "", "resolved_ip": None, "rejection_reason": None}
         mock_head.side_effect = httpx.ReadTimeout("timeout")
         config = get_default_config()
@@ -119,7 +120,7 @@ class TestCheckLink:
 
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     @patch("docfix_bot.link_scanner.httpx.head")
-    def test_connection_error(self, mock_head: MagicMock, mock_validate: MagicMock) -> None:
+    def test_connection_error(self, mock_head, mock_validate) -> None:
         mock_validate.return_value = {"is_safe": True, "url": "", "resolved_ip": None, "rejection_reason": None}
         mock_head.side_effect = httpx.ConnectError("fail")
         config = get_default_config()
@@ -129,9 +130,7 @@ class TestCheckLink:
     @patch("docfix_bot.link_scanner.time.sleep")
     @patch("docfix_bot.link_scanner.validate_ip_safety")
     @patch("docfix_bot.link_scanner.httpx.head")
-    def test_http_error_retries_then_fails(
-        self, mock_head: MagicMock, mock_validate: MagicMock, mock_sleep: MagicMock
-    ) -> None:
+    def test_http_error_retries_then_fails(self, mock_head, mock_validate, mock_sleep) -> None:
         mock_validate.return_value = {"is_safe": True, "url": "", "resolved_ip": None, "rejection_reason": None}
         mock_head.side_effect = httpx.ConnectError("fail")
         config = get_default_config()
@@ -143,10 +142,10 @@ class TestCheckLink:
 
 class TestSuggestFix:
     @patch("docfix_bot.link_scanner.httpx.get")
-    def test_archive_found(self, mock_get: MagicMock) -> None:
-        mock_get.return_value = MagicMock(
+    def test_archive_found(self, mock_get) -> None:
+        mock_get.return_value = FakeHTTPResponse(
             status_code=200,
-            json=lambda: {
+            body={
                 "archived_snapshots": {
                     "closest": {
                         "available": True,
@@ -161,17 +160,17 @@ class TestSuggestFix:
         assert confidence > 0.0
 
     @patch("docfix_bot.link_scanner.httpx.get")
-    def test_no_archive(self, mock_get: MagicMock) -> None:
-        mock_get.return_value = MagicMock(
+    def test_no_archive(self, mock_get) -> None:
+        mock_get.return_value = FakeHTTPResponse(
             status_code=200,
-            json=lambda: {"archived_snapshots": {}},
+            body={"archived_snapshots": {}},
         )
         url, confidence = suggest_fix("https://gone.com")
         assert url is None
         assert confidence == 0.0
 
     @patch("docfix_bot.link_scanner.httpx.get")
-    def test_api_error(self, mock_get: MagicMock) -> None:
+    def test_api_error(self, mock_get) -> None:
         mock_get.side_effect = httpx.ConnectError("fail")
         url, confidence = suggest_fix("https://error.com")
         assert url is None
@@ -181,7 +180,7 @@ class TestSuggestFix:
 class TestScanRepository:
     @patch("docfix_bot.link_scanner.check_link")
     @patch("docfix_bot.link_scanner.suggest_fix")
-    def test_finds_broken_links(self, mock_suggest: MagicMock, mock_check: MagicMock, tmp_path: Path) -> None:
+    def test_finds_broken_links(self, mock_suggest, mock_check, tmp_path: Path) -> None:
         # Create a markdown file with a link
         md_file = tmp_path / "README.md"
         md_file.write_text("[Test](https://example.com/broken)\n")
@@ -199,7 +198,7 @@ class TestScanRepository:
         assert result["broken_links"][0]["status_code"] == 404
 
     @patch("docfix_bot.link_scanner.check_link")
-    def test_no_broken_links(self, mock_check: MagicMock, tmp_path: Path) -> None:
+    def test_no_broken_links(self, mock_check, tmp_path: Path) -> None:
         md_file = tmp_path / "README.md"
         md_file.write_text("[OK](https://example.com)\n")
         mock_check.return_value = (200, None)
@@ -215,7 +214,7 @@ class TestScanRepository:
         assert result["links_checked"] == 0
 
     @patch("docfix_bot.link_scanner.check_link")
-    def test_connection_error_logged(self, mock_check: MagicMock, tmp_path: Path) -> None:
+    def test_connection_error_logged(self, mock_check, tmp_path: Path) -> None:
         md_file = tmp_path / "README.md"
         md_file.write_text("[Link](https://example.com)\n")
         mock_check.return_value = (0, "Connection error")
@@ -244,7 +243,7 @@ class TestCheckLinkCoverageGaps:
     """Tests for uncovered lines in check_link."""
 
     @patch("docfix_bot.link_scanner.validate_ip_safety")
-    def test_zero_retries_returns_max_retries_exceeded(self, mock_ssrf: MagicMock) -> None:
+    def test_zero_retries_returns_max_retries_exceeded(self, mock_ssrf) -> None:
         """max_retries=0 falls through to 'Max retries exceeded' (line 124)."""
         mock_ssrf.return_value = {"is_safe": True, "rejection_reason": None}
         status, error = check_link("https://example.com", get_default_config(), max_retries=0)

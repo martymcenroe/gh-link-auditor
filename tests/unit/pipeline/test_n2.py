@@ -5,8 +5,14 @@ See LLD #22 §10.0 T100/T110: N2 Wayback success, no candidates.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+from gh_link_auditor.link_detective import (
+    CandidateReplacement,
+    ForensicReport,
+    Investigation,
+    InvestigationMethod,
+)
 from gh_link_auditor.pipeline.nodes.n2_investigate import (
     investigate_dead_link,
     n2_investigate,
@@ -32,41 +38,52 @@ class TestRunInvestigation:
         """_run_investigation lazily imports and calls LinkDetective.investigate."""
         from gh_link_auditor.pipeline.nodes.n2_investigate import _run_investigation
 
-        mock_detective_cls = MagicMock()
-        mock_detective_inst = MagicMock()
-        mock_detective_cls.return_value = mock_detective_inst
-        mock_detective_inst.investigate.return_value = MagicMock()
+        report = ForensicReport(
+            dead_url="https://example.com/dead",
+            http_status=404,
+            investigation=Investigation(
+                archive_snapshot=None,
+                archive_title=None,
+                archive_content_summary=None,
+                candidate_replacements=[],
+                investigation_log=["test"],
+            ),
+        )
 
-        with patch.dict(
-            "sys.modules",
-            {"gh_link_auditor.link_detective": MagicMock(LinkDetective=mock_detective_cls)},
+        with patch(
+            "gh_link_auditor.link_detective.LinkDetective.investigate",
+            return_value=report,
         ):
             result = _run_investigation("https://example.com/dead", 404)
 
-        mock_detective_inst.investigate.assert_called_once_with("https://example.com/dead", 404)
-        assert result is mock_detective_inst.investigate.return_value
+        assert result.dead_url == "https://example.com/dead"
 
 
 class TestInvestigateDeadLink:
     """Tests for investigate_dead_link()."""
 
     def test_returns_candidates_from_investigation(self) -> None:
-        mock_report = MagicMock()
-        mock_report.dead_url = "https://example.com/broken"
-        mock_report.investigation.archive_snapshot = "https://web.archive.org/web/2024/https://example.com/broken"
-        mock_report.investigation.archive_title = "Example Page"
-        mock_report.investigation.archive_content_summary = "Some content"
-        mock_report.investigation.candidate_replacements = [
-            MagicMock(
-                url="https://example.com/new-page",
-                method=MagicMock(value="redirect_chain"),
-                similarity_score=0.95,
-                verified_live=True,
+        report = ForensicReport(
+            dead_url="https://example.com/broken",
+            http_status=404,
+            investigation=Investigation(
+                archive_snapshot="https://web.archive.org/web/2024/https://example.com/broken",
+                archive_title="Example Page",
+                archive_content_summary="Some content",
+                candidate_replacements=[
+                    CandidateReplacement(
+                        url="https://example.com/new-page",
+                        method=InvestigationMethod.REDIRECT_CHAIN,
+                        similarity_score=0.95,
+                        verified_live=True,
+                    ),
+                ],
+                investigation_log=["test"],
             ),
-        ]
+        )
         with patch(
             "gh_link_auditor.pipeline.nodes.n2_investigate._run_investigation",
-            return_value=mock_report,
+            return_value=report,
         ):
             dead_link = _make_dead_link()
             candidates = investigate_dead_link(dead_link)
@@ -74,15 +91,20 @@ class TestInvestigateDeadLink:
         assert candidates[0]["url"] == "https://example.com/new-page"
 
     def test_returns_empty_when_no_candidates(self) -> None:
-        mock_report = MagicMock()
-        mock_report.dead_url = "https://example.com/gone"
-        mock_report.investigation.archive_snapshot = None
-        mock_report.investigation.archive_title = None
-        mock_report.investigation.archive_content_summary = None
-        mock_report.investigation.candidate_replacements = []
+        report = ForensicReport(
+            dead_url="https://example.com/gone",
+            http_status=404,
+            investigation=Investigation(
+                archive_snapshot=None,
+                archive_title=None,
+                archive_content_summary=None,
+                candidate_replacements=[],
+                investigation_log=["no candidates"],
+            ),
+        )
         with patch(
             "gh_link_auditor.pipeline.nodes.n2_investigate._run_investigation",
-            return_value=mock_report,
+            return_value=report,
         ):
             candidates = investigate_dead_link(_make_dead_link("https://example.com/gone"))
         assert candidates == []

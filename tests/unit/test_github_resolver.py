@@ -6,9 +6,10 @@ Covers: GitHubResolver.is_github_url(), resolve_repo_redirect(),
         reconstruct_file_url(), _parse_github_url()
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from gh_link_auditor.github_resolver import GitHubResolver, _github_api_get
+from tests.fakes.http import FakeURLResponse
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -170,23 +171,17 @@ class TestReconstructFileUrl:
 class TestGitHubApiGet:
     def test_api_get_success(self):
         """_github_api_get returns parsed JSON on success."""
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = b'{"full_name": "owner/repo"}'
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        fake_resp = FakeURLResponse(data=b'{"full_name": "owner/repo"}')
 
-        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", return_value=mock_resp):
+        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", return_value=fake_resp):
             result = _github_api_get("https://api.github.com/repos/owner/repo")
         assert result == {"full_name": "owner/repo"}
 
     def test_api_get_with_token(self):
         """_github_api_get includes auth header when token provided."""
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = b'{"full_name": "owner/repo"}'
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        fake_resp = FakeURLResponse(data=b'{"full_name": "owner/repo"}')
 
-        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", return_value=mock_resp) as mock_open:
+        with patch("gh_link_auditor.github_resolver.urllib.request.urlopen", return_value=fake_resp) as mock_open:
             _github_api_get("https://api.github.com/repos/owner/repo", token="ghp_test123")
         # Verify the request was made (token applied in Request headers)
         mock_open.assert_called_once()

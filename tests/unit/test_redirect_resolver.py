@@ -6,11 +6,12 @@ Covers: RedirectResolver.follow_redirects(), test_url_mutations(),
         verify_live(), _validate_not_private_ip(), SSRFBlocked
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from gh_link_auditor.redirect_resolver import RedirectResolver, SSRFBlocked, _http_head
+from tests.fakes.http import FakeURLResponse
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -306,30 +307,30 @@ class TestVerifyLive:
 class TestHttpHead:
     def test_http_head_success(self):
         """_http_head returns status_code and location on success."""
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.headers = MagicMock()
-        mock_resp.headers.get.return_value = None
+        fake_resp = FakeURLResponse(data=b"", status=200)
 
-        mock_opener = MagicMock()
-        mock_opener.open.return_value = mock_resp
+        class _FakeOpener:
+            def open(self, *args, **kwargs):
+                return fake_resp
 
-        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=mock_opener):
+        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=_FakeOpener()):
             result = _http_head("https://example.com")
         assert result["status_code"] == 200
 
     def test_http_head_http_error(self):
         """_http_head returns status from HTTPError."""
+        import email.message
         import urllib.error
 
-        mock_headers = MagicMock()
-        mock_headers.get.return_value = "https://new.com"
-        err = urllib.error.HTTPError("https://old.com", 301, "Moved", mock_headers, None)
+        headers = email.message.Message()
+        headers["Location"] = "https://new.com"
+        err = urllib.error.HTTPError("https://old.com", 301, "Moved", headers, None)
 
-        mock_opener = MagicMock()
-        mock_opener.open.side_effect = err
+        class _FakeOpener:
+            def open(self, *args, **kwargs):
+                raise err
 
-        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=mock_opener):
+        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=_FakeOpener()):
             result = _http_head("https://old.com")
         assert result["status_code"] == 301
         assert result["location"] == "https://new.com"
@@ -338,10 +339,11 @@ class TestHttpHead:
         """_http_head returns None status on URLError."""
         import urllib.error
 
-        mock_opener = MagicMock()
-        mock_opener.open.side_effect = urllib.error.URLError("DNS failure")
+        class _FakeOpener:
+            def open(self, *args, **kwargs):
+                raise urllib.error.URLError("DNS failure")
 
-        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=mock_opener):
+        with patch("gh_link_auditor.redirect_resolver.urllib.request.build_opener", return_value=_FakeOpener()):
             result = _http_head("https://nonexistent.example.com")
         assert result["status_code"] is None
         assert result["location"] is None

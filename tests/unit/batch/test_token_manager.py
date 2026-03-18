@@ -15,7 +15,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -30,6 +30,7 @@ from gh_link_auditor.batch.token_manager import (
     load_tokens_from_env,
     load_tokens_from_file,
 )
+from tests.fakes.http import FakeAsyncHTTPClient, FakeHTTPResponse
 
 
 class TestTokenRotation:
@@ -156,24 +157,17 @@ class TestValidateAll:
 
     def test_insufficient_scopes_raises(self) -> None:
         """Token with wrong scopes raises InsufficientScopesError."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.headers = {
-            "X-OAuth-Scopes": "read:user",
-            "X-RateLimit-Remaining": "5000",
-            "X-RateLimit-Reset": "1700000000",
-        }
+        fake_resp = FakeHTTPResponse(
+            status_code=200,
+            headers={
+                "X-OAuth-Scopes": "read:user",
+                "X-RateLimit-Remaining": "5000",
+                "X-RateLimit-Reset": "1700000000",
+            },
+        )
+        fake_client = FakeAsyncHTTPClient(default_response=fake_resp)
 
-        async def mock_get(*args, **kwargs):
-            return mock_resp
-
-        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient") as mock_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_resp)
-            mock_cls.return_value = mock_client
-
+        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient", return_value=fake_client):
             tm = TokenManager(["ghp_testtoken1234"])
             with pytest.raises(InsufficientScopesError) as exc_info:
                 asyncio.run(tm.validate_all())
@@ -181,21 +175,17 @@ class TestValidateAll:
             assert "public_repo" in exc_info.value.missing or "repo" in exc_info.value.missing
 
     def test_valid_scopes_pass(self) -> None:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.headers = {
-            "X-OAuth-Scopes": "repo, public_repo, read:user",
-            "X-RateLimit-Remaining": "4500",
-            "X-RateLimit-Reset": "1700000000",
-        }
+        fake_resp = FakeHTTPResponse(
+            status_code=200,
+            headers={
+                "X-OAuth-Scopes": "repo, public_repo, read:user",
+                "X-RateLimit-Remaining": "4500",
+                "X-RateLimit-Reset": "1700000000",
+            },
+        )
+        fake_client = FakeAsyncHTTPClient(default_response=fake_resp)
 
-        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient") as mock_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_resp)
-            mock_cls.return_value = mock_client
-
+        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient", return_value=fake_client):
             tm = TokenManager(["ghp_goodtoken"])
             states = asyncio.run(tm.validate_all())
 
@@ -203,30 +193,19 @@ class TestValidateAll:
             assert states[0].is_valid is True
 
     def test_401_invalidates_token(self) -> None:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 401
-        mock_resp.headers = {}
+        fake_resp = FakeHTTPResponse(status_code=401, headers={})
+        fake_client = FakeAsyncHTTPClient(default_response=fake_resp)
 
-        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient") as mock_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_resp)
-            mock_cls.return_value = mock_client
-
+        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient", return_value=fake_client):
             tm = TokenManager(["ghp_badtoken"])
             states = asyncio.run(tm.validate_all())
 
             assert states[0].is_valid is False
 
     def test_http_error_invalidates_token(self) -> None:
-        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient") as mock_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("network"))
-            mock_cls.return_value = mock_client
+        fake_client = FakeAsyncHTTPClient(side_effect=httpx.ConnectError("network"))
 
+        with patch("gh_link_auditor.batch.token_manager.httpx.AsyncClient", return_value=fake_client):
             tm = TokenManager(["ghp_errortoken"])
             states = asyncio.run(tm.validate_all())
 
