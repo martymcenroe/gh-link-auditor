@@ -501,3 +501,42 @@ class TestDashboardServer:
                 f"http://127.0.0.1:{port}/api/shutdown",
                 timeout=2,
             )
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateVerdictFileCoverageGaps:
+    """Tests for uncovered error path in update_verdict_file."""
+
+    def test_write_failure_cleans_up_temp_file(self, tmp_path):
+        """Error during atomic write cleans up temp and re-raises (lines 64-66)."""
+        from unittest.mock import patch as _patch
+
+        verdicts_file = _make_verdicts_file()
+        path = tmp_path / "verdicts.json"
+        _write_verdicts_file(path, verdicts_file)
+
+        with _patch("slant.dashboard.Path.write_text", side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                update_verdict_file(path, "https://example.com/old", "approved")
+
+
+class TestStartDashboardCoverageGaps:
+    """Tests for uncovered KeyboardInterrupt path in start_dashboard."""
+
+    def test_keyboard_interrupt_shuts_down_gracefully(self, tmp_path):
+        """KeyboardInterrupt during serve_forever is handled (lines 335-336)."""
+        from http.server import HTTPServer
+        from unittest.mock import patch as _patch
+
+        verdicts_file = _make_verdicts_file()
+        path = tmp_path / "verdicts.json"
+        _write_verdicts_file(path, verdicts_file)
+
+        with _patch.object(HTTPServer, "serve_forever", side_effect=KeyboardInterrupt):
+            with _patch.object(HTTPServer, "server_close") as mock_close:
+                start_dashboard(path, port=0)
+                mock_close.assert_called_once()

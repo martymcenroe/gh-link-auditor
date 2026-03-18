@@ -449,6 +449,18 @@ class TestWriteVerdicts:
         data = json.loads(output_path.read_text())
         assert "generated_at" in data
 
+    def test_write_failure_cleans_up_temp_and_reraises(self, tmp_path):
+        """Error during atomic write cleans up temp file and re-raises (lines 229-231)."""
+        output_path = tmp_path / "verdicts.json"
+        verdicts_file: VerdictsFile = {
+            "generated_at": "2026-02-18T12:00:00Z",
+            "source_report": "report.json",
+            "verdicts": [],
+        }
+        with patch("slant.scorer.Path.write_text", side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                write_verdicts(verdicts_file, output_path)
+
 
 # ---------------------------------------------------------------------------
 # CLI tests (LLD §10 T260)
