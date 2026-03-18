@@ -34,10 +34,7 @@ class FakeGitHubContentsClient:
         key = f"{owner}/{repo}"
         all_files = self._files.get(key, {})
         doc_extensions = {".md", ".rst", ".txt", ".adoc"}
-        doc_files = [
-            path for path in all_files
-            if any(path.lower().endswith(ext) for ext in doc_extensions)
-        ]
+        doc_files = [path for path in all_files if any(path.lower().endswith(ext) for ext in doc_extensions)]
         return sorted(doc_files)
 
     def fetch_file_content(self, owner: str, repo: str, path: str) -> str:

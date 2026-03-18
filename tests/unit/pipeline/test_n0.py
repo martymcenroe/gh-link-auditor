@@ -143,24 +143,36 @@ class TestListDocumentationFiles:
 
     def test_url_target_uses_github_client(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "README.md": "# Hello",
-            "docs/guide.rst": "Guide",
-            "src/main.py": "print()",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.md": "# Hello",
+                "docs/guide.rst": "Guide",
+                "src/main.py": "print()",
+            },
+        )
         files = list_documentation_files(
-            "https://github.com/org/repo", "url", github_client=client,
+            "https://github.com/org/repo",
+            "url",
+            github_client=client,
         )
         assert files == ["README.md", "docs/guide.rst"]
         assert client.list_doc_files_calls == [("org", "repo")]
 
     def test_url_target_returns_empty_for_no_docs(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "src/main.py": "print()",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "src/main.py": "print()",
+            },
+        )
         files = list_documentation_files(
-            "https://github.com/org/repo", "url", github_client=client,
+            "https://github.com/org/repo",
+            "url",
+            github_client=client,
         )
         assert files == []
 

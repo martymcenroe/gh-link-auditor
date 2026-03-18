@@ -72,7 +72,11 @@ def _extract_urls_from_file(
     results = []
     try:
         text = _read_file_content(
-            filepath, target_type, repo_owner, repo_name_short, github_client,
+            filepath,
+            target_type,
+            repo_owner,
+            repo_name_short,
+            github_client,
         )
     except OSError:
         return results
@@ -176,7 +180,11 @@ def run_link_scan(
 
     for filepath in doc_files:
         urls = _extract_urls_from_file(
-            filepath, target_type, repo_owner, repo_name_short, github_client,
+            filepath,
+            target_type,
+            repo_owner,
+            repo_name_short,
+            github_client,
         )
         for url, line_num, link_text in urls:
             if url in seen_urls:
@@ -218,7 +226,9 @@ def n1_scan(state: PipelineState) -> PipelineState:
 
     try:
         dead_links = run_link_scan(
-            doc_files, target, target_type,
+            doc_files,
+            target,
+            target_type,
             repo_owner=repo_owner,
             repo_name_short=repo_name_short,
         )

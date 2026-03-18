@@ -115,9 +115,7 @@ def n5_generate_fix(state: PipelineState) -> PipelineState:
         repo_owner = state.get("repo_owner", "")
         repo_name_short = state.get("repo_name_short", "")
         if not repo_owner or not repo_name_short:
-            state["errors"] = state.get("errors", []) + [
-                "Cannot generate fixes for URL target: missing owner/repo"
-            ]
+            state["errors"] = state.get("errors", []) + ["Cannot generate fixes for URL target: missing owner/repo"]
             state["fixes"] = fixes
             return state
 

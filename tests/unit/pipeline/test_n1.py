@@ -208,26 +208,40 @@ class TestReadFileContent:
 
     def test_reads_via_github_client(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "README.md": "# Remote Content",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.md": "# Remote Content",
+            },
+        )
         content = _read_file_content(
-            "README.md", "url", "org", "repo", github_client=client,
+            "README.md",
+            "url",
+            "org",
+            "repo",
+            github_client=client,
         )
         assert content == "# Remote Content"
 
     def test_raises_on_missing_local_file(self) -> None:
         import pytest
+
         with pytest.raises(OSError):
             _read_file_content("/nonexistent/file.md", "local")
 
     def test_raises_on_missing_remote_file(self) -> None:
         import pytest
+
         client = FakeGitHubContentsClient()
         client.configure_repo_files("org", "repo", {})
         with pytest.raises(FileNotFoundError):
             _read_file_content(
-                "missing.md", "url", "org", "repo", github_client=client,
+                "missing.md",
+                "url",
+                "org",
+                "repo",
+                github_client=client,
             )
 
 
@@ -236,11 +250,19 @@ class TestExtractUrlsFromFileUrl:
 
     def test_extracts_urls_from_remote_file(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "README.md": "Check [link](https://example.com/page)\n",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.md": "Check [link](https://example.com/page)\n",
+            },
+        )
         results = _extract_urls_from_file(
-            "README.md", "url", "org", "repo", github_client=client,
+            "README.md",
+            "url",
+            "org",
+            "repo",
+            github_client=client,
         )
         assert len(results) == 1
         assert results[0][0] == "https://example.com/page"
@@ -249,7 +271,11 @@ class TestExtractUrlsFromFileUrl:
         client = FakeGitHubContentsClient()
         client.configure_repo_files("org", "repo", {})
         results = _extract_urls_from_file(
-            "missing.md", "url", "org", "repo", github_client=client,
+            "missing.md",
+            "url",
+            "org",
+            "repo",
+            github_client=client,
         )
         assert results == []
 
@@ -259,9 +285,13 @@ class TestRunLinkScanUrl:
 
     def test_scans_remote_files(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "README.md": "Check [link](https://httpstat.us/404)\n",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.md": "Check [link](https://httpstat.us/404)\n",
+            },
+        )
         with patch("gh_link_auditor.pipeline.nodes.n1_scan._check_single_url") as mock_check:
             mock_check.return_value = {
                 "url": "https://httpstat.us/404",
@@ -271,8 +301,11 @@ class TestRunLinkScanUrl:
                 "response_time_ms": 100,
             }
             dead_links = run_link_scan(
-                ["README.md"], "https://github.com/org/repo", "url",
-                repo_owner="org", repo_name_short="repo",
+                ["README.md"],
+                "https://github.com/org/repo",
+                "url",
+                repo_owner="org",
+                repo_name_short="repo",
                 github_client=client,
             )
         assert len(dead_links) == 1

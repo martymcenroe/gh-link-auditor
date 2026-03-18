@@ -36,13 +36,17 @@ class TestFakeGitHubContentsClient:
 
     def test_list_doc_files_filters_by_extension(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "README.md": "# Hello",
-            "docs/guide.rst": "Guide",
-            "src/main.py": "print()",
-            "notes.txt": "notes",
-            "manual.adoc": "= Manual",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.md": "# Hello",
+                "docs/guide.rst": "Guide",
+                "src/main.py": "print()",
+                "notes.txt": "notes",
+                "manual.adoc": "= Manual",
+            },
+        )
         files = client.list_doc_files("org", "repo")
         assert files == ["README.md", "docs/guide.rst", "manual.adoc", "notes.txt"]
 
@@ -53,19 +57,27 @@ class TestFakeGitHubContentsClient:
 
     def test_list_doc_files_returns_sorted(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "z.md": "z",
-            "a.md": "a",
-            "m.md": "m",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "z.md": "z",
+                "a.md": "a",
+                "m.md": "m",
+            },
+        )
         files = client.list_doc_files("org", "repo")
         assert files == ["a.md", "m.md", "z.md"]
 
     def test_fetch_file_content_returns_content(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "README.md": "# Hello World",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.md": "# Hello World",
+            },
+        )
         content = client.fetch_file_content("org", "repo", "README.md")
         assert content == "# Hello World"
 
@@ -73,6 +85,7 @@ class TestFakeGitHubContentsClient:
         client = FakeGitHubContentsClient()
         client.configure_repo_files("org", "repo", {})
         import pytest
+
         with pytest.raises(FileNotFoundError):
             client.fetch_file_content("org", "repo", "missing.md")
 
@@ -90,10 +103,14 @@ class TestFakeGitHubContentsClient:
 
     def test_list_doc_files_case_insensitive_extension(self) -> None:
         client = FakeGitHubContentsClient()
-        client.configure_repo_files("org", "repo", {
-            "README.MD": "# Caps",
-            "guide.Rst": "Guide",
-        })
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.MD": "# Caps",
+                "guide.Rst": "Guide",
+            },
+        )
         files = client.list_doc_files("org", "repo")
         assert len(files) == 2
 
@@ -114,11 +131,14 @@ class TestGitHubContentsClient:
 
     def test_list_doc_files_flat_repo(self) -> None:
         routes = {
-            "/repos/org/repo/contents/": (200, [
-                {"type": "file", "path": "README.md"},
-                {"type": "file", "path": "main.py"},
-                {"type": "file", "path": "CHANGELOG.txt"},
-            ]),
+            "/repos/org/repo/contents/": (
+                200,
+                [
+                    {"type": "file", "path": "README.md"},
+                    {"type": "file", "path": "main.py"},
+                    {"type": "file", "path": "CHANGELOG.txt"},
+                ],
+            ),
         }
         client = self._make_client(routes)
         files = client.list_doc_files("org", "repo")
@@ -126,15 +146,21 @@ class TestGitHubContentsClient:
 
     def test_list_doc_files_with_subdirectory(self) -> None:
         routes = {
-            "/repos/org/repo/contents/": (200, [
-                {"type": "file", "path": "README.md"},
-                {"type": "dir", "path": "docs"},
-            ]),
-            "/repos/org/repo/contents/docs": (200, [
-                {"type": "file", "path": "docs/guide.md"},
-                {"type": "file", "path": "docs/api.rst"},
-                {"type": "file", "path": "docs/config.yaml"},
-            ]),
+            "/repos/org/repo/contents/": (
+                200,
+                [
+                    {"type": "file", "path": "README.md"},
+                    {"type": "dir", "path": "docs"},
+                ],
+            ),
+            "/repos/org/repo/contents/docs": (
+                200,
+                [
+                    {"type": "file", "path": "docs/guide.md"},
+                    {"type": "file", "path": "docs/api.rst"},
+                    {"type": "file", "path": "docs/config.yaml"},
+                ],
+            ),
         }
         client = self._make_client(routes)
         files = client.list_doc_files("org", "repo")
@@ -161,10 +187,13 @@ class TestGitHubContentsClient:
         content = "# Hello World\nThis is a test."
         encoded = base64.b64encode(content.encode()).decode()
         routes = {
-            "/repos/org/repo/contents/README.md": (200, {
-                "encoding": "base64",
-                "content": encoded,
-            }),
+            "/repos/org/repo/contents/README.md": (
+                200,
+                {
+                    "encoding": "base64",
+                    "content": encoded,
+                },
+            ),
         }
         client = self._make_client(routes)
         result = client.fetch_file_content("org", "repo", "README.md")
@@ -172,10 +201,13 @@ class TestGitHubContentsClient:
 
     def test_fetch_file_content_non_base64(self) -> None:
         routes = {
-            "/repos/org/repo/contents/small.md": (200, {
-                "encoding": "utf-8",
-                "content": "# Small file",
-            }),
+            "/repos/org/repo/contents/small.md": (
+                200,
+                {
+                    "encoding": "utf-8",
+                    "content": "# Small file",
+                },
+            ),
         }
         client = self._make_client(routes)
         result = client.fetch_file_content("org", "repo", "small.md")
@@ -205,6 +237,7 @@ class TestGitHubContentsClient:
 
     def test_no_auth_header_without_token(self) -> None:
         import os
+
         old = os.environ.pop("GITHUB_TOKEN", None)
         try:
             client = GitHubContentsClient(token="")
