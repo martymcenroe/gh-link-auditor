@@ -233,3 +233,20 @@ class TestScanRepository:
         with patch.object(Path, "read_text", side_effect=OSError("Permission denied")):
             result = scan_repository(target, get_default_config(), tmp_path)
         assert result["files_scanned"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+class TestCheckLinkCoverageGaps:
+    """Tests for uncovered lines in check_link."""
+
+    @patch("docfix_bot.link_scanner.validate_ip_safety")
+    def test_zero_retries_returns_max_retries_exceeded(self, mock_ssrf: MagicMock) -> None:
+        """max_retries=0 falls through to 'Max retries exceeded' (line 124)."""
+        mock_ssrf.return_value = {"is_safe": True, "rejection_reason": None}
+        status, error = check_link("https://example.com", get_default_config(), max_retries=0)
+        assert status == 0
+        assert error == "Max retries exceeded"
