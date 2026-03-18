@@ -246,3 +246,5 @@ class TestMain:
         output = str(tmp_path / "out.json")
         main(["--output", output])
         mock_client_cls.assert_called_once_with(token="ghp_test")
+
+
