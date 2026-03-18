@@ -79,21 +79,53 @@ def extract_repo_name(target: str, target_type: str) -> str:
     return path.name
 
 
-def list_documentation_files(target: str, target_type: str) -> list[str]:
+def _extract_owner_repo(target: str) -> tuple[str, str]:
+    """Extract owner and repo from a GitHub URL.
+
+    Args:
+        target: Repository URL (e.g., "https://github.com/org/repo").
+
+    Returns:
+        Tuple of (owner, repo).
+    """
+    parts = target.rstrip("/").split("/")
+    if len(parts) >= 5:
+        return parts[-2], parts[-1]
+    return "", ""
+
+
+def list_documentation_files(
+    target: str,
+    target_type: str,
+    github_client: object | None = None,
+) -> list[str]:
     """List all documentation files in target.
 
     Finds .md, .rst, .txt, .adoc files recursively.
+    For local targets, walks the filesystem.
+    For URL targets, uses the GitHub Contents API.
 
     Args:
         target: Repository URL or local path.
         target_type: "url" or "local".
+        github_client: Optional GitHubContentsClient instance.
+            If None and target_type is "url", creates a new client.
 
     Returns:
         Sorted list of documentation file paths.
     """
     if target_type == "url":
-        # URL targets would need cloning first — return empty for now
-        return []
+        owner, repo = _extract_owner_repo(target)
+        if not owner or not repo:
+            return []
+        if github_client is None:
+            from gh_link_auditor.github_api import GitHubContentsClient
+
+            github_client = GitHubContentsClient()
+        try:
+            return github_client.list_doc_files(owner, repo)
+        except Exception:
+            return []
 
     target_path = Path(target)
     if not target_path.exists():
@@ -126,6 +158,15 @@ def n0_load_target(state: PipelineState) -> PipelineState:
         state["target"] = normalized
         state["target_type"] = target_type
         state["repo_name"] = extract_repo_name(normalized, target_type)
+
+        if target_type == "url":
+            owner, repo = _extract_owner_repo(normalized)
+            state["repo_owner"] = owner
+            state["repo_name_short"] = repo
+        else:
+            state["repo_owner"] = ""
+            state["repo_name_short"] = ""
+
         state["doc_files"] = list_documentation_files(normalized, target_type)
     except (ValueError, FileNotFoundError) as exc:
         state["errors"] = state.get("errors", []) + [str(exc)]

@@ -10,12 +10,14 @@ from pathlib import Path
 import pytest
 
 from gh_link_auditor.pipeline.nodes.n0_load_target import (
+    _extract_owner_repo,
     extract_repo_name,
     list_documentation_files,
     n0_load_target,
     validate_target,
 )
 from gh_link_auditor.pipeline.state import create_initial_state
+from tests.fakes.github_api import FakeGitHubContentsClient
 
 
 class TestValidateTarget:
@@ -139,8 +141,43 @@ class TestListDocumentationFiles:
         files = list_documentation_files(str(tmp_path), "local")
         assert files == sorted(files)
 
-    def test_returns_empty_for_url_type(self) -> None:
-        files = list_documentation_files("https://github.com/org/repo", "url")
+    def test_url_target_uses_github_client(self) -> None:
+        client = FakeGitHubContentsClient()
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "README.md": "# Hello",
+                "docs/guide.rst": "Guide",
+                "src/main.py": "print()",
+            },
+        )
+        files = list_documentation_files(
+            "https://github.com/org/repo",
+            "url",
+            github_client=client,
+        )
+        assert files == ["README.md", "docs/guide.rst"]
+        assert client.list_doc_files_calls == [("org", "repo")]
+
+    def test_url_target_returns_empty_for_no_docs(self) -> None:
+        client = FakeGitHubContentsClient()
+        client.configure_repo_files(
+            "org",
+            "repo",
+            {
+                "src/main.py": "print()",
+            },
+        )
+        files = list_documentation_files(
+            "https://github.com/org/repo",
+            "url",
+            github_client=client,
+        )
+        assert files == []
+
+    def test_url_target_returns_empty_for_bad_url(self) -> None:
+        files = list_documentation_files("https://short.url", "url")
         assert files == []
 
     def test_returns_empty_for_nonexistent_path(self) -> None:
@@ -183,3 +220,39 @@ class TestN0LoadTarget:
         state = create_initial_state(target="https://github.com/org/repo")
         result = n0_load_target(state)
         assert result["repo_name"] == "org/repo"
+
+    def test_sets_repo_owner_for_url(self) -> None:
+        state = create_initial_state(target="https://github.com/myorg/myrepo")
+        result = n0_load_target(state)
+        assert result["repo_owner"] == "myorg"
+        assert result["repo_name_short"] == "myrepo"
+
+    def test_sets_empty_owner_for_local(self, tmp_path: Path) -> None:
+        state = create_initial_state(target=str(tmp_path))
+        result = n0_load_target(state)
+        assert result["repo_owner"] == ""
+        assert result["repo_name_short"] == ""
+
+
+class TestExtractOwnerRepo:
+    """Tests for _extract_owner_repo()."""
+
+    def test_github_url(self) -> None:
+        owner, repo = _extract_owner_repo("https://github.com/org/repo")
+        assert owner == "org"
+        assert repo == "repo"
+
+    def test_gitlab_url(self) -> None:
+        owner, repo = _extract_owner_repo("https://gitlab.com/org/repo")
+        assert owner == "org"
+        assert repo == "repo"
+
+    def test_short_url_returns_empty(self) -> None:
+        owner, repo = _extract_owner_repo("https://short.url")
+        assert owner == ""
+        assert repo == ""
+
+    def test_trailing_slash(self) -> None:
+        owner, repo = _extract_owner_repo("https://github.com/org/repo/")
+        assert owner == "org"
+        assert repo == "repo"

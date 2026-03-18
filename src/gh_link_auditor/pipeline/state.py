@@ -72,6 +72,8 @@ class PipelineState(TypedDict, total=False):
     target: str
     target_type: str  # "url" or "local"
     repo_name: str
+    repo_owner: str  # "org" from URL (empty for local)
+    repo_name_short: str  # "repo" from URL (empty for local)
 
     # Configuration
     max_links: int
@@ -147,6 +149,8 @@ def create_initial_state(
         target=target,
         target_type="",
         repo_name="",
+        repo_owner="",
+        repo_name_short="",
         max_links=max_links,
         max_cost_usd=max_cost_usd,
         confidence_threshold=confidence_threshold,

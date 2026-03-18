@@ -18,18 +18,66 @@ from gh_link_auditor.pipeline.state import DeadLink, PipelineState
 _URL_RE = re.compile(r"https?://[^\s\)>\"\]]+")
 
 
-def _extract_urls_from_file(filepath: str) -> list[tuple[str, int, str]]:
+def _read_file_content(
+    filepath: str,
+    target_type: str = "local",
+    repo_owner: str = "",
+    repo_name_short: str = "",
+    github_client: object | None = None,
+) -> str:
+    """Read file content from local filesystem or GitHub API.
+
+    Args:
+        filepath: File path (absolute for local, relative for URL targets).
+        target_type: "url" or "local".
+        repo_owner: Repository owner (for URL targets).
+        repo_name_short: Repository name (for URL targets).
+        github_client: Optional GitHubContentsClient instance.
+
+    Returns:
+        File content as string.
+
+    Raises:
+        OSError: If file cannot be read.
+    """
+    if target_type == "url":
+        if github_client is None:
+            from gh_link_auditor.github_api import GitHubContentsClient
+
+            github_client = GitHubContentsClient()
+        return github_client.fetch_file_content(repo_owner, repo_name_short, filepath)
+
+    return Path(filepath).read_text(encoding="utf-8", errors="replace")
+
+
+def _extract_urls_from_file(
+    filepath: str,
+    target_type: str = "local",
+    repo_owner: str = "",
+    repo_name_short: str = "",
+    github_client: object | None = None,
+) -> list[tuple[str, int, str]]:
     """Extract URLs from a documentation file.
 
     Args:
         filepath: Path to documentation file.
+        target_type: "url" or "local".
+        repo_owner: Repository owner (for URL targets).
+        repo_name_short: Repository name (for URL targets).
+        github_client: Optional GitHubContentsClient instance.
 
     Returns:
         List of (url, line_number, link_text) tuples.
     """
     results = []
     try:
-        text = Path(filepath).read_text(encoding="utf-8", errors="replace")
+        text = _read_file_content(
+            filepath,
+            target_type,
+            repo_owner,
+            repo_name_short,
+            github_client,
+        )
     except OSError:
         return results
 
@@ -105,6 +153,9 @@ def run_link_scan(
     doc_files: list[str],
     target: str,
     target_type: str,
+    repo_owner: str = "",
+    repo_name_short: str = "",
+    github_client: object | None = None,
 ) -> list[DeadLink]:
     """Execute link scanning on documentation files.
 
@@ -114,6 +165,9 @@ def run_link_scan(
         doc_files: List of documentation file paths.
         target: Repository target (for context).
         target_type: "url" or "local".
+        repo_owner: Repository owner (for URL targets).
+        repo_name_short: Repository name (for URL targets).
+        github_client: Optional GitHubContentsClient instance.
 
     Returns:
         List of dead links found.
@@ -125,7 +179,13 @@ def run_link_scan(
     seen_urls: set[str] = set()
 
     for filepath in doc_files:
-        urls = _extract_urls_from_file(filepath)
+        urls = _extract_urls_from_file(
+            filepath,
+            target_type,
+            repo_owner,
+            repo_name_short,
+            github_client,
+        )
         for url, line_num, link_text in urls:
             if url in seen_urls:
                 continue
@@ -161,9 +221,17 @@ def n1_scan(state: PipelineState) -> PipelineState:
     doc_files = state.get("doc_files", [])
     target = state.get("target", "")
     target_type = state.get("target_type", "local")
+    repo_owner = state.get("repo_owner", "")
+    repo_name_short = state.get("repo_name_short", "")
 
     try:
-        dead_links = run_link_scan(doc_files, target, target_type)
+        dead_links = run_link_scan(
+            doc_files,
+            target,
+            target_type,
+            repo_owner=repo_owner,
+            repo_name_short=repo_name_short,
+        )
         state["dead_links"] = dead_links
     except Exception as exc:
         state["errors"] = state.get("errors", []) + [f"Scan error: {exc}"]
