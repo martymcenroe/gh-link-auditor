@@ -155,3 +155,23 @@ class TestVersionVariants:
         h = _make_heuristic()
         variants = h._generate_version_variants("/docs/install")
         assert variants == []
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateCandidatesCoverageGaps:
+    def test_empty_slug_returns_empty_list(self):
+        """Title that produces empty slug returns no candidates (line 61)."""
+        h = _make_heuristic()
+        candidates = h.generate_candidates("example.com", "!!!", "/docs/old")
+        assert candidates == []
+
+    def test_version_variants_included_in_candidates(self):
+        """Path with version number includes version variants (line 83)."""
+        h = _make_heuristic()
+        candidates = h.generate_candidates("example.com", "Install Guide", "/docs/v1/install")
+        assert any("/docs/v2/install" in c for c in candidates)
+        assert any("/docs/latest/install" in c for c in candidates)
