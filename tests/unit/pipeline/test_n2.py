@@ -25,6 +25,28 @@ def _make_dead_link(url: str = "https://example.com/broken") -> DeadLink:
     )
 
 
+class TestRunInvestigation:
+    """Tests for _run_investigation() lazy import (lines 31-34)."""
+
+    def test_lazy_import_calls_link_detective(self) -> None:
+        """_run_investigation lazily imports and calls LinkDetective.investigate."""
+        from gh_link_auditor.pipeline.nodes.n2_investigate import _run_investigation
+
+        mock_detective_cls = MagicMock()
+        mock_detective_inst = MagicMock()
+        mock_detective_cls.return_value = mock_detective_inst
+        mock_detective_inst.investigate.return_value = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {"gh_link_auditor.link_detective": MagicMock(LinkDetective=mock_detective_cls)},
+        ):
+            result = _run_investigation("https://example.com/dead", 404)
+
+        mock_detective_inst.investigate.assert_called_once_with("https://example.com/dead", 404)
+        assert result is mock_detective_inst.investigate.return_value
+
+
 class TestInvestigateDeadLink:
     """Tests for investigate_dead_link()."""
 

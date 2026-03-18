@@ -436,3 +436,16 @@ class TestSSRFDnsFailure:
         ):
             with pytest.raises(SSRFBlocked):
                 resolver._validate_not_private_ip("unresolvable.invalid")
+
+    def test_invalid_ip_from_getaddrinfo_skipped(self):
+        """Invalid IP string from getaddrinfo is silently skipped (line 236-237)."""
+        resolver = _make_resolver()
+        with patch(
+            "gh_link_auditor.redirect_resolver.socket.getaddrinfo",
+            return_value=[
+                (2, 1, 6, "", ("not-a-valid-ip", 443)),
+                (2, 1, 6, "", ("93.184.216.34", 443)),
+            ],
+        ):
+            result = resolver._validate_not_private_ip("example.com")
+        assert result is True
