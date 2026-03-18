@@ -1,11 +1,13 @@
 """Tests for N5 Generate Fix node.
 
 See LLD #22 §10.0 T160: N5 generates valid diff.
+See LLD #67 for clone-on-demand behavior.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from gh_link_auditor.pipeline.nodes.n5_generate_fix import (
     generate_unified_diff,
@@ -174,3 +176,74 @@ class TestN5GenerateFix:
         assert len(result["fixes"]) == 1
         assert "unified_diff" in result["fixes"][0]
         assert len(result["fixes"][0]["unified_diff"]) > 0
+
+
+class TestN5GenerateFixUrlTarget:
+    """Tests for n5_generate_fix() with URL targets (clone-on-demand)."""
+
+    def test_clones_and_generates_diff_for_url_target(self, tmp_path: Path) -> None:
+        """URL target triggers clone, then generates diff from cloned files."""
+        clone_dir = tmp_path / "myrepo"
+        clone_dir.mkdir()
+        md = clone_dir / "README.md"
+        md.write_text("Check [link](https://old.example.com/page) here.\n")
+
+        state = create_initial_state(target="https://github.com/org/myrepo")
+        state["target_type"] = "url"
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "myrepo"
+        verdict = _make_verdict(
+            approved=True,
+            source_file="README.md",
+        )
+        state["reviewed_verdicts"] = [verdict]
+
+        with patch(
+            "gh_link_auditor.pipeline.nodes.n5_generate_fix._clone_repo",
+            return_value=clone_dir,
+        ):
+            result = n5_generate_fix(state)
+
+        assert len(result["fixes"]) == 1
+        assert result["fixes"][0]["source_file"] == "README.md"
+        assert "https://new.example.com/page" in result["fixes"][0]["unified_diff"]
+
+    def test_url_target_skips_when_no_approved_verdicts(self) -> None:
+        state = create_initial_state(target="https://github.com/org/repo")
+        state["target_type"] = "url"
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+        verdict = _make_verdict(approved=False)
+        state["reviewed_verdicts"] = [verdict]
+
+        result = n5_generate_fix(state)
+        assert result["fixes"] == []
+
+    def test_url_target_errors_on_missing_owner(self) -> None:
+        state = create_initial_state(target="https://github.com/org/repo")
+        state["target_type"] = "url"
+        state["repo_owner"] = ""
+        state["repo_name_short"] = ""
+        verdict = _make_verdict(approved=True)
+        state["reviewed_verdicts"] = [verdict]
+
+        result = n5_generate_fix(state)
+        assert result["fixes"] == []
+        assert any("missing owner/repo" in e for e in result["errors"])
+
+    def test_url_target_errors_on_clone_failure(self) -> None:
+        state = create_initial_state(target="https://github.com/org/repo")
+        state["target_type"] = "url"
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+        verdict = _make_verdict(approved=True)
+        state["reviewed_verdicts"] = [verdict]
+
+        with patch(
+            "gh_link_auditor.pipeline.nodes.n5_generate_fix._clone_repo",
+            side_effect=RuntimeError("clone failed"),
+        ):
+            result = n5_generate_fix(state)
+
+        assert result["fixes"] == []
+        assert any("clone failed" in e for e in result["errors"])
