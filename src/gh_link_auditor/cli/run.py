@@ -112,8 +112,39 @@ def cmd_run(args: argparse.Namespace) -> int:
     # Success summary
     fixes = result.get("fixes", [])
     dead_links = result.get("dead_links", [])
+    verdicts = result.get("verdicts", [])
+
     if not dead_links:
         print("No dead links found. Documentation is clean!")
+        return 0
+
+    print(f"\n{'=' * 60}")
+    print(f"  RESULTS: {len(dead_links)} dead links found")
+    print(f"{'=' * 60}\n")
+
+    for i, verdict in enumerate(verdicts, 1):
+        dl = verdict.get("dead_link", {})
+        candidate = verdict.get("candidate")
+        confidence = verdict.get("confidence", 0)
+
+        print(f"  [{i}] {dl.get('url', '?')}")
+        print(f"      File:       {dl.get('source_file', '?')}:{dl.get('line_number', '?')}")
+        print(f"      Status:     {dl.get('http_status', 'unknown')}")
+        print(f"      Confidence: {confidence:.0%}")
+
+        if candidate:
+            print(f"      Replace:    {candidate['url']}")
+            print(f"      Source:     {candidate.get('source', '?')}")
+        else:
+            print("      Replace:    (no candidate)")
+
+        reasoning = verdict.get("reasoning", "")
+        if reasoning:
+            print(f"      Reasoning:  {reasoning}")
+        print()
+
+    if args.dry_run:
+        print(f"Dry-run complete. {len(verdicts)} verdicts produced, no fixes applied.")
     else:
         print(f"Found {len(dead_links)} dead links, generated {len(fixes)} fixes.")
 

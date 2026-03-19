@@ -15,7 +15,7 @@ from pathlib import Path
 from gh_link_auditor.network import check_url as network_check_url
 from gh_link_auditor.pipeline.state import DeadLink, PipelineState
 
-_URL_RE = re.compile(r"https?://[^\s\)>\"\]]+")
+_URL_RE = re.compile(r"https?://[^\s\)>\"\]`]+")
 
 
 def _read_file_content(

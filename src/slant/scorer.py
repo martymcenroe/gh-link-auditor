@@ -77,7 +77,7 @@ def score_candidate(
     """
     candidate_url = candidate["url"]
 
-    redirect_raw = check_redirect(dead_url, candidate_url)
+    redirect_raw = check_redirect(dead_url, candidate_url, candidate_source=candidate.get("source", ""))
     title_raw = match_title(candidate_url, archived_title)
     content_raw = compare_content(candidate_url, archived_content)
     url_path_raw = compare_url_paths(dead_url, candidate_url)

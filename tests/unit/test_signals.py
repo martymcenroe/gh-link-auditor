@@ -143,6 +143,29 @@ class TestCheckRedirect:
             score = check_redirect("https://example.com/page", "https://example.com/new-page")
         assert score == 1.0
 
+    def test_redirect_chain_source_short_circuits(self):
+        """Candidate from redirect_chain source returns 1.0 without HTTP call."""
+        score = check_redirect(
+            "https://example.com/q/123",
+            "https://example.com/questions/123/full-title",
+            candidate_source="redirect_chain",
+        )
+        assert score == 1.0
+
+    def test_non_redirect_source_still_checks_http(self):
+        """Candidate from other sources still does HTTP verification."""
+
+        def _mock_get(url, *, timeout=10):
+            return {"status_code": 200, "location": None}
+
+        with patch("slant.signals.redirect._http_get", side_effect=_mock_get):
+            score = check_redirect(
+                "https://example.com/page",
+                "https://example.com/new-page",
+                candidate_source="archive",
+            )
+        assert score == 0.0
+
     def test_score_range_zero_to_one(self):
         """Score is always in [0.0, 1.0] range."""
 
