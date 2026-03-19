@@ -7,7 +7,6 @@ Deviation from LLD: uses argparse instead of click to match codebase stdlib pref
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 from gh_link_auditor.pipeline.graph import run_pipeline
@@ -76,11 +75,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         verbose=args.verbose,
         db_path=args.db_path,
     )
-
-    # Check for LLM model override
-    model = os.environ.get("LLM_MODEL_NAME", "gpt-4o-mini")
-    if args.verbose:
-        print(f"Using model: {model}", file=sys.stderr)
 
     try:
         result = run_pipeline(state)

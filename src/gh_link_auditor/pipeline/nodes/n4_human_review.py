@@ -24,20 +24,23 @@ def format_verdict_for_review(verdict: Verdict) -> str:
     confidence = verdict.get("confidence", 0)
 
     lines = [
-        f"Dead URL: {dead_link['url']}",
-        f"Source:   {dead_link['source_file']}:{dead_link['line_number']}",
-        f"Confidence: {confidence}",
+        "",
+        "-" * 50,
+        f"  Dead URL:  {dead_link['url']}",
+        f"  File:      {dead_link['source_file']}:{dead_link['line_number']}",
+        f"  Confidence: {confidence:.0%}",
     ]
 
     if candidate:
-        lines.append(f"Proposed replacement: {candidate['url']}")
-        lines.append(f"Found via: {candidate['source']}")
+        lines.append(f"  Replace with: {candidate['url']}")
+        lines.append(f"  Found via:    {candidate['source']}")
     else:
-        lines.append("Proposed replacement: None (no candidate found)")
+        lines.append("  Replace with: (no candidate)")
 
     if verdict.get("reasoning"):
-        lines.append(f"Reasoning: {verdict['reasoning']}")
+        lines.append(f"  Reasoning:    {verdict['reasoning']}")
 
+    lines.append("-" * 50)
     return "\n".join(lines)
 
 
@@ -51,7 +54,7 @@ def prompt_user_approval(verdict: Verdict) -> bool:
         True if approved, False if rejected.
     """
     try:
-        response = input("[y]es / [n]o: ").strip().lower()
+        response = input("Approve this replacement? [y]es / [n]o: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
 

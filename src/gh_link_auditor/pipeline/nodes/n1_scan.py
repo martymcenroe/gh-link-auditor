@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 from gh_link_auditor.network import check_url as network_check_url
@@ -223,6 +224,14 @@ def n1_scan(state: PipelineState) -> PipelineState:
     target_type = state.get("target_type", "local")
     repo_owner = state.get("repo_owner", "")
     repo_name_short = state.get("repo_name_short", "")
+    verbose = state.get("verbose", False)
+
+    if verbose:
+        print(
+            f"[N1] Scanning {len(doc_files)} doc files for URLs...",
+            file=sys.stderr,
+            flush=True,
+        )
 
     try:
         dead_links = run_link_scan(
@@ -236,6 +245,13 @@ def n1_scan(state: PipelineState) -> PipelineState:
     except Exception as exc:
         state["errors"] = state.get("errors", []) + [f"Scan error: {exc}"]
         state["dead_links"] = state.get("dead_links", [])
+
+    if verbose:
+        print(
+            f"[N1] Scan complete: {len(state.get('dead_links', []))} dead links found",
+            file=sys.stderr,
+            flush=True,
+        )
 
     state["scan_complete"] = True
     return state

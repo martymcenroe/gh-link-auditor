@@ -9,6 +9,7 @@ See LLD #22 §2.4 for n3_judge specification.
 from __future__ import annotations
 
 import logging
+import sys
 
 from gh_link_auditor.pipeline.state import (
     DeadLink,
@@ -121,6 +122,10 @@ def n3_judge(state: PipelineState) -> PipelineState:
     dead_links = state.get("dead_links", [])
     candidates = state.get("candidates", {})
     verdicts: list[Verdict] = []
+    verbose = state.get("verbose", False)
+
+    if verbose:
+        print(f"[N3] Scoring {len(dead_links)} verdicts...", file=sys.stderr, flush=True)
 
     for dead_link in dead_links:
         url = dead_link["url"]
