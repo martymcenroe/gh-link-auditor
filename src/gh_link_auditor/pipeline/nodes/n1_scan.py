@@ -13,7 +13,7 @@ import re
 import sys
 from pathlib import Path
 
-from gh_link_auditor.false_positives import is_bot_blocked, is_placeholder_url
+from gh_link_auditor.false_positives import is_api_test_endpoint, is_false_positive, is_placeholder_url
 from gh_link_auditor.network import check_url as network_check_url
 from gh_link_auditor.pipeline.state import DeadLink, PipelineState
 
@@ -85,7 +85,7 @@ def _extract_urls_from_file(
 
     for line_num, line in enumerate(text.splitlines(), start=1):
         for match in _URL_RE.finditer(line):
-            url = match.group(0).rstrip(".,;:!?)")
+            url = match.group(0).rstrip(".,;:!?)'\"`")
             results.append((url, line_num, url))
 
     return results
@@ -193,13 +193,14 @@ def run_link_scan(
                 continue
             seen_urls.add(url)
 
-            if is_placeholder_url(url):
+            # Pre-check: skip URLs that are false positives without status
+            if is_placeholder_url(url) or is_api_test_endpoint(url):
                 continue
 
             result = _check_single_url(url)
             if _is_dead(result):
                 status_code = result.get("status_code")
-                if is_bot_blocked(url, status_code):
+                if is_false_positive(url, status_code):
                     continue
                 dead_links.append(
                     DeadLink(
