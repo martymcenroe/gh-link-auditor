@@ -9,11 +9,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from gh_link_auditor.metrics.reporter import (
-    format_campaign_text,
-    generate_campaign_metrics,
-)
-
 DEFAULT_DB_PATH = Path("data/metrics/metrics.db")
 
 
@@ -39,7 +34,7 @@ def build_metrics_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def cmd_metrics_campaign(args: argparse.Namespace) -> int:
-    """Display campaign metrics.
+    """Display campaign dashboard with aggregate stats and recent PRs.
 
     Args:
         args: Parsed CLI arguments.
@@ -47,26 +42,33 @@ def cmd_metrics_campaign(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
+    from gh_link_auditor.campaign_dashboard import (
+        format_dashboard,
+        format_dashboard_json,
+    )
+    from gh_link_auditor.metrics.collector import MetricsCollector
+    from gh_link_auditor.metrics.reporter import generate_campaign_metrics
+
     db_path = Path(args.db_path)
     metrics = generate_campaign_metrics(db_path)
 
+    # Fetch recent PRs for the dashboard
+    collector = MetricsCollector(db_path)
+    try:
+        recent_prs = collector.get_all_pr_outcomes()
+    finally:
+        collector.close()
+
+    # Sort by submitted_at descending (newest first)
+    recent_prs.sort(key=lambda p: p.submitted_at, reverse=True)
+
     fmt = getattr(args, "format", "text")
     if fmt == "text":
-        print(format_campaign_text(metrics))
+        print(format_dashboard(metrics, recent_prs))
     else:
         import json as json_mod
 
-        data = {
-            "total_runs": metrics.total_runs,
-            "total_repos_processed": metrics.total_repos_processed,
-            "total_prs_submitted": metrics.total_prs_submitted,
-            "total_prs_merged": metrics.total_prs_merged,
-            "total_prs_rejected": metrics.total_prs_rejected,
-            "total_prs_open": metrics.total_prs_open,
-            "acceptance_rate": metrics.acceptance_rate,
-            "avg_time_to_merge_hours": metrics.avg_time_to_merge_hours,
-            "rejection_reasons": metrics.rejection_reasons,
-        }
+        data = format_dashboard_json(metrics, recent_prs)
         print(json_mod.dumps(data, indent=2))
 
     return 0
