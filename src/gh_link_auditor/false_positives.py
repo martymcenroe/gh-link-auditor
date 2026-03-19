@@ -22,7 +22,7 @@ SKIP_DOMAINS: set[str] = {
     "0.0.0.0",
 }
 
-# Domains that return 403 to bots but work fine in browsers.
+# Domains that return 403/429 to bots but work fine in browsers.
 BOT_BLOCKED_DOMAINS: set[str] = {
     "stackoverflow.com",
     "stackexchange.com",
@@ -31,6 +31,22 @@ BOT_BLOCKED_DOMAINS: set[str] = {
     "superuser.com",
     "askubuntu.com",
     "mathoverflow.net",
+    "upload.wikimedia.org",
+    "wikimedia.org",
+    "wikipedia.org",
+}
+
+# Domain parking / marketplace domains (expired domains redirect here).
+PARKING_DOMAINS: set[str] = {
+    "aftermarket.com",
+    "godaddy.com",
+    "sedo.com",
+    "dan.com",
+    "parkingcrew.net",
+    "sedoparking.com",
+    "hugedomains.com",
+    "buydomains.com",
+    "bodis.com",
 }
 
 # Domains where non-200 responses are by design (API test services).
@@ -84,12 +100,12 @@ def is_bot_blocked(url: str, http_status: int | None) -> bool:
 
     Args:
         url: The URL that was checked.
-        http_status: HTTP status code returned (e.g. 403).
+        http_status: HTTP status code returned (e.g. 403, 429).
 
     Returns:
         True if the failure is likely bot blocking.
     """
-    if http_status != 403:
+    if http_status not in (403, 429):
         return False
 
     hostname = (urlparse(url).hostname or "").lower()

@@ -101,6 +101,18 @@ class TestIsBotBlocked:
     def test_malformed_url(self) -> None:
         assert is_bot_blocked("://broken", 403) is False
 
+    def test_wikimedia_429(self) -> None:
+        assert is_bot_blocked("https://upload.wikimedia.org/wikipedia/commons/image.png", 429) is True
+
+    def test_wikipedia_429(self) -> None:
+        assert is_bot_blocked("https://en.wikipedia.org/wiki/Python", 429) is True
+
+    def test_stackoverflow_429(self) -> None:
+        assert is_bot_blocked("https://stackoverflow.com/q/1", 429) is True
+
+    def test_random_site_429_not_blocked(self) -> None:
+        assert is_bot_blocked("https://random-site.com/page", 429) is False
+
 
 class TestIsApiTestEndpoint:
     """Tests for is_api_test_endpoint()."""
@@ -239,6 +251,9 @@ class TestIsFalsePositive:
 
     def test_github_auth_required(self) -> None:
         assert is_false_positive("https://github.com/org/repo/issues/new", http_status=404) is True
+
+    def test_wikimedia_429(self) -> None:
+        assert is_false_positive("https://upload.wikimedia.org/image.png", http_status=429) is True
 
     def test_github_repo_404_not_filtered(self) -> None:
         # Deleted repos ARE real dead links
