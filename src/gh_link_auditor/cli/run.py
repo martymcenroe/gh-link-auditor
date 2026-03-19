@@ -87,6 +87,24 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"Pipeline error: {exc}", file=sys.stderr)
         return 1
 
+    # Show repo quality info if available
+    stars = result.get("repo_stars", 0)
+    contributors = result.get("repo_contributors", 0)
+    pushed_at = result.get("repo_pushed_at", "")
+    if stars or contributors:
+        parts = []
+        if stars:
+            parts.append(f"{stars:,} stars")
+        if contributors:
+            parts.append(f"{contributors} contributors")
+        if pushed_at:
+            parts.append(f"last push {pushed_at[:10]}")
+        print(f"  Repo: {' | '.join(parts)}")
+
+    contributing_warnings = result.get("contributing_warnings", [])
+    for warning in contributing_warnings:
+        print(f"  Warning: {warning}")
+
     # Determine exit code
     if result.get("circuit_breaker_triggered"):
         count = len(result.get("dead_links", []))

@@ -84,6 +84,11 @@ class PipelineState(TypedDict, total=False):
 
     # N0 Output
     doc_files: list[str]
+    repo_stars: int
+    repo_pushed_at: str
+    repo_contributors: int
+    contributing_guidelines: str
+    contributing_warnings: list[str]
 
     # N1 Output
     dead_links: list[DeadLink]
