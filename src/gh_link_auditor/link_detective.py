@@ -19,6 +19,7 @@ from gh_link_auditor.archive_client import ArchiveClient
 from gh_link_auditor.github_resolver import GitHubResolver
 from gh_link_auditor.redirect_resolver import RedirectResolver, SSRFBlocked
 from gh_link_auditor.similarity import compute_similarity
+from gh_link_auditor.sitemap_searcher import fetch_sitemap, search_sitemap_for_match
 from gh_link_auditor.url_heuristic import URLHeuristic
 from src.logging_config import setup_logging
 
@@ -36,6 +37,7 @@ class InvestigationMethod(Enum):
     REDIRECT_CHAIN = "redirect_chain"
     URL_MUTATION = "url_mutation"
     URL_HEURISTIC = "url_heuristic"
+    SITEMAP_SEARCH = "sitemap_search"
     GITHUB_API_REDIRECT = "github_api_redirect"
     ARCHIVE_ONLY = "archive_only"
 
@@ -221,10 +223,42 @@ class LinkDetective:
         except Exception as e:
             log.append(f"Archive lookup failed: {e}")
 
-        # 7. URL PATTERN HEURISTICS (requires archive title)
+        # 7. SITEMAP SEARCH (same-site page discovery)
+        domain = parsed.hostname or ""
+        if domain and archive_title:
+            try:
+                sitemap_urls = fetch_sitemap(domain)
+                if sitemap_urls:
+                    log.append(f"Sitemap found: {len(sitemap_urls)} URLs")
+                    matches = search_sitemap_for_match(sitemap_urls, parsed.path, archive_title)
+                    for match_url in matches:
+                        if self._redirect_resolver.verify_live(match_url):
+                            if archive_summary:
+                                page_content = _fetch_page_content(match_url)
+                                if page_content:
+                                    score = compute_similarity(archive_summary, page_content)
+                                else:
+                                    score = 0.5
+                            else:
+                                score = 0.5
+
+                            candidates.append(
+                                CandidateReplacement(
+                                    url=match_url,
+                                    method=InvestigationMethod.SITEMAP_SEARCH,
+                                    similarity_score=score,
+                                    verified_live=True,
+                                )
+                            )
+                            log.append(f"Sitemap match: {match_url} (score={score:.2f})")
+                else:
+                    log.append("No sitemap found")
+            except Exception as e:
+                log.append(f"Sitemap search failed: {e}")
+
+        # 8. URL PATTERN HEURISTICS (requires archive title)
         if archive_title:
             try:
-                domain = parsed.hostname or ""
                 original_path = parsed.path
                 candidate_urls = self._url_heuristic.generate_candidates(domain, archive_title, original_path)
                 live_urls = self._url_heuristic.probe_candidates(candidate_urls, max_results=3)
@@ -252,7 +286,7 @@ class LinkDetective:
             except Exception as e:
                 log.append(f"URL heuristic check failed: {e}")
 
-        # 8. GITHUB-SPECIFIC RESOLUTION
+        # 9. GITHUB-SPECIFIC RESOLUTION
         if self._github_resolver.is_github_url(dead_url):
             try:
                 owner, repo, file_path = self._github_resolver._parse_github_url(dead_url)
@@ -272,7 +306,7 @@ class LinkDetective:
             except Exception as e:
                 log.append(f"GitHub resolution failed: {e}")
 
-        # 9. Archive-only fallback
+        # 10. Archive-only fallback
         if archive_snapshot and not any(c.verified_live for c in candidates):
             candidates.append(
                 CandidateReplacement(
@@ -284,10 +318,10 @@ class LinkDetective:
             )
             log.append(f"Archive-only fallback: {archive_snapshot}")
 
-        # 10. Sort candidates by similarity_score descending
+        # 11. Sort candidates by similarity_score descending
         candidates.sort(key=lambda c: c.similarity_score, reverse=True)
 
-        # 11. Build report
+        # 12. Build report
         report = ForensicReport(
             dead_url=dead_url,
             http_status=http_status,
@@ -300,7 +334,7 @@ class LinkDetective:
             ),
         )
 
-        # 12. Cache result
+        # 13. Cache result
         self._cache_result(report)
 
         return report
