@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from gh_link_auditor.pipeline.state import PipelineState, Verdict
 
+# Sentinel to signal "exit review, reject all remaining"
+_EXIT = "exit"
+_SKIP = "skip"
+
 
 def format_verdict_for_review(verdict: Verdict) -> str:
     """Format a verdict for terminal display.
@@ -44,21 +48,28 @@ def format_verdict_for_review(verdict: Verdict) -> str:
     return "\n".join(lines)
 
 
-def prompt_user_approval(verdict: Verdict) -> bool:
-    """Interactive prompt for user to approve/reject a verdict.
+def prompt_user_approval(verdict: Verdict) -> bool | str:
+    """Interactive prompt for user to approve/reject/skip/exit.
 
     Args:
         verdict: Verdict to review.
 
     Returns:
-        True if approved, False if rejected.
-    """
-    try:
-        response = input("Approve this replacement? [y]es / [n]o: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return False
+        True if approved, False if rejected, "skip" to skip, "exit" to abort.
 
-    return response in ("y", "yes")
+    Raises:
+        KeyboardInterrupt: If user presses Ctrl+C (aborts pipeline).
+    """
+    response = input("[y]es / [n]o / [s]kip / e[x]it: ").strip().lower()
+
+    if response in ("y", "yes"):
+        return True
+    if response in ("s", "skip"):
+        return _SKIP
+    if response in ("x", "exit", "q", "quit"):
+        return _EXIT
+
+    return False
 
 
 def n4_human_review(state: PipelineState) -> PipelineState:
@@ -78,6 +89,7 @@ def n4_human_review(state: PipelineState) -> PipelineState:
     dry_run = state.get("dry_run", False)
 
     reviewed: list[Verdict] = []
+    exit_review = False
 
     for verdict in verdicts:
         confidence = verdict.get("confidence", 0)
@@ -87,13 +99,29 @@ def n4_human_review(state: PipelineState) -> PipelineState:
             updated = dict(verdict)
             updated["approved"] = True
             reviewed.append(updated)  # type: ignore[arg-type]
+        elif exit_review:
+            # User chose exit — reject all remaining
+            updated = dict(verdict)
+            updated["approved"] = False
+            reviewed.append(updated)  # type: ignore[arg-type]
         else:
             # Present to user for review
             print(format_verdict_for_review(verdict))
-            approved = prompt_user_approval(verdict)
-            updated = dict(verdict)
-            updated["approved"] = approved
-            reviewed.append(updated)  # type: ignore[arg-type]
+            result = prompt_user_approval(verdict)
+
+            if result is _EXIT:
+                exit_review = True
+                updated = dict(verdict)
+                updated["approved"] = False
+                reviewed.append(updated)  # type: ignore[arg-type]
+            elif result is _SKIP:
+                updated = dict(verdict)
+                updated["approved"] = False
+                reviewed.append(updated)  # type: ignore[arg-type]
+            else:
+                updated = dict(verdict)
+                updated["approved"] = bool(result)
+                reviewed.append(updated)  # type: ignore[arg-type]
 
     state["reviewed_verdicts"] = reviewed
     return state
