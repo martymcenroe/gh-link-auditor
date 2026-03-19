@@ -1,7 +1,7 @@
 """CLI commands for campaign metrics.
 
 See LLD-019 §2.4 for CLI specification.
-Subcommands: metrics report, metrics campaign.
+Subcommands: metrics campaign, metrics refresh.
 """
 
 from __future__ import annotations
@@ -31,6 +31,11 @@ def build_metrics_parser(subparsers: argparse._SubParsersAction) -> None:
     campaign_parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="Metrics DB path")
     campaign_parser.add_argument("--format", choices=["text", "json"], default="text")
     campaign_parser.set_defaults(func=cmd_metrics_campaign)
+
+    # metrics refresh
+    refresh_parser = metrics_sub.add_parser("refresh", help="Refresh PR statuses from GitHub")
+    refresh_parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="Metrics DB path")
+    refresh_parser.set_defaults(func=cmd_metrics_refresh)
 
 
 def cmd_metrics_campaign(args: argparse.Namespace) -> int:
@@ -63,5 +68,29 @@ def cmd_metrics_campaign(args: argparse.Namespace) -> int:
             "rejection_reasons": metrics.rejection_reasons,
         }
         print(json_mod.dumps(data, indent=2))
+
+    return 0
+
+
+def cmd_metrics_refresh(args: argparse.Namespace) -> int:
+    """Refresh PR statuses from GitHub API.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code.
+    """
+    from gh_link_auditor.pr_tracker import refresh_pr_outcomes
+
+    db_path = Path(args.db_path)
+    updated = refresh_pr_outcomes(db_path)
+
+    if not updated:
+        print("No PR status changes detected.")
+    else:
+        print(f"Updated {len(updated)} PR(s):")
+        for outcome in updated:
+            print(f"  {outcome.pr_url}: {outcome.status}")
 
     return 0
