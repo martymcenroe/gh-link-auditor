@@ -168,6 +168,31 @@ def n0_load_target(state: PipelineState) -> PipelineState:
             owner, repo = _extract_owner_repo(normalized)
             state["repo_owner"] = owner
             state["repo_name_short"] = repo
+
+            # Fetch repo quality and contributing guidelines
+            from gh_link_auditor.repo_quality import (
+                analyze_contributing_guidelines,
+                fetch_contributing_guidelines,
+                fetch_repo_metadata,
+                format_quality_summary,
+            )
+
+            quality = fetch_repo_metadata(owner, repo)
+            state["repo_stars"] = quality.stars
+            state["repo_pushed_at"] = quality.pushed_at
+            state["repo_contributors"] = quality.contributors
+
+            contributing = fetch_contributing_guidelines(owner, repo)
+            state["contributing_guidelines"] = contributing
+            warnings = analyze_contributing_guidelines(contributing)
+            state["contributing_warnings"] = warnings
+
+            if verbose:
+                summary = format_quality_summary(quality)
+                print(f"[N0] Repo quality: {summary}", file=sys.stderr, flush=True)
+                if warnings:
+                    for w in warnings:
+                        print(f"[N0] Warning: {w}", file=sys.stderr, flush=True)
         else:
             state["repo_owner"] = ""
             state["repo_name_short"] = ""
