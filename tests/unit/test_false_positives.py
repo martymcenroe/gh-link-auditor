@@ -1,13 +1,16 @@
 """Tests for false positive knowledge store.
 
-See Issue #94 for specification.
+See Issues #94, #97 for specification.
 """
 
 from __future__ import annotations
 
 from gh_link_auditor.false_positives import (
+    is_api_test_endpoint,
     is_bot_blocked,
     is_false_positive,
+    is_github_issue_404,
+    is_placeholder_path,
     is_placeholder_url,
 )
 
@@ -98,23 +101,115 @@ class TestIsBotBlocked:
         assert is_bot_blocked("://broken", 403) is False
 
 
+class TestIsApiTestEndpoint:
+    """Tests for is_api_test_endpoint()."""
+
+    def test_httpbin_org(self) -> None:
+        assert is_api_test_endpoint("https://httpbin.org/get") is True
+
+    def test_httpbin_org_auth(self) -> None:
+        assert is_api_test_endpoint("https://httpbin.org/basic-auth/user/pass") is True
+
+    def test_httpbin_org_status(self) -> None:
+        assert is_api_test_endpoint("https://httpbin.org/status/404") is True
+
+    def test_httpbin_com(self) -> None:
+        assert is_api_test_endpoint("https://httpbin.com/get") is True
+
+    def test_real_api_not_test(self) -> None:
+        assert is_api_test_endpoint("https://api.github.com/events") is False
+
+    def test_empty(self) -> None:
+        assert is_api_test_endpoint("") is False
+
+
+class TestIsPlaceholderPath:
+    """Tests for is_placeholder_path()."""
+
+    def test_your_username(self) -> None:
+        assert is_placeholder_path("https://github.com/YOUR-USERNAME/httpx") is True
+
+    def test_your_username_underscore(self) -> None:
+        assert is_placeholder_path("https://github.com/YOUR_USERNAME/repo") is True
+
+    def test_your_org(self) -> None:
+        assert is_placeholder_path("https://github.com/YOUR-ORG/repo") is True
+
+    def test_your_repo(self) -> None:
+        assert is_placeholder_path("https://example.com/YOUR-REPO/path") is True
+
+    def test_your_token(self) -> None:
+        assert is_placeholder_path("https://api.example.com/YOUR-TOKEN/data") is True
+
+    def test_username_placeholder(self) -> None:
+        assert is_placeholder_path("https://github.com/USERNAME/repo") is True
+
+    def test_owner_placeholder(self) -> None:
+        assert is_placeholder_path("https://github.com/OWNER/repo") is True
+
+    def test_case_insensitive(self) -> None:
+        assert is_placeholder_path("https://github.com/your-username/repo") is True
+
+    def test_real_username_not_placeholder(self) -> None:
+        assert is_placeholder_path("https://github.com/pallets/flask") is False
+
+    def test_real_path(self) -> None:
+        assert is_placeholder_path("https://docs.python.org/3/library/") is False
+
+
+class TestIsGithubIssue404:
+    """Tests for is_github_issue_404()."""
+
+    def test_issue_404(self) -> None:
+        assert is_github_issue_404("https://github.com/encode/httpx/issues/1434", 404) is True
+
+    def test_pr_404(self) -> None:
+        assert is_github_issue_404("https://github.com/org/repo/pull/123", 404) is True
+
+    def test_issue_200(self) -> None:
+        assert is_github_issue_404("https://github.com/encode/httpx/issues/1", 200) is False
+
+    def test_issue_403(self) -> None:
+        assert is_github_issue_404("https://github.com/encode/httpx/issues/1", 403) is False
+
+    def test_not_github(self) -> None:
+        assert is_github_issue_404("https://gitlab.com/org/repo/issues/1", 404) is False
+
+    def test_github_repo_404(self) -> None:
+        # Repo-level 404 is NOT an issue/PR — could be genuinely deleted
+        assert is_github_issue_404("https://github.com/org/deleted-repo", 404) is False
+
+    def test_none_status(self) -> None:
+        assert is_github_issue_404("https://github.com/org/repo/issues/1", None) is False
+
+
 class TestIsFalsePositive:
     """Tests for is_false_positive() master check."""
 
-    def test_placeholder_is_false_positive(self) -> None:
+    def test_placeholder_domain(self) -> None:
         assert is_false_positive("https://example.com/page") is True
 
-    def test_placeholder_without_status(self) -> None:
-        assert is_false_positive("https://example.com/page", http_status=None) is True
+    def test_placeholder_path(self) -> None:
+        assert is_false_positive("https://github.com/YOUR-USERNAME/repo") is True
 
-    def test_bot_blocked_is_false_positive(self) -> None:
+    def test_api_test_endpoint(self) -> None:
+        assert is_false_positive("https://httpbin.org/get") is True
+
+    def test_bot_blocked(self) -> None:
         assert is_false_positive("https://stackoverflow.com/q/1", http_status=403) is True
 
-    def test_real_dead_link_not_false_positive(self) -> None:
+    def test_github_issue_404(self) -> None:
+        assert is_false_positive("https://github.com/org/repo/issues/999", http_status=404) is True
+
+    def test_real_dead_link(self) -> None:
         assert is_false_positive("https://old-dead-site.com/page", http_status=404) is False
 
-    def test_real_site_403_not_false_positive(self) -> None:
+    def test_real_site_403(self) -> None:
         assert is_false_positive("https://some-api.com/endpoint", http_status=403) is False
 
-    def test_bot_blocked_without_status_not_triggered(self) -> None:
+    def test_bot_blocked_without_status(self) -> None:
         assert is_false_positive("https://stackoverflow.com/q/1") is False
+
+    def test_github_repo_404_not_filtered(self) -> None:
+        # Deleted repos ARE real dead links
+        assert is_false_positive("https://github.com/org/deleted-repo", http_status=404) is False
