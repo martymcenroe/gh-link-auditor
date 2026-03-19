@@ -142,4 +142,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         print(f"Found {len(dead_links)} dead links, generated {len(fixes)} fixes.")
 
+    pr_url = result.get("pr_url", "")
+    if pr_url:
+        print(f"\n  PR submitted: {pr_url}")
+
     return 0
