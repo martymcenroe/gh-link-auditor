@@ -26,7 +26,6 @@ from gh_link_auditor.batch.progress import BatchProgressTracker
 from gh_link_auditor.batch.rate_limiter import AdaptiveRateLimiter
 from gh_link_auditor.batch.token_manager import TokenManager
 from gh_link_auditor.metrics.models import RunReport
-from gh_link_auditor.metrics.reporter import generate_run_report
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +121,8 @@ async def _run_batch_loop(state: BatchState, config: BatchConfig) -> RunReport:
         print(progress.display(), file=sys.stderr, end="\r")
 
     state.last_checkpoint_at = now_utc()
+
+    from gh_link_auditor.metrics.reporter import generate_run_report
 
     return generate_run_report(state)
 
