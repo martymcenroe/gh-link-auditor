@@ -51,6 +51,13 @@ _GITHUB_ISSUE_RE = re.compile(
     r"https?://github\.com/[^/]+/[^/]+/(issues|pull)/\d+",
 )
 
+# GitHub paths that require authentication (return 404 when not logged in).
+_GITHUB_AUTH_PATHS = re.compile(
+    r"https?://github\.com/[^/]+/[^/]+/"
+    r"(issues/new|compare|settings|releases/new|invitations"
+    r"|new|edit|delete|import|transfer)",
+)
+
 
 def is_placeholder_url(url: str) -> bool:
     """Check if a URL uses a known placeholder/example domain.
@@ -150,6 +157,25 @@ def is_github_issue_404(url: str, http_status: int | None) -> bool:
     return bool(_GITHUB_ISSUE_RE.match(url))
 
 
+def is_github_auth_required(url: str, http_status: int | None) -> bool:
+    """Check if a GitHub URL requires authentication.
+
+    URLs like /issues/new, /compare, /settings return 404 when not logged in
+    but are valid authenticated endpoints.
+
+    Args:
+        url: URL to check.
+        http_status: HTTP status code.
+
+    Returns:
+        True if this is a GitHub auth-required URL.
+    """
+    if http_status != 404:
+        return False
+
+    return bool(_GITHUB_AUTH_PATHS.match(url))
+
+
 def is_false_positive(url: str, http_status: int | None = None) -> bool:
     """Master check: is this URL a known false positive?
 
@@ -173,6 +199,8 @@ def is_false_positive(url: str, http_status: int | None = None) -> bool:
         if is_bot_blocked(url, http_status):
             return True
         if is_github_issue_404(url, http_status):
+            return True
+        if is_github_auth_required(url, http_status):
             return True
 
     return False
