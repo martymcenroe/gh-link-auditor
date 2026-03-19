@@ -58,20 +58,31 @@ def _normalize_url(url: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def check_redirect(dead_url: str, candidate_url: str, timeout: float = 10.0) -> float:
+def check_redirect(
+    dead_url: str,
+    candidate_url: str,
+    timeout: float = 10.0,
+    candidate_source: str = "",
+) -> float:
     """Check if dead URL redirects to candidate via HTTP 3xx chain.
 
-    Follows up to 5 redirect hops. Returns 1.0 if the chain reaches
-    the candidate URL (normalized), 0.0 otherwise.
+    If the candidate was already discovered via redirect chain (source
+    is "redirect_chain"), returns 1.0 immediately — N2 already verified it.
+
+    Otherwise follows up to 5 redirect hops. Returns 1.0 if the chain
+    reaches the candidate URL (normalized), 0.0 otherwise.
 
     Args:
         dead_url: The dead URL to check.
         candidate_url: The candidate replacement URL.
         timeout: HTTP request timeout in seconds.
+        candidate_source: How the candidate was discovered (e.g., "redirect_chain").
 
     Returns:
         1.0 if redirect reaches candidate, 0.0 otherwise.
     """
+    if candidate_source == "redirect_chain":
+        return 1.0
     try:
         current = dead_url
         visited: set[str] = set()
