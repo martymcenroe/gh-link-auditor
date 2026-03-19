@@ -66,6 +66,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
+    mode = "dry-run" if args.dry_run else "live"
+    print(f"ghla: scanning {args.target} ({mode})")
+    print(f"      max-links={args.max_links}  max-cost=${args.max_cost:.2f}  confidence={args.confidence}")
+    print()
+
     state = create_initial_state(
         target=args.target,
         max_links=args.max_links,

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 
 from gh_link_auditor.cli.batch_cmd import build_batch_parser
 from gh_link_auditor.cli.metrics_cmd import build_metrics_parser
@@ -41,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code.
     """
+    # Suppress Pydantic V1 compatibility warning from langchain-core on Python 3.14+
+    warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
+
     from dotenv import load_dotenv
 
     load_dotenv()
