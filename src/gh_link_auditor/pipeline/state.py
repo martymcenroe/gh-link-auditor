@@ -104,6 +104,10 @@ class PipelineState(TypedDict, total=False):
     # N5 Output
     fixes: list[FixPatch]
 
+    # N6 Output
+    pr_url: str
+    pr_number: int
+
     # Cost Tracking
     cost_records: list[CostRecord]
     total_cost_usd: float

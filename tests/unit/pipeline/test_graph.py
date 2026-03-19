@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from gh_link_auditor.pipeline.graph import (
     _after_judge_router,
+    _after_n5_router,
     build_pipeline_graph,
     run_pipeline,
     should_route_to_human_review,
@@ -107,6 +108,34 @@ class TestAfterJudgeRouter:
         state["verdicts"] = [_make_verdict()]
         result = _after_judge_router(state)
         assert result == "n4_human_review"
+
+
+class TestAfterN5Router:
+    """Tests for _after_n5_router()."""
+
+    def test_returns_end_for_dry_run(self) -> None:
+        state = create_initial_state(target="t", dry_run=True)
+        state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
+        state["target_type"] = "url"
+        assert _after_n5_router(state) == "__end__"
+
+    def test_returns_end_for_local_target(self) -> None:
+        state = create_initial_state(target="/path")
+        state["target_type"] = "local"
+        state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
+        assert _after_n5_router(state) == "__end__"
+
+    def test_returns_end_for_empty_fixes(self) -> None:
+        state = create_initial_state(target="https://github.com/org/repo")
+        state["target_type"] = "url"
+        state["fixes"] = []
+        assert _after_n5_router(state) == "__end__"
+
+    def test_routes_to_n6_for_url_with_fixes(self) -> None:
+        state = create_initial_state(target="https://github.com/org/repo")
+        state["target_type"] = "url"
+        state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
+        assert _after_n5_router(state) == "n6_submit_pr"
 
 
 class TestBuildPipelineGraph:

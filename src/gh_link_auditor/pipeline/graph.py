@@ -19,6 +19,7 @@ from gh_link_auditor.pipeline.nodes.n2_investigate import n2_investigate
 from gh_link_auditor.pipeline.nodes.n3_judge import n3_judge
 from gh_link_auditor.pipeline.nodes.n4_human_review import n4_human_review
 from gh_link_auditor.pipeline.nodes.n5_generate_fix import n5_generate_fix
+from gh_link_auditor.pipeline.nodes.n6_submit_pr import n6_submit_pr
 from gh_link_auditor.pipeline.state import PipelineState
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,24 @@ def _after_judge_router(state: PipelineState) -> str:
     return "n4_human_review"
 
 
+def _after_n5_router(state: PipelineState) -> str:
+    """Route after N5: submit PR or end.
+
+    Skips N6 for dry-run, local targets, or when no fixes were generated.
+    """
+    if state.get("dry_run", False):
+        return END
+
+    if state.get("target_type", "local") != "url":
+        return END
+
+    fixes = state.get("fixes", [])
+    if not fixes:
+        return END
+
+    return "n6_submit_pr"
+
+
 def build_pipeline_graph():
     """Construct the LangGraph StateGraph with all nodes and edges.
 
@@ -108,6 +127,7 @@ def build_pipeline_graph():
     graph.add_node("n3_judge", n3_judge)
     graph.add_node("n4_human_review", n4_human_review)
     graph.add_node("n5_generate_fix", n5_generate_fix)
+    graph.add_node("n6_submit_pr", n6_submit_pr)
 
     graph.set_entry_point("n0_load_target")
 
@@ -117,7 +137,8 @@ def build_pipeline_graph():
     graph.add_edge("n2_investigate", "n3_judge")
     graph.add_conditional_edges("n3_judge", _after_judge_router)
     graph.add_edge("n4_human_review", "n5_generate_fix")
-    graph.add_edge("n5_generate_fix", END)
+    graph.add_conditional_edges("n5_generate_fix", _after_n5_router)
+    graph.add_edge("n6_submit_pr", END)
 
     return graph.compile()
 
