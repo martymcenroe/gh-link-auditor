@@ -1,300 +1,70 @@
-# Operator Guide: Running gh-link-auditor
+# Operator Guide: Supervising gh-link-auditor
 
-## Overview
-
-gh-link-auditor finds dead links in GitHub repositories and generates fixes. The workflow is:
-
-1. **Discover** repos to audit (repo-scout)
-2. **Audit** a single repo (ghla run)
-3. **Batch audit** many repos (ghla batch)
-4. **Review** metrics (ghla metrics)
-
-## Prerequisites
-
-### 1. GitHub authentication
-
-If you already ran `gh auth login`, the tool automatically uses that token. No `.env` needed.
-
-Only create `.env` to **override** the token or set other variables:
-
-```bash
-cp .env.example .env
-```
-
-```
-# Optional: override gh auth token with a specific PAT
-GITHUB_TOKEN=github_pat_your_token_here
-# Optional: change the LLM model (default: gpt-4o-mini)
-LLM_MODEL_NAME=gpt-4o-mini
-```
-
-**Do NOT paste tokens into `.env` if you are running inside a Claude Code session.** The token resolver picks up your `gh auth login` credential automatically and safely.
-
-### 2. Verify installation
-
-```bash
-cd /c/Users/mcwiz/Projects/gh-link-auditor
-poetry run python -c "from dotenv import load_dotenv; load_dotenv(); print('ready')"
-```
+Claude runs the pipeline. You supervise. This guide tells you what to watch for, when you need to make a decision, and what can go wrong.
 
 ---
 
-## Step 1: Discover Repos (repo-scout)
+## Before a Run
 
-Repo Scout finds interesting GitHub repos to audit. You need at least one discovery source.
+Claude will handle installation, auth, and target selection. You just need to confirm:
 
-### Quick start — discover from stargazers
-
-Find repos starred by people who starred a popular tool:
-
-```bash
-poetry run python -c "
-from repo_scout.cli import main
-import sys
-sys.exit(main([
-    '--seed-repos', 'anthropics/claude-code',
-    '--max-stargazers', '50',
-    '--max-repo-age-months', '6',
-    '--output', 'targets.json',
-    '--format', 'json'
-]))
-"
-```
-
-### Discover from Awesome lists
-
-```bash
-poetry run python -c "
-from repo_scout.cli import main
-import sys
-sys.exit(main([
-    '--awesome-lists', 'sindresorhus/awesome',
-    '--output', 'targets.json',
-    '--format', 'json'
-]))
-"
-```
-
-### Discover from starred repos (star walking)
-
-```bash
-poetry run python -c "
-from repo_scout.cli import main
-import sys
-sys.exit(main([
-    '--root-users', 'martymcenroe',
-    '--star-depth', '2',
-    '--output', 'targets.json',
-    '--format', 'json'
-]))
-"
-```
-
-### Combine multiple sources
-
-```bash
-poetry run python -c "
-from repo_scout.cli import main
-import sys
-sys.exit(main([
-    '--seed-repos', 'anthropics/claude-code', 'langchain-ai/langchain',
-    '--awesome-lists', 'sindresorhus/awesome',
-    '--root-users', 'martymcenroe',
-    '--max-stargazers', '50',
-    '--star-depth', '2',
-    '--output', 'targets.json',
-    '--format', 'json'
-]))
-"
-```
-
-**Output:** `targets.json` — a list of repo records sorted by relevance.
+- **Target repo**: Claude will propose a repo to audit. You approve or redirect.
+- **Mode**: Dry-run (scan only, no changes) or full run (generates fixes). Always start with dry-run.
+- **Limits**: Default is 50 dead links max, 0.8 confidence threshold. Claude will use sensible defaults unless you override.
 
 ---
 
-## Step 2: Audit a Single Repo (ghla run)
+## What Happens During a Dry-Run
 
-### Dry run first (no PRs, just find dead links)
+Claude runs the pipeline. You watch. Here's what each stage does and what to look for.
 
-```bash
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main(['run', 'https://github.com/OWNER/REPO', '--dry-run', '--verbose']))
-"
-```
+### Stage 1: N0 Load Target (5-10 seconds)
 
-### Full run (generates fixes)
+**What it does:** Lists all doc files (.md, .rst, .txt, .adoc) in the target repo. For URL targets, uses GitHub API. For local paths, walks the filesystem.
 
-```bash
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main(['run', 'https://github.com/OWNER/REPO', '--verbose']))
-"
-```
+**What to watch for:**
+- If it says `errors:` immediately, the target URL is wrong or the repo doesn't exist
+- If it reports 0 doc files, the repo has no documentation — nothing to audit
 
-### Options
+### Stage 2: N1 Scan (30 seconds - 3 minutes)
 
-| Flag | Default | What it does |
-|------|---------|-------------|
-| `--dry-run` | off | Find dead links only, no fixes |
-| `--max-links` | 50 | Circuit breaker: stop if more than N dead links |
-| `--max-cost` | 5.00 | Cost limit in USD for LLM calls |
-| `--confidence` | 0.8 | Min confidence for auto-approval (below = human review) |
-| `--verbose` | off | Detailed logging |
-| `--db-path` | auto | Path to state database |
+**What it does:** Reads every doc file, extracts URLs, HTTP HEADs each one to check if it's alive.
 
-### Exit codes
+**What to watch for:**
+- This is the slow part — one HTTP call per unique URL
+- If there's no output for 2+ minutes, it's still working (N1 doesn't log progress)
+- **Circuit breaker**: If dead links exceed `--max-links` (default 50), the pipeline stops here with exit code 2. Claude will tell you and ask if you want to raise the limit.
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Error |
-| 2 | Circuit breaker triggered (too many dead links) |
-| 3 | Cost limit reached |
+### Stage 3: N2 Investigate (1-5 minutes)
 
----
+**What it does:** For each dead link, checks archive.org for snapshots, follows redirect chains, tries URL mutations.
 
-## Step 3: Batch Audit (ghla batch)
+**What to watch for:**
+- You'll see `WARNING | archive_client | CDX API request failed for <url>` — this is NORMAL. Archive.org doesn't have everything.
+- This is the slowest stage. Each dead link gets multiple HTTP calls with backoff.
+- If you see the same warning repeating for obviously fake URLs (like `https://github.com/org/project` from example docs), those are placeholder URLs in LLD/design docs — not real dead links.
 
-Audit many repos from a target list (output of repo-scout).
+### Stage 4: N3 Judge (< 5 seconds)
 
-### Run a batch
+**What it does:** Scores each replacement candidate using the Slant algorithm. Pure math, no HTTP calls. Fast.
 
-```bash
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main([
-    'batch', 'run',
-    '--target-list', 'targets.json',
-    '--dry-run',
-    '--max-repos', '5'
-]))
-"
-```
+**What to watch for:** Nothing — this is instant.
 
-### Resume a failed batch
+### Dry-run ends here
 
-```bash
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main(['batch', 'resume', '--checkpoint', 'data/checkpoints/BATCH_ID.json']))
-"
-```
+You'll see a one-line summary: `"Found X dead links, generated 0 fixes."` Exit code 0 means success. Exit code 2 means circuit breaker tripped.
 
-### Check batch status
-
-```bash
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main(['batch', 'status', '--checkpoint', 'data/checkpoints/BATCH_ID.json']))
-"
-```
-
-### Batch options
-
-| Flag | Default | What it does |
-|------|---------|-------------|
-| `--target-list` | required | Path to repo-scout JSON output |
-| `--concurrency` | 1 | Number of parallel workers |
-| `--dry-run` | off | Skip PR submission |
-| `--max-repos` | all | Cap on repos to process |
+**Your decision:** Review the dead link count. Are they real dead links or placeholder URLs from docs? If they look real, you may want to proceed to a full run.
 
 ---
 
-## Step 4: Campaign Metrics
+## What Happens During a Full Run
 
-View aggregate metrics across all runs.
+Everything above, plus:
 
-```bash
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main(['metrics', 'campaign']))
-"
-```
+### Stage 5: N4 Human Review — YOU DECIDE HERE
 
----
-
-## Recommended First Run
-
-If you've never run this before, do this:
-
-```bash
-# 1. Authenticate (if not already done)
-gh auth login
-
-# 2. Discover 5 repos from stargazers of a popular project
-poetry run python -c "
-from repo_scout.cli import main
-import sys
-sys.exit(main([
-    '--seed-repos', 'anthropics/claude-code',
-    '--max-stargazers', '20',
-    '--output', 'targets.json',
-    '--format', 'json'
-]))
-"
-
-# 3. Dry-run audit the first target to see what it finds
-# (read targets.json to pick a repo URL, then:)
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main(['run', 'https://github.com/OWNER/REPO', '--dry-run', '--verbose']))
-"
-
-# 4. If that looks good, run the batch (dry-run, 3 repos max)
-poetry run python -c "
-from gh_link_auditor.cli.main import main
-import sys
-sys.exit(main([
-    'batch', 'run',
-    '--target-list', 'targets.json',
-    '--dry-run',
-    '--max-repos', '3'
-]))
-"
-```
-
----
-
-## Pipeline Stages (what happens inside ghla run)
-
-| Node | Name | What it does |
-|------|------|-------------|
-| N0 | Load Target | List doc files (GitHub API for URLs, filesystem for local paths) |
-| N1 | Scan | Extract all URLs from docs, HTTP HEAD each one |
-| N2 | Investigate | Check dead links against archive.org, redirect chains, URL mutations |
-| N3 | Judge | Score replacement candidates algorithmically (Slant scorer) |
-| N4 | Human Review | Interactive terminal review for low-confidence verdicts |
-| N5 | Generate Fix | Clone repo (URL targets only), generate unified diffs for approved fixes |
-
-**No LLM API keys needed.** N2 uses LinkDetective (pure HTTP signals). N3 uses Slant (algorithmic scoring). The pipeline is entirely HTTP-based.
-
----
-
-## What to Expect During a Run
-
-### Dry-run (`--dry-run`)
-
-**No human interaction.** The pipeline runs N0→N1→N2→N3 and stops. You'll see:
-
-1. **Verbose logs to stderr** (with `--verbose`): model name, archive.org warnings
-2. **One-line summary to stdout**: `"Found 47 dead links, generated 0 fixes."`
-3. **Exit code 0** (success) or **2** (circuit breaker triggered)
-
-Typical timing: 2-5 minutes for a repo with ~30 doc files and ~50 URLs (N2 investigation is the bottleneck — it calls archive.org for each dead link with backoff).
-
-### Full run (no `--dry-run`)
-
-Same as dry-run through N3, then:
-
-4. **N4 Human Review** — for each verdict with confidence **below** the threshold (default 0.8):
+**This is your gate.** For each verdict where the confidence score is below the threshold (default 0.8), the pipeline stops and asks you:
 
 ```
 Dead URL: https://example.com/old-page
@@ -307,22 +77,68 @@ Reasoning: Slant score: 65/100
 [y]es / [n]o:
 ```
 
-Type `y` to approve or `n` to reject. Ctrl+C exits (rejects remaining). High-confidence verdicts (≥ 0.8) auto-approve silently — you won't see them.
+**What to decide:**
+- **Look at the dead URL.** Is this actually broken, or is it a false positive?
+- **Look at the replacement.** Does it make sense? Is it the same content at a new location, or garbage?
+- **Look at the confidence.** Below 0.5 is sketchy. 0.5-0.8 deserves scrutiny. Above 0.8 is auto-approved (you won't see it).
+- **Type `y`** to approve the replacement, **`n`** to reject it
+- **Ctrl+C** to abort and reject everything remaining
 
-5. **N5 Generate Fix** — for URL targets, clones the repo (shallow, depth=1). Generates unified diffs for approved replacements. Prints summary.
+**High-confidence verdicts (>= 0.8) auto-approve silently.** You won't see them unless you lower the `--confidence` threshold.
 
-### Circuit breaker
+### Stage 6: N5 Generate Fix (10-30 seconds)
 
-If N1 finds more dead links than `--max-links` (default 50), the pipeline stops immediately with exit code 2. Raise the limit with `--max-links 100` for docs-heavy repos.
+**What it does:** For URL targets, shallow-clones the repo. Generates unified diffs for every approved replacement.
+
+**What to watch for:**
+- Clone failures (private repo, network issues)
+- The summary at the end: `"Found X dead links, generated Y fixes."`
 
 ---
 
-## Troubleshooting
+## Things That Can Go Wrong
 
-| Problem | Fix |
-|---------|-----|
-| `ModuleNotFoundError` | Run from project root with `poetry run` |
-| 401 from GitHub API | Token expired or missing — run `gh auth login` or check `.env` |
-| Circuit breaker triggers immediately | Repo has many dead links — raise `--max-links` or pick a different repo |
-| Cost limit reached | Raise `--max-cost` or use a cheaper model in `.env` |
-| No dead links found | Good news — the repo is clean |
+| What you see | What it means | What to do |
+|---|---|---|
+| Pipeline crashes immediately | Import error, package not installed | Tell Claude to run `poetry install` |
+| `errors:` after N0 | Bad target URL or repo doesn't exist | Check the URL, try again |
+| 0 doc files found | Repo has no markdown/rst/txt/adoc files | Pick a different repo |
+| Exit code 2 | Circuit breaker: too many dead links | Raise `--max-links` or pick a smaller repo |
+| Archive.org warnings everywhere | Normal — archive.org doesn't have everything | Ignore unless ALL lookups fail |
+| N4 shows garbage replacements | Slant scored badly but still proposed something | Reject with `n` |
+| Clone fails in N5 | Private repo or auth issue | Check GITHUB_TOKEN has access |
+| Hangs for 5+ minutes | N1 or N2 is grinding through many URLs | Wait, or Ctrl+C to abort |
+
+---
+
+## Pipeline Reference
+
+| Node | Name | Duration | External calls | Human input |
+|------|------|----------|----------------|-------------|
+| N0 | Load Target | 5-10s | GitHub API (URL targets) | None |
+| N1 | Scan | 30s-3min | HTTP HEAD per URL | None |
+| N2 | Investigate | 1-5min | archive.org, redirects | None |
+| N3 | Judge | < 5s | None (algorithmic) | None |
+| N4 | Human Review | Varies | None | **YES — approve/reject** |
+| N5 | Generate Fix | 10-30s | Git clone (URL targets) | None |
+
+**No LLM API keys needed.** The entire pipeline is HTTP-based and algorithmic.
+
+---
+
+## CLI Reference (for Claude, not you)
+
+| Flag | Default | What it does |
+|------|---------|-------------|
+| `--dry-run` | off | Stops after N3, no human review, no fixes |
+| `--max-links` | 50 | Circuit breaker threshold |
+| `--max-cost` | 5.00 | Cost limit (not currently used — no LLM calls) |
+| `--confidence` | 0.8 | Below this = human review, above = auto-approve |
+| `--verbose` | off | Detailed logging to stderr |
+
+| Exit code | Meaning |
+|-----------|---------|
+| 0 | Success |
+| 1 | Error |
+| 2 | Circuit breaker triggered |
+| 3 | Cost limit reached |
