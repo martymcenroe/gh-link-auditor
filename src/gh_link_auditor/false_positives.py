@@ -34,6 +34,12 @@ BOT_BLOCKED_DOMAINS: set[str] = {
     "upload.wikimedia.org",
     "wikimedia.org",
     "wikipedia.org",
+    "medium.com",
+    "quora.com",
+    "sciencedirect.com",
+    "investopedia.com",
+    "community.cadence.com",
+    "sinaimg.cn",
 }
 
 # Domain parking / marketplace domains (expired domains redirect here).

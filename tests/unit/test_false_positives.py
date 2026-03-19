@@ -113,6 +113,18 @@ class TestIsBotBlocked:
     def test_random_site_429_not_blocked(self) -> None:
         assert is_bot_blocked("https://random-site.com/page", 429) is False
 
+    def test_medium_403(self) -> None:
+        assert is_bot_blocked("https://medium.com/@user/article-123", 403) is True
+
+    def test_quora_403(self) -> None:
+        assert is_bot_blocked("https://www.quora.com/What-is-something", 403) is True
+
+    def test_sciencedirect_403(self) -> None:
+        assert is_bot_blocked("https://www.sciencedirect.com/topics/computer-science/x", 403) is True
+
+    def test_investopedia_403(self) -> None:
+        assert is_bot_blocked("https://www.investopedia.com/", 403) is True
+
 
 class TestIsApiTestEndpoint:
     """Tests for is_api_test_endpoint()."""
