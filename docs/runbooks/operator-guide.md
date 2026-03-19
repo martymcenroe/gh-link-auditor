@@ -267,12 +267,53 @@ sys.exit(main([
 
 | Node | Name | What it does |
 |------|------|-------------|
-| N0 | Load Target | Clone/fetch the repo, inventory markdown files |
-| N1 | Scan | Extract all URLs from markdown, check each one |
-| N2 | Investigate | LLM analyzes dead links for root cause |
-| N3 | Judge | LLM generates fix verdicts with confidence scores |
-| N4 | Human Review | Interactive review for low-confidence verdicts |
-| N5 | Generate Fix | Produce diff/PR content for approved fixes |
+| N0 | Load Target | List doc files (GitHub API for URLs, filesystem for local paths) |
+| N1 | Scan | Extract all URLs from docs, HTTP HEAD each one |
+| N2 | Investigate | Check dead links against archive.org, redirect chains, URL mutations |
+| N3 | Judge | Score replacement candidates algorithmically (Slant scorer) |
+| N4 | Human Review | Interactive terminal review for low-confidence verdicts |
+| N5 | Generate Fix | Clone repo (URL targets only), generate unified diffs for approved fixes |
+
+**No LLM API keys needed.** N2 uses LinkDetective (pure HTTP signals). N3 uses Slant (algorithmic scoring). The pipeline is entirely HTTP-based.
+
+---
+
+## What to Expect During a Run
+
+### Dry-run (`--dry-run`)
+
+**No human interaction.** The pipeline runs N0→N1→N2→N3 and stops. You'll see:
+
+1. **Verbose logs to stderr** (with `--verbose`): model name, archive.org warnings
+2. **One-line summary to stdout**: `"Found 47 dead links, generated 0 fixes."`
+3. **Exit code 0** (success) or **2** (circuit breaker triggered)
+
+Typical timing: 2-5 minutes for a repo with ~30 doc files and ~50 URLs (N2 investigation is the bottleneck — it calls archive.org for each dead link with backoff).
+
+### Full run (no `--dry-run`)
+
+Same as dry-run through N3, then:
+
+4. **N4 Human Review** — for each verdict with confidence **below** the threshold (default 0.8):
+
+```
+Dead URL: https://example.com/old-page
+Source:   docs/README.md:42
+Confidence: 0.65
+Proposed replacement: https://example.com/new-page
+Found via: archive
+Reasoning: Slant score: 65/100
+
+[y]es / [n]o:
+```
+
+Type `y` to approve or `n` to reject. Ctrl+C exits (rejects remaining). High-confidence verdicts (≥ 0.8) auto-approve silently — you won't see them.
+
+5. **N5 Generate Fix** — for URL targets, clones the repo (shallow, depth=1). Generates unified diffs for approved replacements. Prints summary.
+
+### Circuit breaker
+
+If N1 finds more dead links than `--max-links` (default 50), the pipeline stops immediately with exit code 2. Raise the limit with `--max-links 100` for docs-heavy repos.
 
 ---
 
