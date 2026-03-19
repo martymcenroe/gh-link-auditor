@@ -16,6 +16,7 @@ from enum import Enum
 from urllib.parse import urlparse
 
 from gh_link_auditor.archive_client import ArchiveClient
+from gh_link_auditor.false_positives import PARKING_DOMAINS
 from gh_link_auditor.github_resolver import GitHubResolver
 from gh_link_auditor.redirect_resolver import RedirectResolver, SSRFBlocked
 from gh_link_auditor.similarity import compute_similarity
@@ -161,16 +162,22 @@ class LinkDetective:
             log.extend(chain_log)
 
             if final_url and self._redirect_resolver.verify_live(final_url):
-                candidate = CandidateReplacement(
-                    url=final_url,
-                    method=InvestigationMethod.REDIRECT_CHAIN,
-                    similarity_score=0.98,
-                    verified_live=True,
-                )
-                candidates.append(candidate)
+                # Check if redirect landed on a parking/marketplace domain
+                final_host = (urlparse(final_url).hostname or "").lower()
+                is_parked = any(final_host == d or final_host.endswith(f".{d}") for d in PARKING_DOMAINS)
+                if is_parked:
+                    log.append(f"Redirect landed on parking domain: {final_url}")
+                else:
+                    candidate = CandidateReplacement(
+                        url=final_url,
+                        method=InvestigationMethod.REDIRECT_CHAIN,
+                        similarity_score=0.98,
+                        verified_live=True,
+                    )
+                    candidates.append(candidate)
 
-                # Short-circuit on high-confidence redirect
-                if candidate.similarity_score >= 0.95:
+                # Short-circuit on high-confidence redirect (only if not parked)
+                if not is_parked and candidates and candidates[-1].similarity_score >= 0.95:
                     report = ForensicReport(
                         dead_url=dead_url,
                         http_status=http_status,
