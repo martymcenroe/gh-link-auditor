@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import os
 
 import httpx
 
@@ -35,7 +34,12 @@ class GitHubContentsClient:
             token: GitHub personal access token.
                    Falls back to GITHUB_TOKEN env var if not provided.
         """
-        self._token = token or os.environ.get("GITHUB_TOKEN", "")
+        if token is not None:
+            self._token = token
+        else:
+            from gh_link_auditor.auth import resolve_github_token
+
+            self._token = resolve_github_token()
         headers: dict[str, str] = {
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "gh-link-auditor",
