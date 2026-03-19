@@ -9,6 +9,7 @@ See LLD #22 §2.4 for n0_load_target specification.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -152,6 +153,10 @@ def n0_load_target(state: PipelineState) -> PipelineState:
         Updated PipelineState.
     """
     target = state.get("target", "")
+    verbose = state.get("verbose", False)
+
+    if verbose:
+        print(f"[N0] Loading target: {target}", file=sys.stderr, flush=True)
 
     try:
         normalized, target_type = validate_target(target)
@@ -167,7 +172,17 @@ def n0_load_target(state: PipelineState) -> PipelineState:
             state["repo_owner"] = ""
             state["repo_name_short"] = ""
 
+        if verbose:
+            print("[N0] Listing doc files...", file=sys.stderr, flush=True)
+
         state["doc_files"] = list_documentation_files(normalized, target_type)
+
+        if verbose:
+            print(
+                f"[N0] Found {len(state['doc_files'])} doc files",
+                file=sys.stderr,
+                flush=True,
+            )
     except (ValueError, FileNotFoundError) as exc:
         state["errors"] = state.get("errors", []) + [str(exc)]
 

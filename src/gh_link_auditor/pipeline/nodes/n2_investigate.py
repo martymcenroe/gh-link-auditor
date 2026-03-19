@@ -8,6 +8,7 @@ See LLD #22 §2.4 for n2_investigate specification.
 from __future__ import annotations
 
 import logging
+import sys
 
 from gh_link_auditor.pipeline.state import (
     DeadLink,
@@ -81,13 +82,25 @@ def n2_investigate(state: PipelineState) -> PipelineState:
     """
     dead_links = state.get("dead_links", [])
     candidates: dict[str, list[ReplacementCandidate]] = {}
+    verbose = state.get("verbose", False)
 
     if state.get("cost_limit_reached", False):
         state["candidates"] = candidates
         return state
 
-    for dead_link in dead_links:
+    if verbose:
+        print(
+            f"[N2] Investigating {len(dead_links)} dead links...",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    for i, dead_link in enumerate(dead_links, 1):
         url = dead_link["url"]
+
+        if verbose:
+            print(f"[N2] ({i}/{len(dead_links)}) {url}", file=sys.stderr, flush=True)
+
         try:
             found = investigate_dead_link(dead_link)
             candidates[url] = found
