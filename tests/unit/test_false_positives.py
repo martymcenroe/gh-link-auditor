@@ -9,6 +9,7 @@ from gh_link_auditor.false_positives import (
     is_api_test_endpoint,
     is_bot_blocked,
     is_false_positive,
+    is_github_auth_required,
     is_github_issue_404,
     is_placeholder_path,
     is_placeholder_url,
@@ -183,6 +184,32 @@ class TestIsGithubIssue404:
         assert is_github_issue_404("https://github.com/org/repo/issues/1", None) is False
 
 
+class TestIsGithubAuthRequired:
+    """Tests for is_github_auth_required()."""
+
+    def test_issues_new(self) -> None:
+        assert is_github_auth_required("https://github.com/encode/httpx/issues/new", 404) is True
+
+    def test_compare(self) -> None:
+        assert is_github_auth_required("https://github.com/org/repo/compare", 404) is True
+
+    def test_settings(self) -> None:
+        assert is_github_auth_required("https://github.com/org/repo/settings", 404) is True
+
+    def test_releases_new(self) -> None:
+        assert is_github_auth_required("https://github.com/org/repo/releases/new", 404) is True
+
+    def test_not_404(self) -> None:
+        assert is_github_auth_required("https://github.com/org/repo/issues/new", 200) is False
+
+    def test_regular_issue_not_auth(self) -> None:
+        # Regular issue paths are handled by is_github_issue_404, not this
+        assert is_github_auth_required("https://github.com/org/repo/issues/123", 404) is False
+
+    def test_non_github(self) -> None:
+        assert is_github_auth_required("https://gitlab.com/org/repo/issues/new", 404) is False
+
+
 class TestIsFalsePositive:
     """Tests for is_false_positive() master check."""
 
@@ -209,6 +236,9 @@ class TestIsFalsePositive:
 
     def test_bot_blocked_without_status(self) -> None:
         assert is_false_positive("https://stackoverflow.com/q/1") is False
+
+    def test_github_auth_required(self) -> None:
+        assert is_false_positive("https://github.com/org/repo/issues/new", http_status=404) is True
 
     def test_github_repo_404_not_filtered(self) -> None:
         # Deleted repos ARE real dead links

@@ -185,10 +185,14 @@ class LinkDetective:
         except SSRFBlocked as e:
             log.append(f"SSRF blocked: {e}")
 
-        # 5. URL MUTATIONS
+        # 5. URL MUTATIONS (excluding trivial www/slash changes)
+        _trivial_mutations = {"add_www", "remove_www", "add_trailing_slash", "remove_trailing_slash"}
         try:
             mutations = self._redirect_resolver.test_url_mutations(dead_url)
             for live_url, mutation_type in mutations:
+                if mutation_type in _trivial_mutations:
+                    log.append(f"URL mutation skipped (trivial): {mutation_type} -> {live_url}")
+                    continue
                 candidates.append(
                     CandidateReplacement(
                         url=live_url,
