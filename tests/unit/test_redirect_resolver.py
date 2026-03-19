@@ -420,6 +420,24 @@ class TestRedirectLoop:
         assert final_url is None
         assert any("loop" in entry.lower() for entry in log)
 
+    def test_relative_redirect_resolved(self):
+        """Relative Location header is resolved against the request URL."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            if url == "https://security.stackexchange.com/q/39118":
+                return {"status_code": 301, "location": "/questions/39118/how-to-protect"}
+            if url == "https://security.stackexchange.com/questions/39118/how-to-protect":
+                return {"status_code": 200, "location": None}
+            return {"status_code": 404, "location": None}
+
+        with (
+            patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head),
+            patch("gh_link_auditor.redirect_resolver.socket.getaddrinfo", side_effect=_mock_public_dns),
+        ):
+            final_url, log = resolver.follow_redirects("https://security.stackexchange.com/q/39118")
+        assert final_url == "https://security.stackexchange.com/questions/39118/how-to-protect"
+
 
 # ---------------------------------------------------------------------------
 # SSRF DNS resolution failure

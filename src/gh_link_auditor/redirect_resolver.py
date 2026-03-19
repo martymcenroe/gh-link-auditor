@@ -13,7 +13,7 @@ import ipaddress
 import socket
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from src.logging_config import setup_logging
 
@@ -123,8 +123,10 @@ class RedirectResolver:
             location = result["location"]
 
             if code in _REDIRECT_CODES and location:
-                log.append(f"{code} {current} -> {location}")
-                current = location
+                # Resolve relative Location headers (RFC 7231 §7.1.2)
+                resolved = urljoin(current, location)
+                log.append(f"{code} {current} -> {resolved}")
+                current = resolved
                 continue
 
             # Not a redirect — check if we actually followed any redirects
