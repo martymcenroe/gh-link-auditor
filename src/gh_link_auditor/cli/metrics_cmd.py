@@ -1,7 +1,7 @@
 """CLI commands for campaign metrics.
 
 See LLD-019 §2.4 for CLI specification.
-Subcommands: metrics campaign, metrics refresh.
+Subcommands: metrics campaign, metrics refresh, metrics scan-history.
 """
 
 from __future__ import annotations
@@ -31,6 +31,13 @@ def build_metrics_parser(subparsers: argparse._SubParsersAction) -> None:
     refresh_parser = metrics_sub.add_parser("refresh", help="Refresh PR statuses from GitHub")
     refresh_parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="Metrics DB path")
     refresh_parser.set_defaults(func=cmd_metrics_refresh)
+
+    # metrics scan-history
+    history_parser = metrics_sub.add_parser("scan-history", help="Show recent scan history")
+    history_parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="Metrics DB path")
+    history_parser.add_argument("--limit", type=int, default=20, help="Max scans to show")
+    history_parser.add_argument("--format", choices=["text", "json"], default="text")
+    history_parser.set_defaults(func=cmd_metrics_scan_history)
 
 
 def cmd_metrics_campaign(args: argparse.Namespace) -> int:
@@ -94,5 +101,51 @@ def cmd_metrics_refresh(args: argparse.Namespace) -> int:
         print(f"Updated {len(updated)} PR(s):")
         for outcome in updated:
             print(f"  {outcome.pr_url}: {outcome.status}")
+
+    return 0
+
+
+def cmd_metrics_scan_history(args: argparse.Namespace) -> int:
+    """Display recent scan history.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code.
+    """
+    from gh_link_auditor.unified_db import UnifiedDatabase
+
+    db_path = Path(args.db_path)
+    if not db_path.exists():
+        print(f"No database found at {db_path}")
+        return 1
+
+    udb = UnifiedDatabase(db_path)
+    try:
+        scans = udb.get_recent_scans(limit=args.limit)
+    finally:
+        udb.close()
+
+    if not scans:
+        print("No scan history found.")
+        return 0
+
+    fmt = getattr(args, "format", "text")
+    if fmt == "json":
+        import json as json_mod
+
+        print(json_mod.dumps(scans, indent=2))
+    else:
+        print(f"{'Repo':<40} {'Started':<20} {'Dead':>5} {'Fixes':>5} {'PR':>3} {'Decision':<15}")
+        print("-" * 95)
+        for scan in scans:
+            repo = (scan.get("repo_full_name") or "unknown")[:39]
+            started = (scan.get("started_at") or "")[:19]
+            dead = scan.get("dead_links_found", 0)
+            fixes = scan.get("fixes_generated", 0)
+            pr = "Y" if scan.get("pr_submitted") else "N"
+            decision = (scan.get("decision") or "")[:14]
+            print(f"{repo:<40} {started:<20} {dead:>5} {fixes:>5} {pr:>3} {decision:<15}")
 
     return 0
