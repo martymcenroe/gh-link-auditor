@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gh_link_auditor.metrics.models import PROutcome
+    from gh_link_auditor.unified_db import UnifiedDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -163,13 +164,11 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
     Returns:
         List of PROutcome objects that were updated.
     """
-    from gh_link_auditor.metrics.collector import MetricsCollector
     from gh_link_auditor.unified_db import UnifiedDatabase
 
-    collector = MetricsCollector(db_path)
     udb = UnifiedDatabase(db_path)
     try:
-        all_outcomes = collector.get_all_pr_outcomes()
+        all_outcomes = udb.get_all_pr_outcomes()
         open_prs = [o for o in all_outcomes if o.status == "open"]
 
         if not open_prs:
@@ -238,7 +237,7 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                     )
                     logger.info("Auto-blacklisted (fix stolen): %s", repo_url)
 
-            collector.record_pr_outcome(outcome)
+            udb.record_pr_outcome(outcome)
             updated.append(outcome)
             logger.info(
                 "Updated %s: %s → %s",
@@ -253,12 +252,11 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
         return updated
 
     finally:
-        collector.close()
         udb.close()
 
 
 def _update_trust_on_merge(
-    udb: object,
+    udb: UnifiedDatabase,
     repo_full_name: str,
     merged_at: datetime,
 ) -> None:
@@ -272,13 +270,13 @@ def _update_trust_on_merge(
         repo_full_name: Full repo name (e.g. "owner/repo").
         merged_at: When the PR was merged.
     """
-    trust = udb.get_repo_trust(repo_full_name)  # type: ignore[union-attr]
+    trust = udb.get_repo_trust(repo_full_name)
 
     merged_iso = merged_at.isoformat() if isinstance(merged_at, datetime) else str(merged_at)
 
     if trust is None:
         # No trust record — create as tier1_proven
-        udb.update_repo_trust(  # type: ignore[union-attr]
+        udb.update_repo_trust(
             repo_full_name,
             "tier1_proven",
             first_merge_at=merged_iso,
@@ -292,7 +290,7 @@ def _update_trust_on_merge(
     new_merges = (trust.get("total_merges") or 0) + 1
 
     if current in ("new", "tier1_pending"):
-        udb.update_repo_trust(  # type: ignore[union-attr]
+        udb.update_repo_trust(
             repo_full_name,
             "tier1_proven",
             first_merge_at=merged_iso,
@@ -300,20 +298,20 @@ def _update_trust_on_merge(
         )
         logger.info("Trust: %s %s → tier1_proven", repo_full_name, current)
     elif current == "tier1_proven":
-        udb.update_repo_trust(  # type: ignore[union-attr]
+        udb.update_repo_trust(
             repo_full_name,
             "tier1_proven",
             total_merges=new_merges,
         )
     elif current == "tier2_eligible":
-        udb.update_repo_trust(  # type: ignore[union-attr]
+        udb.update_repo_trust(
             repo_full_name,
             "tier2_eligible",
             total_merges=new_merges,
         )
 
 
-def upgrade_tier1_proven_repos(udb: object) -> list[str]:
+def upgrade_tier1_proven_repos(udb: UnifiedDatabase) -> list[str]:
     """Scan tier1_proven repos and upgrade to tier2_eligible if 14 days passed.
 
     Called during `ghla metrics refresh`.
@@ -325,10 +323,10 @@ def upgrade_tier1_proven_repos(udb: object) -> list[str]:
         List of repo full_names that were upgraded.
     """
     upgraded: list[str] = []
-    for trust_row in udb.get_tier1_proven_repos():  # type: ignore[union-attr]
+    for trust_row in udb.get_tier1_proven_repos():
         repo_name = trust_row["full_name"]
-        if udb.check_tier2_eligibility(repo_name):  # type: ignore[union-attr]
-            udb.update_repo_trust(repo_name, "tier2_eligible")  # type: ignore[union-attr]
+        if udb.check_tier2_eligibility(repo_name):
+            udb.update_repo_trust(repo_name, "tier2_eligible")
             upgraded.append(repo_name)
             logger.info("Trust: %s tier1_proven → tier2_eligible", repo_name)
     return upgraded
