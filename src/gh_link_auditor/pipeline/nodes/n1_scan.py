@@ -19,6 +19,23 @@ from gh_link_auditor.pipeline.state import DeadLink, PipelineState
 
 _URL_RE = re.compile(r"https?://[^\s>\"\]`]+")
 
+_HISTORICAL_STEMS = frozenset(
+    {
+        "changelog",
+        "changes",
+        "history",
+        "releases",
+        "news",
+    }
+)
+
+
+def _is_historical_file(filepath: str) -> bool:
+    """Check if a file is a historical/changelog file that should be skipped."""
+    stem = Path(filepath).stem.lower()
+    return stem in _HISTORICAL_STEMS
+
+
 _TRAIL_CHARS = set(".,;:!?'\"`")
 
 
@@ -278,6 +295,8 @@ def n1_scan(state: PipelineState) -> PipelineState:
             repo_owner=repo_owner,
             repo_name_short=repo_name_short,
         )
+        # Filter out dead links from historical files (#114)
+        dead_links = [dl for dl in dead_links if not _is_historical_file(dl["source_file"])]
         state["dead_links"] = dead_links
     except Exception as exc:
         state["errors"] = state.get("errors", []) + [f"Scan error: {exc}"]

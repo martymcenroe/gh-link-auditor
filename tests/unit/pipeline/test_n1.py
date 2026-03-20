@@ -13,6 +13,7 @@ from gh_link_auditor.pipeline.nodes.n1_scan import (
     _clean_url_tail,
     _extract_urls_from_file,
     _is_dead,
+    _is_historical_file,
     _read_file_content,
     n1_scan,
     parse_scan_output,
@@ -156,6 +157,37 @@ class TestCleanUrlTail:
 
     def test_double_trailing_paren_unbalanced(self) -> None:
         assert _clean_url_tail("https://example.com/page))") == "https://example.com/page"
+
+
+class TestIsHistoricalFile:
+    """Tests for _is_historical_file()."""
+
+    def test_changelog(self) -> None:
+        assert _is_historical_file("CHANGELOG.md") is True
+
+    def test_changes(self) -> None:
+        assert _is_historical_file("CHANGES.rst") is True
+
+    def test_history(self) -> None:
+        assert _is_historical_file("HISTORY.md") is True
+
+    def test_releases(self) -> None:
+        assert _is_historical_file("RELEASES.md") is True
+
+    def test_news(self) -> None:
+        assert _is_historical_file("NEWS") is True
+
+    def test_readme_is_not_historical(self) -> None:
+        assert _is_historical_file("README.md") is False
+
+    def test_contributing_is_not_historical(self) -> None:
+        assert _is_historical_file("CONTRIBUTING.md") is False
+
+    def test_case_insensitive(self) -> None:
+        assert _is_historical_file("changelog.md") is True
+
+    def test_nested_path(self) -> None:
+        assert _is_historical_file("docs/CHANGELOG.md") is True
 
 
 class TestIsDead:
