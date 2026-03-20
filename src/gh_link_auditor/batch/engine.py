@@ -149,6 +149,24 @@ async def _process_single_repo(
     task.status = TaskStatus.RUNNING
     task.started_at = now_utc()
 
+    # Blacklist pre-check: skip repos that have been blacklisted
+    if config.db_path and config.db_path.exists():
+        try:
+            from gh_link_auditor.unified_db import UnifiedDatabase
+
+            repo_url = f"https://github.com/{task.repo_full_name}"
+            udb = UnifiedDatabase(config.db_path)
+            try:
+                if udb.is_blacklisted(repo_url):
+                    task.status = TaskStatus.SKIPPED
+                    task.error_message = "blacklisted"
+                    task.completed_at = now_utc()
+                    return task
+            finally:
+                udb.close()
+        except Exception:
+            pass  # If blacklist check fails, proceed with processing
+
     try:
         await rate_limiter.acquire()
 
@@ -268,6 +286,7 @@ def _serialize_state(state: BatchState) -> dict:
             "checkpoint_interval": state.config.checkpoint_interval,
             "clone_dir": str(state.config.clone_dir),
             "max_disk_gb": state.config.max_disk_gb,
+            "db_path": str(state.config.db_path) if state.config.db_path else None,
         }
 
     return {
@@ -307,6 +326,7 @@ def _deserialize_state(data: dict) -> BatchState:
             checkpoint_interval=config_data.get("checkpoint_interval", 10),
             clone_dir=Path(config_data.get("clone_dir", "/tmp/batch_clones")),
             max_disk_gb=config_data.get("max_disk_gb", 10.0),
+            db_path=Path(config_data["db_path"]) if config_data.get("db_path") else None,
         )
 
     tasks = []
