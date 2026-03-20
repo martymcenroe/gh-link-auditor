@@ -5,12 +5,15 @@ The cycle is: metrics.__init__ → metrics.reporter → batch.models →
 batch.__init__ → batch.engine → metrics.reporter (cycle).
 """
 
-from gh_link_auditor.metrics.collector import MetricsCollector
 from gh_link_auditor.metrics.models import CampaignMetrics, PROutcome, RunReport
 
 
 def __getattr__(name: str):
-    """Lazy import reporter functions to break circular import."""
+    """Lazy import collector and reporter to break circular imports."""
+    if name == "MetricsCollector":
+        from gh_link_auditor.metrics.collector import MetricsCollector
+
+        return MetricsCollector
     _reporter_names = {
         "format_campaign_text",
         "format_report_json",
