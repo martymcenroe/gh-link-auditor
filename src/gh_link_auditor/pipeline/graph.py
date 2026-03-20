@@ -101,11 +101,40 @@ def _after_n4_router(state: PipelineState) -> str:
     return "n5_generate_fix"
 
 
-def _after_n5_router(state: PipelineState) -> str:
-    """Route after N5: submit PR or end.
+def _pr_preview_gate(state: PipelineState) -> PipelineState:
+    """Show PR preview and ask user to confirm before submission.
 
-    Skips N6 for dry-run, local targets, or when no fixes were generated.
+    Displays the fixes that will be submitted and prompts for confirmation.
+    Sets pr_preview_approved in state.
     """
+    fixes = state.get("fixes", [])
+    if not fixes:
+        state["pr_preview_approved"] = False
+        return state
+
+    print("\n" + "=" * 50)
+    print(f"  PR Preview — {len(fixes)} fix(es) to submit")
+    print("=" * 50)
+    for i, fix in enumerate(fixes, start=1):
+        print(f"  {i}. {fix['source_file']}")
+        print(f"     {fix['original_url']}")
+        print(f"     -> {fix['replacement_url']}")
+    print("=" * 50)
+
+    response = input("Submit this PR? [y]es / [n]o: ").strip().lower()
+    state["pr_preview_approved"] = response in ("y", "yes")
+    return state
+
+
+def _after_pr_preview_router(state: PipelineState) -> str:
+    """Route after PR preview: submit or abort."""
+    if state.get("pr_preview_approved", False):
+        return "n6_submit_pr"
+    return END
+
+
+def _after_n5_router(state: PipelineState) -> str:
+    """Route after N5: to PR preview, or end for dry-run/local/no-fixes."""
     if state.get("dry_run", False):
         return END
 
@@ -116,7 +145,7 @@ def _after_n5_router(state: PipelineState) -> str:
     if not fixes:
         return END
 
-    return "n6_submit_pr"
+    return "pr_preview_gate"
 
 
 def build_pipeline_graph():
@@ -134,6 +163,7 @@ def build_pipeline_graph():
     graph.add_node("n3_judge", n3_judge)
     graph.add_node("n4_human_review", n4_human_review)
     graph.add_node("n5_generate_fix", n5_generate_fix)
+    graph.add_node("pr_preview_gate", _pr_preview_gate)
     graph.add_node("n6_submit_pr", n6_submit_pr)
 
     graph.set_entry_point("n0_load_target")
@@ -145,6 +175,7 @@ def build_pipeline_graph():
     graph.add_conditional_edges("n3_judge", _after_judge_router)
     graph.add_conditional_edges("n4_human_review", _after_n4_router)
     graph.add_conditional_edges("n5_generate_fix", _after_n5_router)
+    graph.add_conditional_edges("pr_preview_gate", _after_pr_preview_router)
     graph.add_edge("n6_submit_pr", END)
 
     return graph.compile()

@@ -110,6 +110,9 @@ class PipelineState(TypedDict, total=False):
     # N5 Output
     fixes: list[FixPatch]
 
+    # PR Preview Gate
+    pr_preview_approved: bool
+
     # N6 Output
     pr_url: str
     pr_number: int
