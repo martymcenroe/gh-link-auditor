@@ -193,6 +193,16 @@ class RedirectResolver:
             if result["status_code"] is not None and 200 <= result["status_code"] < 400:
                 mutations.append((with_www, "add_www"))
 
+        # index.html / index.htm strip
+        _index_suffixes = ("/index.html", "/index.htm")
+        for suffix in _index_suffixes:
+            if parsed.path.endswith(suffix):
+                stripped = url[: -len(suffix)] + "/"
+                result = _http_head(stripped)
+                if result["status_code"] is not None and 200 <= result["status_code"] < 400:
+                    mutations.append((stripped, "strip_index"))
+                break
+
         return mutations
 
     def verify_live(self, url: str) -> bool:

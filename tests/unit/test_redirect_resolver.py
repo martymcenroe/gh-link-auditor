@@ -394,6 +394,45 @@ class TestUrlMutationsAdditional:
             mutations = resolver.test_url_mutations("https://www.example.com/page")
         assert any(m[1] == "remove_www" for m in mutations)
 
+    def test_strip_index_html(self):
+        """Tests stripping index.html from URL path."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            if url == "https://example.com/docs/":
+                return {"status_code": 200, "location": None}
+            return {"status_code": 404, "location": None}
+
+        with patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head):
+            mutations = resolver.test_url_mutations("https://example.com/docs/index.html")
+        assert any(m[1] == "strip_index" for m in mutations)
+        stripped = [m[0] for m in mutations if m[1] == "strip_index"]
+        assert stripped[0] == "https://example.com/docs/"
+
+    def test_strip_index_htm(self):
+        """Tests stripping index.htm from URL path."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            if url == "https://example.com/":
+                return {"status_code": 200, "location": None}
+            return {"status_code": 404, "location": None}
+
+        with patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head):
+            mutations = resolver.test_url_mutations("https://example.com/index.htm")
+        assert any(m[1] == "strip_index" for m in mutations)
+
+    def test_no_strip_index_when_not_present(self):
+        """URLs without index.html should not produce strip_index mutation."""
+        resolver = _make_resolver()
+
+        def _mock_head(url):
+            return {"status_code": 404, "location": None}
+
+        with patch("gh_link_auditor.redirect_resolver._http_head", side_effect=_mock_head):
+            mutations = resolver.test_url_mutations("https://example.com/page")
+        assert not any(m[1] == "strip_index" for m in mutations)
+
 
 # ---------------------------------------------------------------------------
 # Redirect loop detection
