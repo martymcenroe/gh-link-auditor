@@ -20,7 +20,11 @@ from gh_link_auditor.false_positives import PARKING_DOMAINS
 from gh_link_auditor.github_resolver import GitHubResolver
 from gh_link_auditor.redirect_resolver import RedirectResolver, SSRFBlocked
 from gh_link_auditor.similarity import compute_similarity
-from gh_link_auditor.sitemap_searcher import fetch_sitemap, search_sitemap_for_match
+from gh_link_auditor.sitemap_searcher import (
+    fetch_sitemap,
+    keywords_from_url,
+    search_sitemap_for_match,
+)
 from gh_link_auditor.url_heuristic import URLHeuristic
 from src.logging_config import setup_logging
 
@@ -237,37 +241,46 @@ class LinkDetective:
             log.append(f"Archive lookup failed: {e}")
 
         # 7. SITEMAP SEARCH (same-site page discovery)
+        # Runs even without archive title — falls back to URL-derived keywords (#113)
         domain = parsed.hostname or ""
-        if domain and archive_title:
-            try:
-                sitemap_urls = fetch_sitemap(domain)
-                if sitemap_urls:
-                    log.append(f"Sitemap found: {len(sitemap_urls)} URLs")
-                    matches = search_sitemap_for_match(sitemap_urls, parsed.path, archive_title)
-                    for match_url in matches:
-                        if self._redirect_resolver.verify_live(match_url):
-                            if archive_summary:
-                                page_content = _fetch_page_content(match_url)
-                                if page_content:
-                                    score = compute_similarity(archive_summary, page_content)
+        if domain:
+            search_title = archive_title or keywords_from_url(dead_url) or None
+            if search_title:
+                try:
+                    sitemap_urls = fetch_sitemap(domain)
+                    if sitemap_urls:
+                        log.append(f"Sitemap found: {len(sitemap_urls)} URLs")
+                        if not archive_title:
+                            log.append(f"Using URL-derived keywords: {search_title!r}")
+                        matches = search_sitemap_for_match(
+                            sitemap_urls,
+                            parsed.path,
+                            search_title,
+                        )
+                        for match_url in matches:
+                            if self._redirect_resolver.verify_live(match_url):
+                                if archive_summary:
+                                    page_content = _fetch_page_content(match_url)
+                                    if page_content:
+                                        score = compute_similarity(archive_summary, page_content)
+                                    else:
+                                        score = 0.5
                                 else:
                                     score = 0.5
-                            else:
-                                score = 0.5
 
-                            candidates.append(
-                                CandidateReplacement(
-                                    url=match_url,
-                                    method=InvestigationMethod.SITEMAP_SEARCH,
-                                    similarity_score=score,
-                                    verified_live=True,
+                                candidates.append(
+                                    CandidateReplacement(
+                                        url=match_url,
+                                        method=InvestigationMethod.SITEMAP_SEARCH,
+                                        similarity_score=score,
+                                        verified_live=True,
+                                    )
                                 )
-                            )
-                            log.append(f"Sitemap match: {match_url} (score={score:.2f})")
-                else:
-                    log.append("No sitemap found")
-            except Exception as e:
-                log.append(f"Sitemap search failed: {e}")
+                                log.append(f"Sitemap match: {match_url} (score={score:.2f})")
+                    else:
+                        log.append("No sitemap found")
+                except Exception as e:
+                    log.append(f"Sitemap search failed: {e}")
 
         # 8. URL PATTERN HEURISTICS (requires archive title)
         if archive_title:

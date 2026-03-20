@@ -4,6 +4,7 @@ When a page 404s but the domain is alive, searches the site's sitemap.xml
 for pages that likely match the archived content.
 
 See Issue #106 for specification.
+See Issue #113 for archive-independent keyword extraction.
 """
 
 from __future__ import annotations
@@ -185,3 +186,73 @@ def _slugify(text: str) -> str:
     slug = re.sub(r"[\s]+", "-", slug)
     slug = re.sub(r"-{2,}", "-", slug)
     return slug.strip("-")
+
+
+# Stopwords: common path segments that carry no semantic meaning.
+_PATH_STOPWORDS = frozenset(
+    {
+        "docs",
+        "doc",
+        "documentation",
+        "api",
+        "en",
+        "latest",
+        "stable",
+        "v1",
+        "v2",
+        "v3",
+        "index",
+        "html",
+        "htm",
+        "php",
+        "asp",
+        "aspx",
+        "page",
+        "pages",
+        "blog",
+        "posts",
+        "articles",
+        "wiki",
+    }
+)
+
+
+def keywords_from_url(url: str) -> str:
+    """Extract search keywords from a URL's path and fragment.
+
+    When archive title is unavailable, the URL itself carries useful
+    keywords (e.g. "/docs/advanced-usage#http-proxying" yields
+    "advanced usage http proxying").
+
+    Path segments that are pure stopwords (docs, api, en, latest, etc.)
+    are filtered out. Hyphens/underscores are converted to spaces.
+
+    Args:
+        url: Full URL or just a path (e.g. "/docs/advanced-usage#http-proxying").
+
+    Returns:
+        Space-separated keyword string suitable for _slugify(), or ""
+        if no meaningful keywords found.
+    """
+    parsed = urlparse(url)
+
+    # Collect raw segments from path + fragment
+    raw_parts: list[str] = []
+    for segment in _path_segments(parsed.path):
+        raw_parts.append(segment)
+    if parsed.fragment:
+        raw_parts.append(parsed.fragment)
+
+    # Expand hyphen/underscore-joined segments, strip file extensions
+    words: list[str] = []
+    for part in raw_parts:
+        # Remove common file extensions
+        part = re.sub(r"\.(html?|php|aspx?|jsp)$", "", part, flags=re.IGNORECASE)
+        # Split on hyphens and underscores
+        tokens = re.split(r"[-_]", part.lower())
+        for token in tokens:
+            # Keep tokens with >2 chars that are not stopwords or pure numbers
+            if len(token) > 2 and token not in _PATH_STOPWORDS and not token.isdigit():
+                words.append(token)
+
+    return " ".join(words)
