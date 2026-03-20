@@ -14,11 +14,13 @@ _EXIT = "exit"
 _SKIP = "skip"
 
 
-def format_verdict_for_review(verdict: Verdict) -> str:
+def format_verdict_for_review(verdict: Verdict, current: int = 0, total: int = 0) -> str:
     """Format a verdict for terminal display.
 
     Args:
         verdict: Verdict to format.
+        current: 1-based index of current verdict in review.
+        total: Total number of verdicts to review.
 
     Returns:
         Formatted string for review.
@@ -27,9 +29,11 @@ def format_verdict_for_review(verdict: Verdict) -> str:
     candidate = verdict.get("candidate")
     confidence = verdict.get("confidence", 0)
 
+    counter = f" [{current}/{total}]" if current and total else ""
     lines = [
         "",
         "-" * 50,
+        f"  Review{counter}",
         f"  Dead URL:  {dead_link['url']}",
         f"  File:      {dead_link['source_file']}:{dead_link['line_number']}",
         f"  Confidence: {confidence:.0%}",
@@ -91,8 +95,9 @@ def n4_human_review(state: PipelineState) -> PipelineState:
 
     reviewed: list[Verdict] = []
     exit_review = False
+    total = len(verdicts)
 
-    for verdict in verdicts:
+    for idx, verdict in enumerate(verdicts, start=1):
         confidence = verdict.get("confidence", 0)
 
         if dry_run or confidence >= threshold:
@@ -107,7 +112,7 @@ def n4_human_review(state: PipelineState) -> PipelineState:
             reviewed.append(updated)  # type: ignore[arg-type]
         else:
             # Present to user for review
-            print(format_verdict_for_review(verdict))
+            print(format_verdict_for_review(verdict, current=idx, total=total))
             result = prompt_user_approval(verdict)
 
             if result is _EXIT:

@@ -82,6 +82,16 @@ class TestFormatVerdictForReview:
         output = format_verdict_for_review(verdict)
         assert "README.md" in output
 
+    def test_shows_counter(self) -> None:
+        verdict = _make_verdict()
+        output = format_verdict_for_review(verdict, current=3, total=5)
+        assert "[3/5]" in output
+
+    def test_no_counter_when_zero(self) -> None:
+        verdict = _make_verdict()
+        output = format_verdict_for_review(verdict)
+        assert "[" not in output.split("Dead URL")[0] or "Review\n" in output
+
 
 class TestPromptUserApproval:
     """Tests for prompt_user_approval()."""
