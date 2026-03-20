@@ -19,6 +19,9 @@ from gh_link_auditor.pipeline.state import DeadLink, PipelineState
 
 _URL_RE = re.compile(r"https?://[^\s>\"\]`]+")
 
+_FENCED_RE = re.compile(r"^(\s{0,3})(```+|~~~+)")
+_INDENTED_CODE_RE = re.compile(r"^(?: {4,}|\t)")
+
 _HISTORICAL_STEMS = frozenset(
     {
         "changelog",
@@ -129,7 +132,31 @@ def _extract_urls_from_file(
     except OSError:
         return results
 
+    in_fenced_block = False
+    fence_marker = ""
+
     for line_num, line in enumerate(text.splitlines(), start=1):
+        # Check for fenced code block open/close (``` or ~~~)
+        fence_match = _FENCED_RE.match(line)
+        if fence_match:
+            marker = fence_match.group(2)[0]  # '`' or '~'
+            marker_len = len(fence_match.group(2))
+            if not in_fenced_block:
+                in_fenced_block = True
+                fence_marker = marker * marker_len
+            elif marker == fence_marker[0] and marker_len >= len(fence_marker):
+                in_fenced_block = False
+                fence_marker = ""
+            continue
+
+        # Skip URLs inside fenced code blocks
+        if in_fenced_block:
+            continue
+
+        # Skip URLs on indented code lines (4+ spaces or tab)
+        if _INDENTED_CODE_RE.match(line):
+            continue
+
         for match in _URL_RE.finditer(line):
             url = _clean_url_tail(match.group(0))
             results.append((url, line_num, url))
