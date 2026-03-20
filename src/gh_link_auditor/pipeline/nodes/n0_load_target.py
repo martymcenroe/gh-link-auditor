@@ -200,6 +200,28 @@ def n0_load_target(state: PipelineState) -> PipelineState:
             warnings = analyze_contributing_guidelines(contributing)
             state["contributing_warnings"] = warnings
 
+            # Policy check using already-fetched contributing guidelines
+            if contributing:
+                from gh_link_auditor.policy_checker import (
+                    determine_block_status,
+                    parse_policy_keywords,
+                )
+
+                policy_keywords = parse_policy_keywords(contributing)
+                is_blocked, block_reason = determine_block_status(policy_keywords)
+                if is_blocked:
+                    repo_url = f"https://github.com/{owner}/{repo}"
+                    if db_path:
+                        udb = UnifiedDatabase(db_path)
+                        udb.add_to_blacklist(
+                            repo_url=repo_url,
+                            reason=block_reason or "policy-blacklisted",
+                            source="policy",
+                        )
+                        udb.close()
+                    state["errors"] = state.get("errors", []) + [f"Repo blocked by policy: {block_reason}"]
+                    return state
+
             if verbose:
                 summary = format_quality_summary(quality)
                 print(f"[N0] Repo quality: {summary}", file=sys.stderr, flush=True)

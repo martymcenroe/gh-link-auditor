@@ -256,3 +256,171 @@ class TestExtractOwnerRepo:
         owner, repo = _extract_owner_repo("https://github.com/org/repo/")
         assert owner == "org"
         assert repo == "repo"
+
+
+class TestN0PolicyCheck:
+    """Tests for policy_checker integration in N0."""
+
+    def test_policy_blocks_repo_with_no_bot_keyword(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When contributing guidelines contain 'no-bot', N0 returns an error and does NOT list doc files."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeQuality:
+            stars: int = 100
+            pushed_at: str = "2026-01-01T00:00:00Z"
+            contributors: int = 5
+
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_repo_metadata",
+            lambda _owner, _repo: FakeQuality(),
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_contributing_guidelines",
+            lambda _owner, _repo: "# Contributing\nPlease note: no-bot policy is enforced.",
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.analyze_contributing_guidelines",
+            lambda _content: [],
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.format_quality_summary",
+            lambda _q: "test",
+        )
+
+        db_file = str(tmp_path / "test.db")
+        state = create_initial_state(
+            target="https://github.com/org/repo",
+            db_path=db_file,
+        )
+        result = n0_load_target(state)
+
+        assert any("Repo blocked by policy" in e for e in result["errors"])
+        assert "doc_files" not in result or result.get("doc_files") == []
+
+    def test_policy_allows_repo_without_blocking_keywords(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When contributing guidelines are clean, N0 proceeds normally."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeQuality:
+            stars: int = 100
+            pushed_at: str = "2026-01-01T00:00:00Z"
+            contributors: int = 5
+
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_repo_metadata",
+            lambda _owner, _repo: FakeQuality(),
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_contributing_guidelines",
+            lambda _owner, _repo: "# Contributing\nWe welcome all contributions!",
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.analyze_contributing_guidelines",
+            lambda _content: [],
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.format_quality_summary",
+            lambda _q: "test",
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.pipeline.nodes.n0_load_target.list_documentation_files",
+            lambda _t, _tt, **_kw: ["README.md"],
+        )
+
+        db_file = str(tmp_path / "test.db")
+        state = create_initial_state(
+            target="https://github.com/org/repo",
+            db_path=db_file,
+        )
+        result = n0_load_target(state)
+
+        assert result.get("errors", []) == []
+        assert result["doc_files"] == ["README.md"]
+
+    def test_policy_skips_check_when_no_contributing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When contributing guidelines are empty/None, N0 proceeds normally."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeQuality:
+            stars: int = 100
+            pushed_at: str = "2026-01-01T00:00:00Z"
+            contributors: int = 5
+
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_repo_metadata",
+            lambda _owner, _repo: FakeQuality(),
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_contributing_guidelines",
+            lambda _owner, _repo: None,
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.analyze_contributing_guidelines",
+            lambda _content: [],
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.format_quality_summary",
+            lambda _q: "test",
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.pipeline.nodes.n0_load_target.list_documentation_files",
+            lambda _t, _tt, **_kw: ["README.md"],
+        )
+
+        db_file = str(tmp_path / "test.db")
+        state = create_initial_state(
+            target="https://github.com/org/repo",
+            db_path=db_file,
+        )
+        result = n0_load_target(state)
+
+        assert result.get("errors", []) == []
+        assert result["doc_files"] == ["README.md"]
+
+    def test_policy_adds_to_blacklist_on_block(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When policy blocks, verify the repo is added to blacklist with source='policy'."""
+        from dataclasses import dataclass
+
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        @dataclass
+        class FakeQuality:
+            stars: int = 100
+            pushed_at: str = "2026-01-01T00:00:00Z"
+            contributors: int = 5
+
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_repo_metadata",
+            lambda _owner, _repo: FakeQuality(),
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.fetch_contributing_guidelines",
+            lambda _owner, _repo: "# Contributing\nThis project uses no-bot policy.",
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.analyze_contributing_guidelines",
+            lambda _content: [],
+        )
+        monkeypatch.setattr(
+            "gh_link_auditor.repo_quality.format_quality_summary",
+            lambda _q: "test",
+        )
+
+        db_file = str(tmp_path / "test.db")
+        state = create_initial_state(
+            target="https://github.com/org/repo",
+            db_path=db_file,
+        )
+        result = n0_load_target(state)
+
+        assert any("Repo blocked by policy" in e for e in result["errors"])
+
+        # Verify the repo was added to the blacklist
+        udb = UnifiedDatabase(db_file)
+        assert udb.is_blacklisted("https://github.com/org/repo")
+        udb.close()
