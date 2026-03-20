@@ -4,6 +4,8 @@ TDD: Tests written BEFORE implementation.
 Covers: LinkDetective.investigate(), data structures, cache, pipeline flow.
 """
 
+import json
+import urllib.error
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +16,9 @@ from gh_link_auditor.link_detective import (
     Investigation,
     InvestigationMethod,
     LinkDetective,
+    _check_wikipedia_suggestion,
+    _extract_wiki_title,
+    _is_wikipedia_url,
 )
 from tests.fakes.archive import make_archive_hit, make_archive_miss
 from tests.fakes.detectives import FakeGitHubResolver, FakeRedirectResolver, FakeURLHeuristic
@@ -423,3 +428,364 @@ class TestPipelineErrorHandling:
 
         assert isinstance(report, ForensicReport)
         assert any("github" in entry.lower() for entry in report.investigation.investigation_log)
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia URL detection
+# ---------------------------------------------------------------------------
+
+
+class TestIsWikipediaUrl:
+    def test_en_wikipedia(self):
+        assert _is_wikipedia_url("https://en.wikipedia.org/wiki/Python") is True
+
+    def test_de_wikipedia(self):
+        assert _is_wikipedia_url("https://de.wikipedia.org/wiki/Python") is True
+
+    def test_simple_wikipedia(self):
+        assert _is_wikipedia_url("https://simple.wikipedia.org/wiki/Cat") is True
+
+    def test_not_wikipedia(self):
+        assert _is_wikipedia_url("https://example.com/wiki/Page") is False
+
+    def test_github_not_wikipedia(self):
+        assert _is_wikipedia_url("https://github.com/owner/repo") is False
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia title extraction
+# ---------------------------------------------------------------------------
+
+
+class TestExtractWikiTitle:
+    def test_simple_title(self):
+        assert _extract_wiki_title("https://en.wikipedia.org/wiki/Python") == "Python"
+
+    def test_title_with_underscores(self):
+        result = _extract_wiki_title("https://en.wikipedia.org/wiki/Python_(programming_language)")
+        assert result == "Python_(programming_language)"
+
+    def test_encoded_title(self):
+        result = _extract_wiki_title("https://en.wikipedia.org/wiki/Caf%C3%A9")
+        assert result == "Caf\u00e9"
+
+    def test_trailing_slash_stripped(self):
+        result = _extract_wiki_title("https://en.wikipedia.org/wiki/Python/")
+        assert result == "Python"
+
+    def test_fragment_stripped(self):
+        result = _extract_wiki_title("https://en.wikipedia.org/wiki/Python#History")
+        assert result == "Python"
+
+    def test_no_wiki_prefix(self):
+        assert _extract_wiki_title("https://en.wikipedia.org/w/index.php") is None
+
+    def test_empty_title(self):
+        assert _extract_wiki_title("https://en.wikipedia.org/wiki/") is None
+
+
+# ---------------------------------------------------------------------------
+# _check_wikipedia_suggestion unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestCheckWikipediaSuggestion:
+    def test_non_wikipedia_url_returns_none(self):
+        result = _check_wikipedia_suggestion("https://example.com/wiki/Page")
+        assert result is None
+
+    def test_non_wiki_path_returns_none(self):
+        result = _check_wikipedia_suggestion("https://en.wikipedia.org/w/index.php?title=Foo")
+        assert result is None
+
+    def test_redirect_found(self):
+        """Wikipedia query API returns a redirect -> returns corrected URL."""
+        api_response = {
+            "query": {
+                "redirects": [{"from": "Colour", "to": "Color"}],
+                "pages": {"123": {"pageid": 123, "title": "Color"}},
+            }
+        }
+        fake_resp = FakeURLResponse(json.dumps(api_response).encode("utf-8"))
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            return_value=fake_resp,
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/Colour")
+        assert result == "https://en.wikipedia.org/wiki/Color"
+
+    def test_page_exists_no_redirect(self):
+        """Page exists but no redirect — returns the canonical URL."""
+        api_response = {
+            "query": {
+                "pages": {"456": {"pageid": 456, "title": "Python (programming language)"}},
+            }
+        }
+        fake_resp = FakeURLResponse(json.dumps(api_response).encode("utf-8"))
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            return_value=fake_resp,
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/Python_(programming_language)")
+        assert result == "https://en.wikipedia.org/wiki/Python_(programming_language)"
+
+    def test_page_missing_falls_through_to_opensearch(self):
+        """Page missing in query API -> tries opensearch and finds suggestion."""
+        query_response = {
+            "query": {
+                "pages": {"-1": {"title": "Pyhton", "missing": ""}},
+            }
+        }
+        opensearch_response = [
+            "Pyhton",
+            ["Python (programming language)"],
+            [""],
+            ["https://en.wikipedia.org/wiki/Python_(programming_language)"],
+        ]
+        call_count = 0
+
+        def fake_urlopen(req, timeout=10):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return FakeURLResponse(json.dumps(query_response).encode("utf-8"))
+            return FakeURLResponse(json.dumps(opensearch_response).encode("utf-8"))
+
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            side_effect=fake_urlopen,
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/Pyhton")
+        assert result == "https://en.wikipedia.org/wiki/Python_(programming_language)"
+
+    def test_both_apis_fail_returns_none(self):
+        """Both query and opensearch fail -> returns None."""
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("network error"),
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/Nonexistent_Page_XYZ")
+        assert result is None
+
+    def test_opensearch_empty_returns_none(self):
+        """Opensearch returns no suggestions -> returns None."""
+        query_response = {
+            "query": {
+                "pages": {"-1": {"title": "Nonexistent", "missing": ""}},
+            }
+        }
+        opensearch_response = ["Nonexistent", [], [], []]
+
+        call_count = 0
+
+        def fake_urlopen(req, timeout=10):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return FakeURLResponse(json.dumps(query_response).encode("utf-8"))
+            return FakeURLResponse(json.dumps(opensearch_response).encode("utf-8"))
+
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            side_effect=fake_urlopen,
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/Nonexistent_Page_XYZ")
+        assert result is None
+
+    def test_redirect_chain_multiple_hops(self):
+        """Multiple redirects -> uses the last one."""
+        api_response = {
+            "query": {
+                "redirects": [
+                    {"from": "A", "to": "B"},
+                    {"from": "B", "to": "C"},
+                ],
+                "pages": {"789": {"pageid": 789, "title": "C"}},
+            }
+        }
+        fake_resp = FakeURLResponse(json.dumps(api_response).encode("utf-8"))
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            return_value=fake_resp,
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/A")
+        assert result == "https://en.wikipedia.org/wiki/C"
+
+    def test_non_en_wikipedia(self):
+        """Works for non-English Wikipedia domains."""
+        api_response = {
+            "query": {
+                "redirects": [{"from": "Farbe", "to": "Farbe (Begriffserkl\u00e4rung)"}],
+                "pages": {"100": {"pageid": 100, "title": "Farbe (Begriffserkl\u00e4rung)"}},
+            }
+        }
+        fake_resp = FakeURLResponse(json.dumps(api_response).encode("utf-8"))
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            return_value=fake_resp,
+        ):
+            result = _check_wikipedia_suggestion("https://de.wikipedia.org/wiki/Farbe")
+        assert result is not None
+        assert "de.wikipedia.org" in result
+
+    def test_json_decode_error_returns_none(self):
+        """Malformed JSON from API -> returns None gracefully."""
+        fake_resp = FakeURLResponse(b"not json at all")
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            return_value=fake_resp,
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/Test")
+        assert result is None
+
+    def test_opensearch_same_url_skipped(self):
+        """Opensearch suggesting the same dead URL -> returns None."""
+        query_response = {
+            "query": {
+                "pages": {"-1": {"title": "Same_Page", "missing": ""}},
+            }
+        }
+        opensearch_response = [
+            "Same_Page",
+            ["Same Page"],
+            [""],
+            ["https://en.wikipedia.org/wiki/Same_Page"],
+        ]
+        call_count = 0
+
+        def fake_urlopen(req, timeout=10):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return FakeURLResponse(json.dumps(query_response).encode("utf-8"))
+            return FakeURLResponse(json.dumps(opensearch_response).encode("utf-8"))
+
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            side_effect=fake_urlopen,
+        ):
+            result = _check_wikipedia_suggestion("https://en.wikipedia.org/wiki/Same_Page")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia suggestion in pipeline integration
+# ---------------------------------------------------------------------------
+
+
+class TestWikipediaSuggestionInPipeline:
+    def test_wikipedia_suggestion_produces_candidate(self):
+        """Wikipedia URL with redirect produces WIKIPEDIA_SUGGEST candidate."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver(
+            live_urls={"https://en.wikipedia.org/wiki/Color"},
+        )
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        api_response = {
+            "query": {
+                "redirects": [{"from": "Colour", "to": "Color"}],
+                "pages": {"123": {"pageid": 123, "title": "Color"}},
+            }
+        }
+        fake_resp = FakeURLResponse(json.dumps(api_response).encode("utf-8"))
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            return_value=fake_resp,
+        ):
+            report = detective.investigate("https://en.wikipedia.org/wiki/Colour", 404)
+
+        candidates = report.investigation.candidate_replacements
+        wiki_candidates = [c for c in candidates if c.method == InvestigationMethod.WIKIPEDIA_SUGGEST]
+        assert len(wiki_candidates) == 1
+        assert wiki_candidates[0].url == "https://en.wikipedia.org/wiki/Color"
+        assert wiki_candidates[0].verified_live is True
+        assert wiki_candidates[0].similarity_score == 0.95
+
+    def test_wikipedia_suggestion_not_live_logged(self):
+        """Wikipedia suggestion that isn't live gets logged but not added."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver(
+            live_urls=set(),  # nothing is live
+        )
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        api_response = {
+            "query": {
+                "redirects": [{"from": "Old_Title", "to": "New_Title"}],
+                "pages": {"100": {"pageid": 100, "title": "New_Title"}},
+            }
+        }
+        fake_resp = FakeURLResponse(json.dumps(api_response).encode("utf-8"))
+        with patch(
+            "gh_link_auditor.link_detective.urllib.request.urlopen",
+            return_value=fake_resp,
+        ):
+            report = detective.investigate("https://en.wikipedia.org/wiki/Old_Title", 404)
+
+        wiki_candidates = [
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.WIKIPEDIA_SUGGEST
+        ]
+        assert len(wiki_candidates) == 0
+        assert any("not live" in entry.lower() for entry in report.investigation.investigation_log)
+
+    def test_non_wikipedia_url_skips_suggestion(self):
+        """Non-Wikipedia URL does not trigger Wikipedia suggestion step."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver()
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        report = detective.investigate("https://example.com/page", 404)
+
+        assert not any("wikipedia" in entry.lower() for entry in report.investigation.investigation_log)
+
+    def test_wikipedia_suggestion_error_continues_pipeline(self):
+        """Exception in Wikipedia suggestion doesn't stop the pipeline."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver()
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        with patch(
+            "gh_link_auditor.link_detective._check_wikipedia_suggestion",
+            side_effect=Exception("API timeout"),
+        ):
+            report = detective.investigate("https://en.wikipedia.org/wiki/Some_Article", 404)
+
+        assert isinstance(report, ForensicReport)
+        assert any(
+            "wikipedia suggestion check failed" in entry.lower() for entry in report.investigation.investigation_log
+        )
+
+    def test_wikipedia_no_suggestion_logged(self):
+        """No Wikipedia suggestion found is logged."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver()
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        with patch(
+            "gh_link_auditor.link_detective._check_wikipedia_suggestion",
+            return_value=None,
+        ):
+            report = detective.investigate("https://en.wikipedia.org/wiki/Totally_Gone", 404)
+
+        assert any("no wikipedia suggestion found" in entry.lower() for entry in report.investigation.investigation_log)
+
+
+# ---------------------------------------------------------------------------
+# InvestigationMethod enum includes WIKIPEDIA_SUGGEST
+# ---------------------------------------------------------------------------
+
+
+class TestWikipediaSuggestEnum:
+    def test_wikipedia_suggest_value(self):
+        assert InvestigationMethod.WIKIPEDIA_SUGGEST.value == "wikipedia_suggest"

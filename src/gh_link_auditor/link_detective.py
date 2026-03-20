@@ -9,11 +9,12 @@ See LLD #20 §2.5 for investigation pipeline logic.
 
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from enum import Enum
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from gh_link_auditor.archive_client import ArchiveClient
 from gh_link_auditor.false_positives import PARKING_DOMAINS
@@ -39,6 +40,7 @@ class InvestigationMethod(Enum):
     URL_MUTATION = "url_mutation"
     URL_HEURISTIC = "url_heuristic"
     SITEMAP_SEARCH = "sitemap_search"
+    WIKIPEDIA_SUGGEST = "wikipedia_suggest"
     GITHUB_API_REDIRECT = "github_api_redirect"
     ARCHIVE_ONLY = "archive_only"
 
@@ -93,6 +95,140 @@ def _fetch_page_content(url: str) -> str | None:
             return resp.read().decode("utf-8", errors="replace")
     except (urllib.error.URLError, OSError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia domains and suggestion helper
+# ---------------------------------------------------------------------------
+
+_WIKIPEDIA_DOMAINS = frozenset(
+    {
+        "en.wikipedia.org",
+        "de.wikipedia.org",
+        "fr.wikipedia.org",
+        "es.wikipedia.org",
+        "it.wikipedia.org",
+        "pt.wikipedia.org",
+        "ru.wikipedia.org",
+        "ja.wikipedia.org",
+        "zh.wikipedia.org",
+        "ko.wikipedia.org",
+        "ar.wikipedia.org",
+        "nl.wikipedia.org",
+        "pl.wikipedia.org",
+        "sv.wikipedia.org",
+        "uk.wikipedia.org",
+        "vi.wikipedia.org",
+        "simple.wikipedia.org",
+    }
+)
+
+
+def _is_wikipedia_url(url: str) -> bool:
+    """Return True if the URL belongs to a Wikipedia domain.
+
+    Args:
+        url: URL to check.
+
+    Returns:
+        True if the hostname matches a known Wikipedia domain.
+    """
+    hostname = (urlparse(url).hostname or "").lower()
+    return hostname in _WIKIPEDIA_DOMAINS
+
+
+def _extract_wiki_title(url: str) -> str | None:
+    """Extract the article title from a Wikipedia URL path.
+
+    Args:
+        url: Wikipedia URL (e.g. https://en.wikipedia.org/wiki/Python_(programming_language)).
+
+    Returns:
+        Article title string, or None if the path doesn't match /wiki/<title>.
+    """
+    parsed = urlparse(url)
+    path = parsed.path
+    if not path.startswith("/wiki/"):
+        return None
+    title = unquote(path[len("/wiki/") :])
+    # Strip fragment and trailing slashes
+    title = title.split("#")[0].rstrip("/")
+    return title if title else None
+
+
+def _check_wikipedia_suggestion(dead_url: str) -> str | None:
+    """Query Wikipedia API for redirects or search suggestions for a dead wiki URL.
+
+    Tries two strategies:
+    1. Query API with ``action=query&redirects=1`` to resolve redirects.
+    2. Query opensearch API for "did you mean" suggestions.
+
+    Args:
+        dead_url: A Wikipedia URL that returned 404.
+
+    Returns:
+        A replacement Wikipedia URL if a redirect or suggestion is found,
+        None otherwise.
+    """
+    parsed = urlparse(dead_url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in _WIKIPEDIA_DOMAINS:
+        return None
+
+    title = _extract_wiki_title(dead_url)
+    if not title:
+        return None
+
+    base_api = f"https://{hostname}/w/api.php"
+    encoded_title = quote(title, safe="")
+
+    # Strategy 1: Check for redirects via the query API
+    redirect_url = f"{base_api}?action=query&titles={encoded_title}&redirects=1&format=json"
+    try:
+        req = urllib.request.Request(
+            redirect_url,
+            headers={"User-Agent": "gh-link-auditor/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            data = json.loads(resp.read().decode("utf-8"))
+        # Check if the API resolved a redirect
+        redirects = data.get("query", {}).get("redirects", [])
+        if redirects:
+            target_title = redirects[-1].get("to", "")
+            if target_title:
+                new_path = quote(target_title.replace(" ", "_"), safe="/:@!$&'()*+,;=-._~")
+                return f"https://{hostname}/wiki/{new_path}"
+
+        # Check if the page actually exists (no -1 missing key)
+        pages = data.get("query", {}).get("pages", {})
+        for page_id, page_info in pages.items():
+            if page_id != "-1" and "missing" not in page_info:
+                # Page exists with this exact title — might have been a transient 404
+                real_title = page_info.get("title", "")
+                if real_title:
+                    new_path = quote(real_title.replace(" ", "_"), safe="/:@!$&'()*+,;=-._~")
+                    return f"https://{hostname}/wiki/{new_path}"
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, KeyError):
+        pass
+
+    # Strategy 2: Opensearch for "did you mean" suggestions
+    search_url = f"{base_api}?action=opensearch&search={encoded_title}&limit=1&format=json"
+    try:
+        req = urllib.request.Request(
+            search_url,
+            headers={"User-Agent": "gh-link-auditor/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            data = json.loads(resp.read().decode("utf-8"))
+        # Opensearch returns [search_term, [titles], [descriptions], [urls]]
+        if len(data) >= 4 and data[3]:
+            suggested_url = data[3][0]
+            if suggested_url and suggested_url != dead_url:
+                return suggested_url
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
+        pass
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +355,28 @@ class LinkDetective:
                 log.append(f"URL mutation found: {mutation_type} -> {live_url}")
         except Exception as e:
             log.append(f"URL mutation check failed: {e}")
+
+        # 5b. WIKIPEDIA SUGGESTION (before archive lookup)
+        if _is_wikipedia_url(dead_url):
+            try:
+                wiki_suggestion = _check_wikipedia_suggestion(dead_url)
+                if wiki_suggestion:
+                    if self._redirect_resolver.verify_live(wiki_suggestion):
+                        candidates.append(
+                            CandidateReplacement(
+                                url=wiki_suggestion,
+                                method=InvestigationMethod.WIKIPEDIA_SUGGEST,
+                                similarity_score=0.95,
+                                verified_live=True,
+                            )
+                        )
+                        log.append(f"Wikipedia suggestion: {wiki_suggestion}")
+                    else:
+                        log.append(f"Wikipedia suggestion not live: {wiki_suggestion}")
+                else:
+                    log.append("No Wikipedia suggestion found")
+            except Exception as e:
+                log.append(f"Wikipedia suggestion check failed: {e}")
 
         # 6. ARCHIVE LOOKUP
         try:
