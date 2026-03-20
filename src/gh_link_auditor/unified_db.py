@@ -974,6 +974,28 @@ class UnifiedDatabase:
         )
         self._conn.commit()
 
+    def get_recent_scans(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Get recent scans with repo names, ordered by most recent first.
+
+        Args:
+            limit: Maximum number of scans to return.
+
+        Returns:
+            List of scan dicts with repo_full_name, started_at, etc.
+        """
+        cursor = self._conn.execute(
+            """SELECT s.id, r.full_name AS repo_full_name,
+                      s.started_at, s.completed_at,
+                      s.dead_links_found, s.fixes_generated,
+                      s.pr_submitted, s.decision, s.duration_seconds
+               FROM scans s
+               LEFT JOIN repos r ON s.repo_id = r.id
+               ORDER BY s.started_at DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     # ------------------------------------------------------------------
     # Findings
     # ------------------------------------------------------------------

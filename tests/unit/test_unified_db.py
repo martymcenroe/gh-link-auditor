@@ -702,6 +702,41 @@ class TestScans:
         assert row["completed_at"] is not None
 
 
+class TestGetRecentScans:
+    def test_returns_empty_list_when_no_scans(self, db):
+        scans = db.get_recent_scans()
+        assert scans == []
+
+    def test_returns_scans_with_repo_name(self, db):
+        repo_id = db.upsert_repo("org/repo")
+        scan_id = db.record_scan(repo_id, "run-1")
+        db.complete_scan(scan_id, dead_links_found=3)
+
+        scans = db.get_recent_scans()
+        assert len(scans) == 1
+        assert scans[0]["repo_full_name"] == "org/repo"
+        assert scans[0]["dead_links_found"] == 3
+
+    def test_respects_limit(self, db):
+        repo_id = db.upsert_repo("org/repo")
+        for i in range(5):
+            scan_id = db.record_scan(repo_id, f"run-{i}")
+            db.complete_scan(scan_id)
+
+        scans = db.get_recent_scans(limit=3)
+        assert len(scans) == 3
+
+    def test_orders_by_most_recent_first(self, db):
+        repo_id = db.upsert_repo("org/repo")
+        for i in range(3):
+            scan_id = db.record_scan(repo_id, f"run-{i}")
+            db.complete_scan(scan_id, dead_links_found=i)
+
+        scans = db.get_recent_scans()
+        # Most recent scan has dead_links_found=2
+        assert scans[0]["dead_links_found"] == 2
+
+
 # ---------------------------------------------------------------------------
 # Findings
 # ---------------------------------------------------------------------------
