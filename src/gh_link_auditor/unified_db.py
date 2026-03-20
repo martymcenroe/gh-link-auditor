@@ -561,6 +561,17 @@ class UnifiedDatabase:
         stats["total_blacklist_entries"] = row["cnt"]
         return stats
 
+    def get_blacklist_by_source(self) -> dict[str, int]:
+        """Count active blacklist entries grouped by source."""
+        now = _now_iso()
+        rows = self._conn.execute(
+            """SELECT source, COUNT(*) AS cnt FROM blacklist
+               WHERE expires_at IS NULL OR expires_at > ?
+               GROUP BY source""",
+            (now,),
+        ).fetchall()
+        return {r["source"]: r["cnt"] for r in rows}
+
     # ------------------------------------------------------------------
     # Run Reports (backward-compatible with MetricsCollector)
     # ------------------------------------------------------------------

@@ -167,6 +167,19 @@ def n0_load_target(state: PipelineState) -> PipelineState:
         if target_type == "url":
             owner, repo = _extract_owner_repo(normalized)
             state["repo_owner"] = owner
+
+            # Blacklist check before scanning
+            from gh_link_auditor.unified_db import UnifiedDatabase
+
+            db_path = state.get("db_path", "")
+            if db_path:
+                udb = UnifiedDatabase(db_path)
+                repo_url = f"https://github.com/{owner}/{repo}"
+                if udb.is_blacklisted(repo_url):
+                    state["errors"] = state.get("errors", []) + [f"Repo {repo_url} is blacklisted"]
+                    udb.close()
+                    return state
+                udb.close()
             state["repo_name_short"] = repo
 
             # Fetch repo quality and contributing guidelines
