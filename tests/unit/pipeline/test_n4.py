@@ -146,6 +146,30 @@ class TestPromptUserApproval:
             result = prompt_user_approval(verdict)
         assert result is _EXIT
 
+    def test_approve_with_a(self) -> None:
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="a"):
+            result = prompt_user_approval(verdict)
+        assert result is True
+
+    def test_approve_with_approve(self) -> None:
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="approve"):
+            result = prompt_user_approval(verdict)
+        assert result is True
+
+    def test_reject_with_r(self) -> None:
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="r"):
+            result = prompt_user_approval(verdict)
+        assert result is False
+
+    def test_reject_with_reject(self) -> None:
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="reject"):
+            result = prompt_user_approval(verdict)
+        assert result is False
+
     def test_ctrl_c_propagates(self) -> None:
         """Ctrl+C should propagate as KeyboardInterrupt to abort pipeline."""
         verdict = _make_verdict()
