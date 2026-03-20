@@ -219,6 +219,9 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                 outcome.merged_at = merged_at or now
                 outcome.time_to_merge_hours = ttm
 
+                # Update trust: tier1_pending -> tier1_proven
+                _update_trust_on_merge(udb, outcome.repo_full_name, merged_at or now)
+
             elif new_status == "closed":
                 closed_at = _parse_iso_datetime(api_data.get("closed_at"))
                 outcome.status = "closed"
@@ -244,11 +247,91 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                 new_status,
             )
 
+        # Upgrade tier1_proven repos that have passed the 14-day mark
+        upgrade_tier1_proven_repos(udb)
+
         return updated
 
     finally:
         collector.close()
         udb.close()
+
+
+def _update_trust_on_merge(
+    udb: object,
+    repo_full_name: str,
+    merged_at: datetime,
+) -> None:
+    """Update repo trust when a PR is merged.
+
+    Transitions new/tier1_pending repos to tier1_proven and records
+    the first merge timestamp.
+
+    Args:
+        udb: UnifiedDatabase instance.
+        repo_full_name: Full repo name (e.g. "owner/repo").
+        merged_at: When the PR was merged.
+    """
+    trust = udb.get_repo_trust(repo_full_name)  # type: ignore[union-attr]
+
+    merged_iso = merged_at.isoformat() if isinstance(merged_at, datetime) else str(merged_at)
+
+    if trust is None:
+        # No trust record — create as tier1_proven
+        udb.update_repo_trust(  # type: ignore[union-attr]
+            repo_full_name,
+            "tier1_proven",
+            first_merge_at=merged_iso,
+            total_prs=1,
+            total_merges=1,
+        )
+        logger.info("Trust: %s → tier1_proven (first PR merged)", repo_full_name)
+        return
+
+    current = trust["trust_level"]
+    new_merges = (trust.get("total_merges") or 0) + 1
+
+    if current in ("new", "tier1_pending"):
+        udb.update_repo_trust(  # type: ignore[union-attr]
+            repo_full_name,
+            "tier1_proven",
+            first_merge_at=merged_iso,
+            total_merges=new_merges,
+        )
+        logger.info("Trust: %s %s → tier1_proven", repo_full_name, current)
+    elif current == "tier1_proven":
+        udb.update_repo_trust(  # type: ignore[union-attr]
+            repo_full_name,
+            "tier1_proven",
+            total_merges=new_merges,
+        )
+    elif current == "tier2_eligible":
+        udb.update_repo_trust(  # type: ignore[union-attr]
+            repo_full_name,
+            "tier2_eligible",
+            total_merges=new_merges,
+        )
+
+
+def upgrade_tier1_proven_repos(udb: object) -> list[str]:
+    """Scan tier1_proven repos and upgrade to tier2_eligible if 14 days passed.
+
+    Called during `ghla metrics refresh`.
+
+    Args:
+        udb: UnifiedDatabase instance.
+
+    Returns:
+        List of repo full_names that were upgraded.
+    """
+    upgraded: list[str] = []
+    for trust_row in udb.get_tier1_proven_repos():  # type: ignore[union-attr]
+        repo_name = trust_row["full_name"]
+        if udb.check_tier2_eligibility(repo_name):  # type: ignore[union-attr]
+            udb.update_repo_trust(repo_name, "tier2_eligible")  # type: ignore[union-attr]
+            upgraded.append(repo_name)
+            logger.info("Trust: %s tier1_proven → tier2_eligible", repo_name)
+    return upgraded
 
 
 def _determine_status(api_data: dict) -> str:
