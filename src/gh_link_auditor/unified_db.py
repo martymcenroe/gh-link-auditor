@@ -987,6 +987,155 @@ class UnifiedDatabase:
         )
         self._conn.commit()
 
+    # ------------------------------------------------------------------
+    # Repo Trust State Machine
+    # ------------------------------------------------------------------
+
+    def get_repo_trust(self, repo_full_name: str) -> dict[str, Any] | None:
+        """Get trust record for a repo by full_name.
+
+        Args:
+            repo_full_name: Repository full name (e.g. "owner/repo").
+
+        Returns:
+            Trust dict with keys: repo_id, trust_level, first_pr_at,
+            first_merge_at, total_prs, total_merges, is_blacklisted,
+            updated_at. None if no trust record exists.
+        """
+        row = self._conn.execute(
+            """SELECT rt.repo_id, rt.trust_level, rt.first_pr_at,
+                      rt.first_merge_at, rt.total_prs, rt.total_merges,
+                      rt.is_blacklisted, rt.updated_at
+               FROM repo_trust rt
+               JOIN repos r ON r.id = rt.repo_id
+               WHERE r.full_name = ?""",
+            (repo_full_name,),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def update_repo_trust(
+        self,
+        repo_full_name: str,
+        trust_level: str,
+        *,
+        first_pr_at: str | None = None,
+        first_merge_at: str | None = None,
+        total_prs: int | None = None,
+        total_merges: int | None = None,
+        is_blacklisted: bool | None = None,
+    ) -> None:
+        """Create or update trust record for a repo.
+
+        Upserts the repo into the repos table if needed, then upserts
+        the repo_trust row.
+
+        Args:
+            repo_full_name: Repository full name.
+            trust_level: One of "new", "tier1_pending", "tier1_proven",
+                         "tier2_eligible".
+            first_pr_at: ISO timestamp of first PR submission.
+            first_merge_at: ISO timestamp of first merge.
+            total_prs: Total PRs submitted.
+            total_merges: Total PRs merged.
+            is_blacklisted: Whether the repo is blacklisted.
+        """
+        now = _now_iso()
+        repo_id = self.upsert_repo(repo_full_name)
+
+        existing = self._conn.execute(
+            "SELECT repo_id FROM repo_trust WHERE repo_id = ?",
+            (repo_id,),
+        ).fetchone()
+
+        if existing:
+            parts = ["trust_level = ?", "updated_at = ?"]
+            params: list[Any] = [trust_level, now]
+            if first_pr_at is not None:
+                parts.append("first_pr_at = ?")
+                params.append(first_pr_at)
+            if first_merge_at is not None:
+                parts.append("first_merge_at = ?")
+                params.append(first_merge_at)
+            if total_prs is not None:
+                parts.append("total_prs = ?")
+                params.append(total_prs)
+            if total_merges is not None:
+                parts.append("total_merges = ?")
+                params.append(total_merges)
+            if is_blacklisted is not None:
+                parts.append("is_blacklisted = ?")
+                params.append(int(is_blacklisted))
+            params.append(repo_id)
+            self._conn.execute(
+                f"UPDATE repo_trust SET {', '.join(parts)} WHERE repo_id = ?",  # noqa: S608
+                params,
+            )
+        else:
+            self._conn.execute(
+                """INSERT INTO repo_trust
+                (repo_id, trust_level, first_pr_at, first_merge_at,
+                 total_prs, total_merges, is_blacklisted, updated_at)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    repo_id,
+                    trust_level,
+                    first_pr_at,
+                    first_merge_at,
+                    total_prs or 0,
+                    total_merges or 0,
+                    int(is_blacklisted) if is_blacklisted is not None else 0,
+                    now,
+                ),
+            )
+        self._conn.commit()
+
+    def check_tier2_eligibility(self, repo_full_name: str) -> bool:
+        """Check if a repo is eligible for tier 2 escalation.
+
+        A repo is tier2-eligible when it has a merged PR and at least
+        14 days have passed since the first merge.
+
+        Args:
+            repo_full_name: Repository full name.
+
+        Returns:
+            True if the repo qualifies for tier 2.
+        """
+        trust = self.get_repo_trust(repo_full_name)
+        if trust is None:
+            return False
+        if trust["trust_level"] == "tier2_eligible":
+            return True
+        if trust["trust_level"] != "tier1_proven":
+            return False
+        if not trust["first_merge_at"]:
+            return False
+
+        from datetime import timedelta
+
+        merge_dt = datetime.fromisoformat(trust["first_merge_at"])
+        cutoff = merge_dt + timedelta(days=14)
+        now = datetime.now(timezone.utc)
+        return now >= cutoff
+
+    def get_tier1_proven_repos(self) -> list[dict[str, Any]]:
+        """Return all repos at tier1_proven level for upgrade scanning.
+
+        Returns:
+            List of trust dicts for repos at tier1_proven.
+        """
+        rows = self._conn.execute(
+            """SELECT rt.repo_id, rt.trust_level, rt.first_pr_at,
+                      rt.first_merge_at, rt.total_prs, rt.total_merges,
+                      rt.is_blacklisted, rt.updated_at, r.full_name
+               FROM repo_trust rt
+               JOIN repos r ON r.id = rt.repo_id
+               WHERE rt.trust_level = 'tier1_proven'""",
+        ).fetchall()
+        return [dict(r) for r in rows]
+
 
 # ------------------------------------------------------------------
 # Private helpers

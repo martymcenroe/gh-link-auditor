@@ -18,6 +18,36 @@ from gh_link_auditor.pipeline.state import (
 
 logger = logging.getLogger(__name__)
 
+# Methods considered safe (tier 1) — high confidence, low risk
+_TIER1_METHODS = frozenset(
+    {
+        "redirect_chain",
+        "url_mutation",
+        "strip_index",
+        "wikipedia_suggest",
+        "github_api_redirect",
+    }
+)
+
+
+def classify_tier(method: str, verified_live: bool) -> int:
+    """Classify a replacement method into tier 1 (safe) or tier 2 (risky).
+
+    Tier 1: redirect_chain, url_mutation, strip_index, wikipedia_suggest,
+            github_api_redirect — only when the candidate is verified live.
+    Tier 2: sitemap_search, url_heuristic, or any unverified candidate.
+
+    Args:
+        method: The investigation method string.
+        verified_live: Whether the candidate URL was verified as live.
+
+    Returns:
+        1 for safe fixes, 2 for risky fixes.
+    """
+    if method in _TIER1_METHODS and verified_live:
+        return 1
+    return 2
+
 
 def _run_investigation(dead_url: str, http_status: int | str):
     """Run LinkDetective investigation on a dead URL.
@@ -38,13 +68,14 @@ def _run_investigation(dead_url: str, http_status: int | str):
 def investigate_dead_link(dead_link: DeadLink) -> list[ReplacementCandidate]:
     """Investigate a single dead link for replacement candidates.
 
-    Delegates to LinkDetective and converts results to ReplacementCandidate format.
+    Delegates to LinkDetective and converts results to ReplacementCandidate
+    format. Each candidate is tagged with a tier (1=safe, 2=risky).
 
     Args:
         dead_link: The dead link to investigate.
 
     Returns:
-        List of ReplacementCandidate dicts.
+        List of ReplacementCandidate dicts with tier annotation.
     """
     try:
         report = _run_investigation(
@@ -61,12 +92,15 @@ def investigate_dead_link(dead_link: DeadLink) -> list[ReplacementCandidate]:
         # Never suggest archive.org as a replacement (#115)
         if method_str == "archive_only":
             continue
+        verified = getattr(cr, "verified_live", False)
+        tier = classify_tier(method_str, verified)
         candidates.append(
             ReplacementCandidate(
                 url=cr.url,
                 source=method_str,
                 title=report.investigation.archive_title,
                 snippet=report.investigation.archive_content_summary,
+                tier=tier,
             )
         )
 

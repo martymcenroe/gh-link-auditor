@@ -26,13 +26,14 @@ class DeadLink(TypedDict):
     error_type: str
 
 
-class ReplacementCandidate(TypedDict):
+class ReplacementCandidate(TypedDict, total=False):
     """A potential replacement URL for a dead link."""
 
     url: str
     source: str
     title: str | None
     snippet: str | None
+    tier: int  # 1 = safe (redirect, mutation, strip_index, wikipedia), 2 = risky
 
 
 class Verdict(TypedDict):
@@ -112,6 +113,8 @@ class PipelineState(TypedDict, total=False):
 
     # PR Preview Gate
     pr_preview_approved: bool
+    tier2_fixes_excluded: int  # count of tier 2 fixes filtered out
+    repo_trust_level: str  # current trust level for target repo
 
     # N6 Output
     pr_url: str

@@ -101,9 +101,97 @@ def _after_n4_router(state: PipelineState) -> str:
     return "n5_generate_fix"
 
 
+def _get_repo_trust_level(state: PipelineState) -> str:
+    """Look up the trust level for the current target repo.
+
+    Returns "new" if no trust record exists or the target is local.
+
+    Args:
+        state: Current pipeline state.
+
+    Returns:
+        Trust level string.
+    """
+    if state.get("target_type") != "url":
+        return "new"
+
+    owner = state.get("repo_owner", "")
+    name = state.get("repo_name_short", "")
+    if not owner or not name:
+        return "new"
+
+    repo_full_name = f"{owner}/{name}"
+
+    try:
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = state.get("db_path", "")
+        if not db_path:
+            return "new"
+        db = UnifiedDatabase(db_path)
+        try:
+            trust = db.get_repo_trust(repo_full_name)
+            if trust is None:
+                return "new"
+            return trust["trust_level"]
+        finally:
+            db.close()
+    except Exception:
+        logger.debug("Could not look up trust level for %s", repo_full_name)
+        return "new"
+
+
+def _filter_fixes_by_trust(
+    fixes: list[dict],
+    verdicts: list[dict],
+    candidates: dict[str, list[dict]],
+    trust_level: str,
+) -> tuple[list[dict], int]:
+    """Filter fixes based on repo trust level.
+
+    For repos at "new" or "tier1_pending", tier 2 fixes are excluded.
+
+    Args:
+        fixes: List of FixPatch dicts.
+        verdicts: List of Verdict dicts (for looking up candidate tiers).
+        candidates: Candidates dict keyed by dead URL.
+        trust_level: Current repo trust level.
+
+    Returns:
+        Tuple of (filtered fixes, count of excluded tier 2 fixes).
+    """
+    if trust_level not in ("new", "tier1_pending"):
+        return fixes, 0
+
+    # Build a set of URLs whose best candidate is tier 2
+    tier2_urls: set[str] = set()
+    for url, cands in candidates.items():
+        for c in cands:
+            if c.get("tier", 1) == 2:
+                tier2_urls.add(url)
+
+    # Also check verdicts — the chosen candidate's source
+    for v in verdicts:
+        cand = v.get("candidate")
+        if cand and cand.get("tier", 1) == 2:
+            dl = v.get("dead_link", {})
+            tier2_urls.add(dl.get("url", ""))
+
+    filtered = []
+    excluded = 0
+    for fix in fixes:
+        if fix.get("original_url", "") in tier2_urls:
+            excluded += 1
+        else:
+            filtered.append(fix)
+
+    return filtered, excluded
+
+
 def _pr_preview_gate(state: PipelineState) -> PipelineState:
     """Show PR preview and ask user to confirm before submission.
 
+    Checks repo trust level and filters out tier 2 fixes for untrusted repos.
     Displays the fixes that will be submitted and prompts for confirmation.
     Sets pr_preview_approved in state.
     """
@@ -112,8 +200,26 @@ def _pr_preview_gate(state: PipelineState) -> PipelineState:
         state["pr_preview_approved"] = False
         return state
 
+    # Look up trust level and filter tier 2 fixes for untrusted repos
+    trust_level = _get_repo_trust_level(state)
+    state["repo_trust_level"] = trust_level
+
+    verdicts = state.get("verdicts", [])
+    candidates = state.get("candidates", {})
+    fixes, excluded = _filter_fixes_by_trust(fixes, verdicts, candidates, trust_level)
+    state["fixes"] = fixes
+    state["tier2_fixes_excluded"] = excluded
+
+    if not fixes:
+        if excluded > 0:
+            print(f"\n  All {excluded} fix(es) are tier 2 (risky) — excluded for repo at trust level '{trust_level}'.")
+        state["pr_preview_approved"] = False
+        return state
+
     print("\n" + "=" * 50)
     print(f"  PR Preview — {len(fixes)} fix(es) to submit")
+    if excluded > 0:
+        print(f"  ({excluded} tier 2 fix(es) excluded — repo trust: {trust_level})")
     print("=" * 50)
     for i, fix in enumerate(fixes, start=1):
         print(f"  {i}. {fix['source_file']}")
