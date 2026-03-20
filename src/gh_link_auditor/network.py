@@ -63,6 +63,11 @@ _DEFAULT_USER_AGENT = (
     "Chrome/58.0.3029.110 Safari/537.36"
 )
 
+# Modern browser UA for retry on 403 (#122)
+_BROWSER_RETRY_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
 
 # ---------------------------------------------------------------------------
 # Factory functions (LLD §2.4)
@@ -398,6 +403,7 @@ def check_url(
     method = "HEAD"
     retries = 0
     get_fallback_attempted = False
+    browser_ua_attempted = False
 
     # Use a while loop (per reviewer suggestion) for cleaner retry/fallback logic.
     while True:
@@ -425,6 +431,16 @@ def check_url(
         if try_get and not get_fallback_attempted:
             method = "GET"
             get_fallback_attempted = True
+            continue
+
+        # Browser UA retry on 403 after GET fallback (#122)
+        if status_code == 403 and get_fallback_attempted and not browser_ua_attempted:
+            browser_ua_attempted = True
+            request_config = RequestConfig(
+                timeout=request_config["timeout"],
+                verify_ssl=request_config["verify_ssl"],
+                user_agent=_BROWSER_RETRY_UA,
+            )
             continue
 
         # Permanent failures — return immediately
