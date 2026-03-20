@@ -168,19 +168,50 @@ class TestPrPreviewGate:
         result = _pr_preview_gate(state)
         assert result["pr_preview_approved"] is False
 
-    def test_user_approves(self) -> None:
+    def test_user_submits(self) -> None:
         state = create_initial_state(target="t")
         state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
-        with patch("builtins.input", return_value="y"):
+        with patch("builtins.input", return_value="s"):
             result = _pr_preview_gate(state)
         assert result["pr_preview_approved"] is True
 
-    def test_user_rejects(self) -> None:
+    def test_user_exits(self) -> None:
         state = create_initial_state(target="t")
         state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
-        with patch("builtins.input", return_value="n"):
+        with patch("builtins.input", return_value="x"):
             result = _pr_preview_gate(state)
         assert result["pr_preview_approved"] is False
+
+    def test_user_reviews_then_submits(self) -> None:
+        state = create_initial_state(target="t")
+        state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
+        with patch("builtins.input", side_effect=["r", "s"]):
+            result = _pr_preview_gate(state)
+        assert result["pr_preview_approved"] is True
+
+    def test_user_invalid_then_submits(self) -> None:
+        state = create_initial_state(target="t")
+        state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
+        with patch("builtins.input", side_effect=["garbage", "s"]):
+            result = _pr_preview_gate(state)
+        assert result["pr_preview_approved"] is True
+
+    def test_preview_shows_pr_title_and_body(self, capsys) -> None:
+        state = create_initial_state(target="t")
+        state["fixes"] = [
+            {
+                "source_file": "README.md",
+                "original_url": "https://old.com",
+                "replacement_url": "https://new.com",
+                "unified_diff": "d",
+            }
+        ]
+        with patch("builtins.input", return_value="s"):
+            _pr_preview_gate(state)
+        captured = capsys.readouterr()
+        assert "Title:" in captured.out
+        assert "Body:" in captured.out
+        assert "README.md" in captured.out
 
     def test_router_approved(self) -> None:
         state = create_initial_state(target="t")

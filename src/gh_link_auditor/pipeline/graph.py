@@ -216,20 +216,47 @@ def _pr_preview_gate(state: PipelineState) -> PipelineState:
         state["pr_preview_approved"] = False
         return state
 
-    print("\n" + "=" * 50)
-    print(f"  PR Preview — {len(fixes)} fix(es) to submit")
-    if excluded > 0:
-        print(f"  ({excluded} tier 2 fix(es) excluded — repo trust: {trust_level})")
-    print("=" * 50)
-    for i, fix in enumerate(fixes, start=1):
-        print(f"  {i}. {fix['source_file']}")
-        print(f"     {fix['original_url']}")
-        print(f"     -> {fix['replacement_url']}")
-    print("=" * 50)
+    from gh_link_auditor.pipeline.pr_message import (
+        generate_pr_body_from_fixes,
+        generate_pr_title_from_fixes,
+    )
 
-    response = input("Submit this PR? [y]es / [n]o: ").strip().lower()
-    state["pr_preview_approved"] = response in ("y", "yes")
-    return state
+    pr_title = generate_pr_title_from_fixes(fixes)
+    pr_body = generate_pr_body_from_fixes(fixes, verdicts)
+
+    def _display_preview():
+        print("\n" + "=" * 60)
+        print("  PR PREVIEW")
+        print("=" * 60)
+        print(f"\n  Title: {pr_title}\n")
+        print("  Body:")
+        for line in pr_body.split("\n"):
+            print(f"    {line}")
+        print()
+        print(f"  Fixes: {len(fixes)}")
+        if excluded > 0:
+            print(f"  ({excluded} tier 2 fix(es) excluded — repo trust: {trust_level})")
+        print()
+        for i, fix in enumerate(fixes, start=1):
+            print(f"  {i}. {fix['source_file']}")
+            print(f"     {fix['original_url']}")
+            print(f"     -> {fix['replacement_url']}")
+        print("=" * 60)
+
+    _display_preview()
+
+    while True:
+        response = input("  [r]eview / [s]ubmit / e[x]it: ").strip().lower()
+        if response in ("r", "review"):
+            _display_preview()
+        elif response in ("s", "submit"):
+            state["pr_preview_approved"] = True
+            return state
+        elif response in ("x", "exit"):
+            state["pr_preview_approved"] = False
+            return state
+        else:
+            print("  Invalid option. Use [r]eview, [s]ubmit, or e[x]it.")
 
 
 def _after_pr_preview_router(state: PipelineState) -> str:
