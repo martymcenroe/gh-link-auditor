@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -147,8 +147,15 @@ def _check_maintainer_fixed(
         return False
 
 
+_UNRESPONSIVE_DAYS = 30
+_UNRESPONSIVE_EXPIRY_DAYS = 90
+
+
 def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
     """Poll GitHub API for all open PRs and update their status.
+
+    Auto-blacklists repos where maintainer took fix without merging,
+    and soft-blacklists repos with no response after 30 days.
 
     Args:
         db_path: Path to metrics SQLite database.
@@ -157,8 +164,10 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
         List of PROutcome objects that were updated.
     """
     from gh_link_auditor.metrics.collector import MetricsCollector
+    from gh_link_auditor.unified_db import UnifiedDatabase
 
     collector = MetricsCollector(db_path)
+    udb = UnifiedDatabase(db_path)
     try:
         all_outcomes = collector.get_all_pr_outcomes()
         open_prs = [o for o in all_outcomes if o.status == "open"]
@@ -168,6 +177,7 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
             return []
 
         updated: list[PROutcome] = []
+        now = datetime.now(timezone.utc)
 
         for outcome in open_prs:
             try:
@@ -182,12 +192,23 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                 logger.warning("Failed to fetch status for %s", outcome.pr_url)
                 continue
 
+            repo_url = f"https://github.com/{outcome.repo_full_name}"
             new_status = _determine_status(api_data)
-            if new_status == outcome.status:
-                continue
 
-            # Update the outcome
-            now = datetime.now(timezone.utc)
+            if new_status == outcome.status:
+                # Still open — check for unresponsive timeout
+                days_open = (now - outcome.submitted_at).days
+                if days_open >= _UNRESPONSIVE_DAYS:
+                    if not udb.is_blacklisted(repo_url):
+                        expiry = now + timedelta(days=_UNRESPONSIVE_EXPIRY_DAYS)
+                        udb.add_to_blacklist(
+                            repo_url=repo_url,
+                            reason=f"No response after {_UNRESPONSIVE_DAYS} days",
+                            source="unresponsive",
+                            expires_at=expiry,
+                        )
+                        logger.info("Auto-blacklisted (unresponsive): %s", repo_url)
+                continue
 
             if new_status == "merged":
                 merged_at = _parse_iso_datetime(api_data.get("merged_at"))
@@ -207,6 +228,12 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                 maintainer_fixed = _check_maintainer_fixed(owner, repo, pr_number)
                 if maintainer_fixed:
                     outcome.rejection_reason = "maintainer committed fix directly"
+                    udb.add_to_blacklist(
+                        repo_url=repo_url,
+                        reason="Maintainer took fix without merging our PR",
+                        source="fix_stolen",
+                    )
+                    logger.info("Auto-blacklisted (fix stolen): %s", repo_url)
 
             collector.record_pr_outcome(outcome)
             updated.append(outcome)
@@ -221,6 +248,7 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
 
     finally:
         collector.close()
+        udb.close()
 
 
 def _determine_status(api_data: dict) -> str:
