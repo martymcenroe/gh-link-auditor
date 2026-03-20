@@ -5,7 +5,6 @@ See LLD #22 §10.0 T230: State persistence verified.
 
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
 
@@ -19,6 +18,7 @@ from gh_link_auditor.pipeline.state import (
     load_state,
     persist_state,
 )
+from gh_link_auditor.unified_db import UnifiedDatabase
 
 
 class TestCreateInitialState:
@@ -112,67 +112,84 @@ class TestCreateInitialState:
 class TestPersistState:
     """Tests for persist_state()."""
 
-    def test_creates_state_file(self, tmp_path: Path) -> None:
+    def test_persists_to_database(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "state.db")
         state = create_initial_state(target="t", db_path=db_path)
         persist_state(state, "n0")
-        state_file = tmp_path / f"{state['run_id']}.json"
-        assert state_file.exists()
+        udb = UnifiedDatabase(db_path)
+        try:
+            record = udb.load_pipeline_run(state["run_id"])
+            assert record is not None
+        finally:
+            udb.close()
 
-    def test_state_file_contains_run_id(self, tmp_path: Path) -> None:
+    def test_database_contains_run_id(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "state.db")
         state = create_initial_state(target="t", db_path=db_path)
         persist_state(state, "n0")
-        state_file = tmp_path / f"{state['run_id']}.json"
-        data = json.loads(state_file.read_text())
-        assert data["run_id"] == state["run_id"]
+        udb = UnifiedDatabase(db_path)
+        try:
+            record = udb.load_pipeline_run(state["run_id"])
+            assert record is not None
+            assert record["run_id"] == state["run_id"]
+        finally:
+            udb.close()
 
-    def test_state_file_contains_last_node(self, tmp_path: Path) -> None:
+    def test_database_contains_last_node(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "state.db")
         state = create_initial_state(target="t", db_path=db_path)
         persist_state(state, "n1")
-        state_file = tmp_path / f"{state['run_id']}.json"
-        data = json.loads(state_file.read_text())
-        assert data["last_node"] == "n1"
+        udb = UnifiedDatabase(db_path)
+        try:
+            record = udb.load_pipeline_run(state["run_id"])
+            assert record is not None
+            assert record["last_node"] == "n1"
+        finally:
+            udb.close()
 
-    def test_state_file_contains_timestamp(self, tmp_path: Path) -> None:
-        db_path = str(tmp_path / "state.db")
-        state = create_initial_state(target="t", db_path=db_path)
-        persist_state(state, "n0")
-        state_file = tmp_path / f"{state['run_id']}.json"
-        data = json.loads(state_file.read_text())
-        assert "timestamp" in data
-
-    def test_state_file_contains_full_state(self, tmp_path: Path) -> None:
+    def test_database_contains_full_state(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "state.db")
         state = create_initial_state(target="https://github.com/a/b", db_path=db_path)
         persist_state(state, "n0")
-        state_file = tmp_path / f"{state['run_id']}.json"
-        data = json.loads(state_file.read_text())
-        assert data["state"]["target"] == "https://github.com/a/b"
+        udb = UnifiedDatabase(db_path)
+        try:
+            record = udb.load_pipeline_run(state["run_id"])
+            assert record is not None
+            import json
+
+            loaded = json.loads(record["state_json"])
+            assert loaded["target"] == "https://github.com/a/b"
+        finally:
+            udb.close()
 
     def test_creates_parent_directories(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "sub" / "dir" / "state.db")
         state = create_initial_state(target="t", db_path=db_path)
         persist_state(state, "n0")
-        state_file = tmp_path / "sub" / "dir" / f"{state['run_id']}.json"
-        assert state_file.exists()
+        assert Path(db_path).exists()
 
     def test_no_op_for_empty_db_path(self) -> None:
         state = create_initial_state(target="t")
         state["db_path"] = ""
         persist_state(state, "n0")  # Should not raise
 
-    def test_overwrites_on_subsequent_nodes(self, tmp_path: Path) -> None:
+    def test_updates_on_subsequent_nodes(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "state.db")
         state = create_initial_state(target="t", db_path=db_path)
         persist_state(state, "n0")
         state["scan_complete"] = True
         persist_state(state, "n1")
-        state_file = tmp_path / f"{state['run_id']}.json"
-        data = json.loads(state_file.read_text())
-        assert data["last_node"] == "n1"
-        assert data["state"]["scan_complete"] is True
+        udb = UnifiedDatabase(db_path)
+        try:
+            record = udb.load_pipeline_run(state["run_id"])
+            assert record is not None
+            assert record["last_node"] == "n1"
+            import json
+
+            loaded = json.loads(record["state_json"])
+            assert loaded["scan_complete"] is True
+        finally:
+            udb.close()
 
 
 class TestLoadState:
@@ -186,9 +203,21 @@ class TestLoadState:
         assert loaded is not None
         assert loaded["target"] == "https://github.com/a/b"
 
-    def test_returns_none_for_missing(self, tmp_path: Path) -> None:
-        db_path = str(tmp_path / "state.db")
+    def test_returns_none_for_missing_db_file(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "nonexistent.db")
         result = load_state("nonexistent-id", db_path)
+        assert result is None
+
+    def test_returns_none_for_missing_run_id(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "state.db")
+        # Create the DB by persisting one state
+        state = create_initial_state(target="t", db_path=db_path)
+        persist_state(state, "n0")
+        result = load_state("nonexistent-id", db_path)
+        assert result is None
+
+    def test_returns_none_for_empty_db_path(self) -> None:
+        result = load_state("some-id", "")
         assert result is None
 
     def test_preserves_all_fields(self, tmp_path: Path) -> None:

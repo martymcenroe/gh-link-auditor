@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
@@ -191,27 +190,35 @@ def create_initial_state(
 
 
 def persist_state(state: PipelineState, node_name: str) -> None:
-    """Persist current state to JSON file after node completion.
+    """Persist current state to database after node completion.
 
     Args:
         state: Current pipeline state.
         node_name: Name of the completed node.
     """
-    db_path = Path(state.get("db_path", ""))
-    if not db_path or str(db_path) == ".":
+    db_path = state.get("db_path", "")
+    if not db_path or db_path == ".":
         return
 
-    state_dir = db_path.parent
-    state_dir.mkdir(parents=True, exist_ok=True)
+    from gh_link_auditor.unified_db import UnifiedDatabase
 
-    state_file = state_dir / f"{state['run_id']}.json"
-    record = {
-        "run_id": state["run_id"],
-        "last_node": node_name,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "state": dict(state),
-    }
-    state_file.write_text(json.dumps(record, indent=2, default=str))
+    # Ensure parent dir exists for the database file
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+    state_json = json.dumps(dict(state), default=str)
+    target = state.get("target", "")
+    run_id = state.get("run_id", "")
+
+    udb = UnifiedDatabase(db_path)
+    try:
+        udb.save_pipeline_run(
+            run_id=run_id,
+            target=target,
+            last_node=node_name,
+            state_json=state_json,
+        )
+    finally:
+        udb.close()
 
 
 def load_state(run_id: str, db_path: str) -> PipelineState | None:
@@ -224,11 +231,23 @@ def load_state(run_id: str, db_path: str) -> PipelineState | None:
     Returns:
         Loaded PipelineState, or None if not found.
     """
-    state_dir = Path(db_path).parent
-    state_file = state_dir / f"{run_id}.json"
-
-    if not state_file.exists():
+    if not db_path or db_path == ".":
         return None
 
-    data = json.loads(state_file.read_text())
-    return data.get("state")
+    db_file = Path(db_path)
+    if not db_file.exists():
+        return None
+
+    from gh_link_auditor.unified_db import UnifiedDatabase
+
+    udb = UnifiedDatabase(db_path)
+    try:
+        record = udb.load_pipeline_run(run_id)
+        if record is None:
+            return None
+        state_json = record.get("state_json", "")
+        if not state_json:
+            return None
+        return json.loads(state_json)
+    finally:
+        udb.close()
