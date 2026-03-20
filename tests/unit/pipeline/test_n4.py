@@ -11,6 +11,7 @@ from unittest.mock import patch
 from gh_link_auditor.pipeline.nodes.n4_human_review import (
     _EXIT,
     _SKIP,
+    format_review_summary,
     format_verdict_for_review,
     n4_human_review,
     prompt_user_approval,
@@ -330,3 +331,49 @@ class TestN4HumanReview:
         state["verdicts"] = [_make_verdict(confidence=0.3)]
         result = n4_human_review(state)
         assert result["review_aborted"] is False
+
+
+class TestFormatReviewSummary:
+    """Tests for format_review_summary()."""
+
+    def test_empty_verdicts(self) -> None:
+        assert format_review_summary([], 0.8) == ""
+
+    def test_contains_total_count(self) -> None:
+        verdicts = [_make_verdict(url="https://a.com"), _make_verdict(url="https://b.com")]
+        output = format_review_summary(verdicts, 0.8)
+        assert "2 total" in output
+
+    def test_contains_urls(self) -> None:
+        verdicts = [_make_verdict(url="https://example.com/dead")]
+        output = format_review_summary(verdicts, 0.8)
+        assert "https://example.com/dead" in output
+
+    def test_marks_auto_approved(self) -> None:
+        verdicts = [_make_verdict(confidence=0.95)]
+        output = format_review_summary(verdicts, 0.8)
+        assert "(auto)" in output
+
+    def test_no_auto_for_low_confidence(self) -> None:
+        verdicts = [_make_verdict(confidence=0.3)]
+        output = format_review_summary(verdicts, 0.8)
+        assert "(auto)" not in output
+
+    def test_numbered_entries(self) -> None:
+        verdicts = [
+            _make_verdict(url="https://a.com"),
+            _make_verdict(url="https://b.com"),
+        ]
+        output = format_review_summary(verdicts, 0.8)
+        assert "1." in output
+        assert "2." in output
+
+    def test_shows_replacement(self) -> None:
+        verdicts = [_make_verdict(replacement="https://new.com")]
+        output = format_review_summary(verdicts, 0.8)
+        assert "https://new.com" in output
+
+    def test_shows_no_candidate(self) -> None:
+        verdicts = [_make_verdict(replacement=None)]
+        output = format_review_summary(verdicts, 0.8)
+        assert "no candidate" in output

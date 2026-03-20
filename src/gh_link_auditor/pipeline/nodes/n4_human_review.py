@@ -52,6 +52,38 @@ def format_verdict_for_review(verdict: Verdict, current: int = 0, total: int = 0
     return "\n".join(lines)
 
 
+def format_review_summary(verdicts: list[Verdict], threshold: float) -> str:
+    """Format a numbered summary of all verdicts before individual review.
+
+    Args:
+        verdicts: All verdicts to review.
+        threshold: Confidence threshold for auto-approval.
+
+    Returns:
+        Formatted summary string.
+    """
+    if not verdicts:
+        return ""
+
+    lines = [
+        "",
+        "=" * 50,
+        f"  Findings Summary ({len(verdicts)} total)",
+        "=" * 50,
+    ]
+    for i, verdict in enumerate(verdicts, start=1):
+        dl = verdict["dead_link"]
+        confidence = verdict.get("confidence", 0)
+        candidate = verdict.get("candidate")
+        auto = " (auto)" if confidence >= threshold else ""
+        replacement = candidate["url"] if candidate else "(no candidate)"
+        lines.append(f"  {i}. {dl['url']}")
+        lines.append(f"     {dl['source_file']}:{dl['line_number']}  {confidence:.0%}{auto}")
+        lines.append(f"     -> {replacement}")
+    lines.append("=" * 50)
+    return "\n".join(lines)
+
+
 def prompt_user_approval(verdict: Verdict) -> bool | str:
     """Interactive prompt for user to approve/reject/skip/exit.
 
@@ -96,6 +128,11 @@ def n4_human_review(state: PipelineState) -> PipelineState:
     reviewed: list[Verdict] = []
     exit_review = False
     total = len(verdicts)
+
+    # Show numbered summary before individual review
+    needs_review = not dry_run and any(v.get("confidence", 0) < threshold for v in verdicts)
+    if needs_review and verdicts:
+        print(format_review_summary(verdicts, threshold))
 
     for idx, verdict in enumerate(verdicts, start=1):
         confidence = verdict.get("confidence", 0)
