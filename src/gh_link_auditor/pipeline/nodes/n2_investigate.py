@@ -57,10 +57,14 @@ def investigate_dead_link(dead_link: DeadLink) -> list[ReplacementCandidate]:
 
     candidates: list[ReplacementCandidate] = []
     for cr in report.investigation.candidate_replacements:
+        method_str = cr.method.value if hasattr(cr.method, "value") else str(cr.method)
+        # Never suggest archive.org as a replacement (#115)
+        if method_str == "archive_only":
+            continue
         candidates.append(
             ReplacementCandidate(
                 url=cr.url,
-                source=cr.method.value if hasattr(cr.method, "value") else str(cr.method),
+                source=method_str,
                 title=report.investigation.archive_title,
                 snippet=report.investigation.archive_content_summary,
             )
