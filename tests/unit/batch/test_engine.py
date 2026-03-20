@@ -489,3 +489,152 @@ class TestConcurrency:
         )
         report5 = asyncio.run(run_batch(config5))
         assert report5.repos_succeeded == 3
+
+
+class TestBlacklistPreCheck:
+    """Tests for blacklist pre-check in _process_single_repo."""
+
+    def test_blacklisted_repo_skipped(self, tmp_path) -> None:
+        """Blacklisted repos get TaskStatus.SKIPPED immediately."""
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        # Create a DB with a blacklisted repo
+        db_path = tmp_path / "state.db"
+        udb = UnifiedDatabase(db_path)
+        udb.add_to_blacklist(repo_url="https://github.com/owner/blocked", reason="test")
+        udb.close()
+
+        task = RepoTask(
+            repo_full_name="owner/blocked",
+            clone_url="https://github.com/owner/blocked.git",
+        )
+        rl = AdaptiveRateLimiter()
+        config = BatchConfig(
+            target_list_path=Path("/dev/null"),
+            db_path=db_path,
+        )
+
+        result = asyncio.run(_process_single_repo(task, None, rl, config))
+
+        assert result.status == TaskStatus.SKIPPED
+        assert result.error_message == "blacklisted"
+        assert result.completed_at is not None
+
+    def test_non_blacklisted_repo_proceeds(self, tmp_path) -> None:
+        """Non-blacklisted repos proceed to normal processing."""
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        # Create a DB with no blacklisted repos
+        db_path = tmp_path / "state.db"
+        udb = UnifiedDatabase(db_path)
+        udb.close()
+
+        task = RepoTask(
+            repo_full_name="owner/allowed",
+            clone_url="https://github.com/owner/allowed.git",
+        )
+        rl = AdaptiveRateLimiter()
+        config = BatchConfig(
+            target_list_path=Path("/dev/null"),
+            db_path=db_path,
+            dry_run=True,
+        )
+
+        result = asyncio.run(_process_single_repo(task, None, rl, config))
+
+        assert result.status == TaskStatus.COMPLETED
+
+    def test_no_db_path_skips_check(self) -> None:
+        """When db_path is None, blacklist check is skipped entirely."""
+        task = RepoTask(
+            repo_full_name="owner/repo",
+            clone_url="https://github.com/owner/repo.git",
+        )
+        rl = AdaptiveRateLimiter()
+        config = BatchConfig(
+            target_list_path=Path("/dev/null"),
+            db_path=None,
+            dry_run=True,
+        )
+
+        result = asyncio.run(_process_single_repo(task, None, rl, config))
+
+        assert result.status == TaskStatus.COMPLETED
+
+    def test_nonexistent_db_path_skips_check(self, tmp_path) -> None:
+        """When db_path points to nonexistent file, blacklist check is skipped."""
+        task = RepoTask(
+            repo_full_name="owner/repo",
+            clone_url="https://github.com/owner/repo.git",
+        )
+        rl = AdaptiveRateLimiter()
+        config = BatchConfig(
+            target_list_path=Path("/dev/null"),
+            db_path=tmp_path / "nonexistent.db",
+            dry_run=True,
+        )
+
+        result = asyncio.run(_process_single_repo(task, None, rl, config))
+
+        assert result.status == TaskStatus.COMPLETED
+
+    def test_blacklisted_repo_not_counted_as_failure(self, tmp_path) -> None:
+        """Blacklisted repos in a batch run appear as skipped, not failed."""
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "state.db"
+        udb = UnifiedDatabase(db_path)
+        udb.add_to_blacklist(repo_url="https://github.com/owner/repo1", reason="spam")
+        udb.close()
+
+        targets = [
+            {"full_name": "owner/repo0"},
+            {"full_name": "owner/repo1"},
+            {"full_name": "owner/repo2"},
+        ]
+        target_file = tmp_path / "targets.json"
+        target_file.write_text(json.dumps(targets))
+
+        config = BatchConfig(
+            target_list_path=target_file,
+            concurrency=1,
+            clone_dir=tmp_path / "clones",
+            db_path=db_path,
+        )
+        report = asyncio.run(run_batch(config))
+
+        # 3 scanned, 2 succeeded (repo0 + repo2), 1 skipped (repo1), 0 failed
+        assert report.repos_scanned == 3
+        assert report.repos_succeeded == 2
+        assert report.repos_failed == 0
+
+    def test_db_path_serialized_in_checkpoint(self, tmp_path) -> None:
+        """db_path round-trips through checkpoint serialization."""
+        db_path = tmp_path / "state.db"
+        state = BatchState(batch_id="bl-test")
+        state.config = BatchConfig(
+            target_list_path=tmp_path / "t.json",
+            db_path=db_path,
+        )
+
+        data = _serialize_state(state)
+        assert data["config"]["db_path"] == str(db_path)
+
+        loaded = _deserialize_state(data)
+        assert loaded.config is not None
+        assert loaded.config.db_path == db_path
+
+    def test_db_path_none_serialized_as_null(self, tmp_path) -> None:
+        """db_path=None serializes as null and deserializes back to None."""
+        state = BatchState(batch_id="bl-test-none")
+        state.config = BatchConfig(
+            target_list_path=tmp_path / "t.json",
+            db_path=None,
+        )
+
+        data = _serialize_state(state)
+        assert data["config"]["db_path"] is None
+
+        loaded = _deserialize_state(data)
+        assert loaded.config is not None
+        assert loaded.config.db_path is None

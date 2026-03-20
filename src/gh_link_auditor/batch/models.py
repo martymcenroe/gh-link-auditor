@@ -42,6 +42,7 @@ class BatchConfig:
     max_disk_gb: float = 10.0
     token_file: Path | None = None
     resume_from: Path | None = None
+    db_path: Path | None = None
 
 
 @dataclass
