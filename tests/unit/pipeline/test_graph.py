@@ -11,6 +11,8 @@ from gh_link_auditor.pipeline.graph import (
     _after_judge_router,
     _after_n4_router,
     _after_n5_router,
+    _after_pr_preview_router,
+    _pr_preview_gate,
     build_pipeline_graph,
     run_pipeline,
     should_route_to_human_review,
@@ -154,7 +156,45 @@ class TestAfterN5Router:
         state = create_initial_state(target="https://github.com/org/repo")
         state["target_type"] = "url"
         state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
-        assert _after_n5_router(state) == "n6_submit_pr"
+        assert _after_n5_router(state) == "pr_preview_gate"
+
+
+class TestPrPreviewGate:
+    """Tests for _pr_preview_gate() and _after_pr_preview_router()."""
+
+    def test_no_fixes_sets_not_approved(self) -> None:
+        state = create_initial_state(target="t")
+        state["fixes"] = []
+        result = _pr_preview_gate(state)
+        assert result["pr_preview_approved"] is False
+
+    def test_user_approves(self) -> None:
+        state = create_initial_state(target="t")
+        state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
+        with patch("builtins.input", return_value="y"):
+            result = _pr_preview_gate(state)
+        assert result["pr_preview_approved"] is True
+
+    def test_user_rejects(self) -> None:
+        state = create_initial_state(target="t")
+        state["fixes"] = [{"source_file": "a.md", "original_url": "x", "replacement_url": "y", "unified_diff": "d"}]
+        with patch("builtins.input", return_value="n"):
+            result = _pr_preview_gate(state)
+        assert result["pr_preview_approved"] is False
+
+    def test_router_approved(self) -> None:
+        state = create_initial_state(target="t")
+        state["pr_preview_approved"] = True
+        assert _after_pr_preview_router(state) == "n6_submit_pr"
+
+    def test_router_not_approved(self) -> None:
+        state = create_initial_state(target="t")
+        state["pr_preview_approved"] = False
+        assert _after_pr_preview_router(state) == "__end__"
+
+    def test_router_missing_flag(self) -> None:
+        state = create_initial_state(target="t")
+        assert _after_pr_preview_router(state) == "__end__"
 
 
 class TestBuildPipelineGraph:
