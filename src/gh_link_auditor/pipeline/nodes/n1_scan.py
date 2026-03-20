@@ -17,7 +17,36 @@ from gh_link_auditor.false_positives import is_api_test_endpoint, is_false_posit
 from gh_link_auditor.network import check_url as network_check_url
 from gh_link_auditor.pipeline.state import DeadLink, PipelineState
 
-_URL_RE = re.compile(r"https?://[^\s\)>\"\]`]+")
+_URL_RE = re.compile(r"https?://[^\s>\"\]`]+")
+
+_TRAIL_CHARS = set(".,;:!?'\"`")
+
+
+def _clean_url_tail(raw: str) -> str:
+    """Strip trailing punctuation while preserving balanced parentheses.
+
+    Wikipedia URLs like https://en.wikipedia.org/wiki/Foo_(bar) must
+    keep their trailing paren if it matches an opening paren inside the URL.
+    """
+    # First, strip obvious trailing punctuation (not parens)
+    while raw and raw[-1] in _TRAIL_CHARS:
+        raw = raw[:-1]
+
+    # Now handle trailing parens with balance counting
+    while raw and raw[-1] == ")":
+        # Count open and close parens in the URL
+        opens = raw.count("(")
+        closes = raw.count(")")
+        if closes > opens:
+            raw = raw[:-1]
+        else:
+            break
+
+    # Final cleanup of any remaining trailing punctuation
+    while raw and raw[-1] in _TRAIL_CHARS:
+        raw = raw[:-1]
+
+    return raw
 
 
 def _read_file_content(
@@ -85,7 +114,7 @@ def _extract_urls_from_file(
 
     for line_num, line in enumerate(text.splitlines(), start=1):
         for match in _URL_RE.finditer(line):
-            url = match.group(0).rstrip(".,;:!?)'\"`")
+            url = _clean_url_tail(match.group(0))
             results.append((url, line_num, url))
 
     return results
