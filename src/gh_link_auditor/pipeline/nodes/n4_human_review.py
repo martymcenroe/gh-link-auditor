@@ -2,16 +2,22 @@
 
 Terminal-based human-in-the-loop review for low-confidence verdicts.
 
-See LLD #22 §2.4 for n4_human_review specification.
+See LLD #22 section 2.4 for n4_human_review specification.
+Updated in #148 with snooze key binding.
 """
 
 from __future__ import annotations
 
+import logging
+
 from gh_link_auditor.pipeline.state import PipelineState, Verdict
+
+logger = logging.getLogger(__name__)
 
 # Sentinel to signal "exit review, reject all remaining"
 _EXIT = "exit"
 _SKIP = "skip"
+_SNOOZE = "snooze"
 
 
 def format_verdict_for_review(verdict: Verdict, current: int = 0, total: int = 0) -> str:
@@ -85,28 +91,73 @@ def format_review_summary(verdicts: list[Verdict], threshold: float) -> str:
 
 
 def prompt_user_approval(verdict: Verdict) -> bool | str:
-    """Interactive prompt for user to approve/reject/skip/exit.
+    """Interactive prompt for user to approve/reject/skip/snooze/exit.
 
     Args:
         verdict: Verdict to review.
 
     Returns:
-        True if approved, False if rejected, "skip" to skip, "exit" to abort.
+        True if approved, False if rejected, "skip" to skip,
+        "snooze" to snooze for recheck, "exit" to abort.
 
     Raises:
         KeyboardInterrupt: If user presses Ctrl+C (aborts pipeline).
     """
-    response = input("[a]pprove / [r]eject / [s]kip / e[x]it: ").strip().lower()
+    response = input("[a]pprove / [r]eject / [s]kip / snoo[z]e / e[x]it: ").strip().lower()
 
     if response in ("a", "approve", "y", "yes"):
         return True
     if response in ("s", "skip"):
         return _SKIP
+    if response in ("z", "snooze"):
+        return _SNOOZE
     if response in ("x", "exit", "q", "quit"):
         return _EXIT
 
-    # "r", "reject", "n", "no", or anything else → reject
+    # "r", "reject", "n", "no", or anything else -> reject
     return False
+
+
+def _snooze_to_db(state: PipelineState, verdict: Verdict) -> None:
+    """Write a snoozed finding to the recheck queue.
+
+    Opens UnifiedDatabase using state["db_path"], writes the snooze entry,
+    then closes the connection. Logs and continues on error.
+
+    Args:
+        state: Current pipeline state (needs db_path, repo_owner, repo_name_short).
+        verdict: The verdict being snoozed.
+    """
+    try:
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = state.get("db_path", "")
+        if not db_path:
+            logger.warning("No db_path in state; cannot snooze to recheck queue")
+            return
+
+        repo_owner = state.get("repo_owner", "")
+        repo_name_short = state.get("repo_name_short", "")
+        if repo_owner and repo_name_short:
+            repo_full_name = f"{repo_owner}/{repo_name_short}"
+        else:
+            repo_full_name = state.get("target", "")
+
+        dead_link = verdict["dead_link"]
+        url = dead_link["url"]
+        source_file = dead_link["source_file"]
+
+        with UnifiedDatabase(db_path) as db:
+            entry_id = db.snooze_finding(
+                url=url,
+                repo_full_name=repo_full_name,
+                source_file=source_file,
+                snooze_days=7,
+                reason="Snoozed during HITL review",
+            )
+            logger.info("Snoozed %s to recheck queue (entry %d)", url, entry_id)
+    except Exception:
+        logger.exception("Failed to write snooze to recheck queue")
 
 
 def n4_human_review(state: PipelineState) -> PipelineState:
@@ -143,7 +194,7 @@ def n4_human_review(state: PipelineState) -> PipelineState:
             updated["approved"] = True
             reviewed.append(updated)  # type: ignore[arg-type]
         elif exit_review:
-            # User chose exit — reject all remaining
+            # User chose exit -- reject all remaining
             updated = dict(verdict)
             updated["approved"] = False
             reviewed.append(updated)  # type: ignore[arg-type]
@@ -161,6 +212,12 @@ def n4_human_review(state: PipelineState) -> PipelineState:
                 updated = dict(verdict)
                 updated["approved"] = False
                 reviewed.append(updated)  # type: ignore[arg-type]
+            elif result is _SNOOZE:
+                # Snooze: mark as not-approved, write to recheck queue
+                updated = dict(verdict)
+                updated["approved"] = False
+                reviewed.append(updated)  # type: ignore[arg-type]
+                _snooze_to_db(state, verdict)
             else:
                 updated = dict(verdict)
                 updated["approved"] = bool(result)
