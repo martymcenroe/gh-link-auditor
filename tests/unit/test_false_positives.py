@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from gh_link_auditor.false_positives import (
     is_api_test_endpoint,
+    is_auth_wall,
     is_bot_blocked,
     is_false_positive,
     is_github_auth_required,
@@ -124,6 +125,28 @@ class TestIsBotBlocked:
 
     def test_investopedia_403(self) -> None:
         assert is_bot_blocked("https://www.investopedia.com/", 403) is True
+
+
+class TestIsAuthWall:
+    """Tests for is_auth_wall()."""
+
+    def test_401_is_auth_wall(self) -> None:
+        assert is_auth_wall(401) is True
+
+    def test_402_is_auth_wall(self) -> None:
+        assert is_auth_wall(402) is True
+
+    def test_403_not_auth_wall(self) -> None:
+        assert is_auth_wall(403) is False
+
+    def test_404_not_auth_wall(self) -> None:
+        assert is_auth_wall(404) is False
+
+    def test_200_not_auth_wall(self) -> None:
+        assert is_auth_wall(200) is False
+
+    def test_none_not_auth_wall(self) -> None:
+        assert is_auth_wall(None) is False
 
 
 class TestIsApiTestEndpoint:
@@ -263,6 +286,12 @@ class TestIsFalsePositive:
 
     def test_github_auth_required(self) -> None:
         assert is_false_positive("https://github.com/org/repo/issues/new", http_status=404) is True
+
+    def test_401_auth_wall(self) -> None:
+        assert is_false_positive("https://any-site.com/protected", http_status=401) is True
+
+    def test_402_paywall(self) -> None:
+        assert is_false_positive("https://journal.com/article", http_status=402) is True
 
     def test_wikimedia_429(self) -> None:
         assert is_false_positive("https://upload.wikimedia.org/image.png", http_status=429) is True

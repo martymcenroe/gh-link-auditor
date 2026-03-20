@@ -198,6 +198,21 @@ def is_github_auth_required(url: str, http_status: int | None) -> bool:
     return bool(_GITHUB_AUTH_PATHS.match(url))
 
 
+def is_auth_wall(http_status: int | None) -> bool:
+    """Check if an HTTP status indicates an authentication wall.
+
+    401 (Unauthorized) and 402 (Payment Required) mean the content
+    exists behind a login or paywall — not a dead link.
+
+    Args:
+        http_status: HTTP status code.
+
+    Returns:
+        True if the status indicates an auth wall.
+    """
+    return http_status in (401, 402)
+
+
 def is_false_positive(url: str, http_status: int | None = None) -> bool:
     """Master check: is this URL a known false positive?
 
@@ -218,6 +233,8 @@ def is_false_positive(url: str, http_status: int | None = None) -> bool:
         return True
 
     if http_status is not None:
+        if is_auth_wall(http_status):
+            return True
         if is_bot_blocked(url, http_status):
             return True
         if is_github_issue_404(url, http_status):
