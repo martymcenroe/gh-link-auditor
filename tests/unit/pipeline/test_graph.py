@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from gh_link_auditor.pipeline.graph import (
     _after_judge_router,
+    _after_n4_router,
     _after_n5_router,
     build_pipeline_graph,
     run_pipeline,
@@ -108,6 +109,24 @@ class TestAfterJudgeRouter:
         state["verdicts"] = [_make_verdict()]
         result = _after_judge_router(state)
         assert result == "n4_human_review"
+
+
+class TestAfterN4Router:
+    """Tests for _after_n4_router() — abort check after human review."""
+
+    def test_returns_end_when_aborted(self) -> None:
+        state = create_initial_state(target="t")
+        state["review_aborted"] = True
+        assert _after_n4_router(state) == "__end__"
+
+    def test_routes_to_n5_when_not_aborted(self) -> None:
+        state = create_initial_state(target="t")
+        state["review_aborted"] = False
+        assert _after_n4_router(state) == "n5_generate_fix"
+
+    def test_routes_to_n5_when_flag_missing(self) -> None:
+        state = create_initial_state(target="t")
+        assert _after_n4_router(state) == "n5_generate_fix"
 
 
 class TestAfterN5Router:

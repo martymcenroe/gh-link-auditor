@@ -260,3 +260,39 @@ class TestN4HumanReview:
         assert a[0]["approved"] is True
         assert b[0]["approved"] is False
         assert c[0]["approved"] is False
+
+    def test_review_aborted_set_on_exit(self) -> None:
+        """Exit sets review_aborted flag in state."""
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3)]
+        with patch(
+            "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+            return_value=_EXIT,
+        ):
+            result = n4_human_review(state)
+        assert result["review_aborted"] is True
+
+    def test_review_aborted_false_without_exit(self) -> None:
+        """Normal completion does not set review_aborted."""
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3)]
+        with patch(
+            "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+            return_value=True,
+        ):
+            result = n4_human_review(state)
+        assert result["review_aborted"] is False
+
+    def test_review_aborted_false_on_auto_approve(self) -> None:
+        """High-confidence auto-approve does not set review_aborted."""
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.95)]
+        result = n4_human_review(state)
+        assert result["review_aborted"] is False
+
+    def test_review_aborted_false_in_dry_run(self) -> None:
+        """Dry run does not set review_aborted."""
+        state = create_initial_state(target="t", dry_run=True)
+        state["verdicts"] = [_make_verdict(confidence=0.3)]
+        result = n4_human_review(state)
+        assert result["review_aborted"] is False

@@ -105,6 +105,7 @@ class PipelineState(TypedDict, total=False):
 
     # N4 Output
     reviewed_verdicts: list[Verdict]
+    review_aborted: bool
 
     # N5 Output
     fixes: list[FixPatch]

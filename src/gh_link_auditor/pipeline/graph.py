@@ -94,6 +94,13 @@ def _after_judge_router(state: PipelineState) -> str:
     return "n4_human_review"
 
 
+def _after_n4_router(state: PipelineState) -> str:
+    """Route after N4: abort pipeline if user chose exit."""
+    if state.get("review_aborted", False):
+        return END
+    return "n5_generate_fix"
+
+
 def _after_n5_router(state: PipelineState) -> str:
     """Route after N5: submit PR or end.
 
@@ -136,7 +143,7 @@ def build_pipeline_graph():
     graph.add_conditional_edges("circuit_breaker_check", _after_circuit_breaker_router)
     graph.add_edge("n2_investigate", "n3_judge")
     graph.add_conditional_edges("n3_judge", _after_judge_router)
-    graph.add_edge("n4_human_review", "n5_generate_fix")
+    graph.add_conditional_edges("n4_human_review", _after_n4_router)
     graph.add_conditional_edges("n5_generate_fix", _after_n5_router)
     graph.add_edge("n6_submit_pr", END)
 

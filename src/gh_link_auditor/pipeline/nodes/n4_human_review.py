@@ -124,4 +124,5 @@ def n4_human_review(state: PipelineState) -> PipelineState:
                 reviewed.append(updated)  # type: ignore[arg-type]
 
     state["reviewed_verdicts"] = reviewed
+    state["review_aborted"] = exit_review
     return state
