@@ -124,6 +124,99 @@ class TestExtractUrlsFromFile:
         assert results[0][0] == "https://en.wikipedia.org/wiki/A_(B_(C))"
 
 
+class TestCodeBlockSkipping:
+    """Tests for skipping URLs inside code blocks (#116)."""
+
+    def test_skips_url_in_fenced_backtick_block(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("# Heading\n```\ncurl https://example.com/api/v1\n```\n")
+        results = _extract_urls_from_file(str(md))
+        assert results == []
+
+    def test_skips_url_in_fenced_tilde_block(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("# Heading\n~~~\nwget https://example.com/download\n~~~\n")
+        results = _extract_urls_from_file(str(md))
+        assert results == []
+
+    def test_skips_url_in_fenced_block_with_language(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("```bash\ncurl https://api.example.com/health\n```\n")
+        results = _extract_urls_from_file(str(md))
+        assert results == []
+
+    def test_skips_url_in_indented_code_block(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("Example usage:\n\n    curl https://example.com/api\n\nThat was an example.\n")
+        results = _extract_urls_from_file(str(md))
+        assert results == []
+
+    def test_skips_url_in_tab_indented_code_block(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("Example:\n\n\tcurl https://example.com/endpoint\n\n")
+        results = _extract_urls_from_file(str(md))
+        assert results == []
+
+    def test_extracts_url_outside_code_block(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text(
+            "Visit https://example.com/real-link for details.\n```\ncurl https://example.com/code-example\n```\n"
+        )
+        results = _extract_urls_from_file(str(md))
+        assert len(results) == 1
+        assert results[0][0] == "https://example.com/real-link"
+
+    def test_multiple_code_blocks(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text(
+            "Real: https://example.com/link1\n"
+            "```\n"
+            "https://example.com/code1\n"
+            "```\n"
+            "Also real: https://example.com/link2\n"
+            "```python\n"
+            "requests.get('https://example.com/code2')\n"
+            "```\n"
+        )
+        results = _extract_urls_from_file(str(md))
+        urls = [r[0] for r in results]
+        assert "https://example.com/link1" in urls
+        assert "https://example.com/link2" in urls
+        assert "https://example.com/code1" not in urls
+        assert "https://example.com/code2" not in urls
+
+    def test_longer_fence_closes_shorter(self, tmp_path: Path) -> None:
+        """A ````(4) fence can be closed by ````(4+) but not ```(3)."""
+        md = tmp_path / "test.md"
+        md.write_text(
+            "````\n"
+            "https://example.com/inside\n"
+            "```\n"
+            "https://example.com/still-inside\n"
+            "````\n"
+            "https://example.com/outside\n"
+        )
+        results = _extract_urls_from_file(str(md))
+        urls = [r[0] for r in results]
+        assert urls == ["https://example.com/outside"]
+
+    def test_tilde_fence_not_closed_by_backtick(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text(
+            "~~~\nhttps://example.com/inside\n```\nhttps://example.com/still-inside\n~~~\nhttps://example.com/outside\n"
+        )
+        results = _extract_urls_from_file(str(md))
+        urls = [r[0] for r in results]
+        assert urls == ["https://example.com/outside"]
+
+    def test_fence_on_line_is_itself_skipped(self, tmp_path: Path) -> None:
+        """URLs on the fence line itself (e.g. ```https://...) are skipped."""
+        md = tmp_path / "test.md"
+        md.write_text("```https://example.com/on-fence\nhttps://example.com/inside\n```\n")
+        results = _extract_urls_from_file(str(md))
+        assert results == []
+
+
 class TestCleanUrlTail:
     """Tests for _clean_url_tail() balanced paren logic."""
 
