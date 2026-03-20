@@ -10,14 +10,12 @@ import json
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 
 from gh_link_auditor.metrics.models import PROutcome, RunReport
 from gh_link_auditor.models import BlacklistEntry, InteractionRecord, InteractionStatus
 from gh_link_auditor.unified_db import SCHEMA_VERSION, UnifiedDatabase
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -225,7 +223,7 @@ class TestInteractions:
         assert record.maintainer == "alice"
 
     def test_record_minimal(self, db):
-        rid = db.record_interaction(
+        db.record_interaction(
             repo_url="https://github.com/o/r",
             broken_url="https://example.com/dead",
             status=InteractionStatus.SUBMITTED,
