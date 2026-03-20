@@ -11,15 +11,28 @@ See LLD #20 §2.4 for API specification.
 from __future__ import annotations
 
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import TypedDict
 
+from gh_link_auditor.network import BackoffConfig, calculate_backoff_delay, create_backoff_config
 from src.logging_config import setup_logging
 
 logger = setup_logging("archive_client")
 
 CDX_API_URL = "https://web.archive.org/cdx/search/cdx"
+
+# HTTP status codes that trigger CDX retry
+_CDX_RETRY_CODES: frozenset[int] = frozenset({429, 503})
+
+# Default backoff for CDX requests: 2 retries, 1s base, low jitter
+_DEFAULT_CDX_BACKOFF: BackoffConfig = create_backoff_config(
+    base_delay=1.0,
+    max_delay=30.0,
+    max_retries=2,
+    jitter_range=0.5,
+)
 
 
 class CDXResponse(TypedDict):
@@ -39,35 +52,94 @@ class CDXResponse(TypedDict):
 # ---------------------------------------------------------------------------
 
 
-def _cdx_request(url: str) -> str:
-    """Make a raw HTTP request to the CDX API.
+def _cdx_request(url: str, backoff: BackoffConfig | None = None) -> str:
+    """Make a raw HTTP request to the CDX API with retry on 429/503.
 
     Args:
         url: Full CDX API query URL.
+        backoff: Optional backoff configuration. Uses ``_DEFAULT_CDX_BACKOFF``
+            when *None*.
 
     Returns:
         Response body as string.
+
+    Raises:
+        urllib.error.HTTPError: Re-raised after retries are exhausted.
+        Exception: Any non-retryable error is raised immediately.
     """
-    req = urllib.request.Request(url, headers={"User-Agent": "gh-link-auditor/1.0"})
-    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-        return resp.read().decode("utf-8")
+    cfg = backoff or _DEFAULT_CDX_BACKOFF
+    last_exc: Exception | None = None
+
+    for attempt in range(cfg["max_retries"] + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "gh-link-auditor/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+                return resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _CDX_RETRY_CODES:
+                raise
+            last_exc = exc
+            if attempt < cfg["max_retries"]:
+                delay = calculate_backoff_delay(attempt, cfg)
+                logger.info(
+                    "CDX %d for %s — retry %d/%d in %.1fs",
+                    exc.code,
+                    url,
+                    attempt + 1,
+                    cfg["max_retries"],
+                    delay,
+                )
+                time.sleep(delay)
+
+    # Exhausted retries — re-raise the last error
+    raise last_exc  # type: ignore[misc]
 
 
-def _fetch_url_content(url: str) -> str | None:
-    """Fetch URL content as a string.
+def _fetch_url_content(url: str, backoff: BackoffConfig | None = None) -> str | None:
+    """Fetch URL content as a string with retry on 429/503.
 
     Args:
         url: URL to fetch.
+        backoff: Optional backoff configuration. Uses ``_DEFAULT_CDX_BACKOFF``
+            when *None*.
 
     Returns:
         Response body string, or None on failure.
     """
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "gh-link-auditor/1.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-            return resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, OSError):
-        return None
+    cfg = backoff or _DEFAULT_CDX_BACKOFF
+    last_exc: Exception | None = None
+
+    for attempt in range(cfg["max_retries"] + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "gh-link-auditor/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _CDX_RETRY_CODES:
+                return None
+            last_exc = exc
+            if attempt < cfg["max_retries"]:
+                delay = calculate_backoff_delay(attempt, cfg)
+                logger.info(
+                    "Fetch %d for %s — retry %d/%d in %.1fs",
+                    exc.code,
+                    url,
+                    attempt + 1,
+                    cfg["max_retries"],
+                    delay,
+                )
+                time.sleep(delay)
+        except (urllib.error.URLError, OSError):
+            return None
+
+    # Exhausted retries — return None (non-fatal for content fetch)
+    logger.warning(
+        "Fetch exhausted %d retries for %s (last: %s)",
+        cfg["max_retries"],
+        url,
+        last_exc,
+    )
+    return None
 
 
 # ---------------------------------------------------------------------------
