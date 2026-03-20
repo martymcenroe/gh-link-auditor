@@ -117,6 +117,68 @@ class TestInvestigateDeadLink:
             candidates = investigate_dead_link(_make_dead_link())
         assert candidates == []
 
+    def test_filters_archive_only_candidates(self) -> None:
+        """ARCHIVE_ONLY candidates must be filtered out (#115)."""
+        report = ForensicReport(
+            dead_url="https://example.com/gone",
+            http_status=404,
+            investigation=Investigation(
+                archive_snapshot="https://web.archive.org/web/2024/https://example.com/gone",
+                archive_title="Gone Page",
+                archive_content_summary="Old content",
+                candidate_replacements=[
+                    CandidateReplacement(
+                        url="https://example.com/new-page",
+                        method=InvestigationMethod.REDIRECT_CHAIN,
+                        similarity_score=0.9,
+                        verified_live=True,
+                    ),
+                    CandidateReplacement(
+                        url="https://web.archive.org/web/2024/https://example.com/gone",
+                        method=InvestigationMethod.ARCHIVE_ONLY,
+                        similarity_score=0.0,
+                        verified_live=False,
+                    ),
+                ],
+                investigation_log=["test"],
+            ),
+        )
+        with patch(
+            "gh_link_auditor.pipeline.nodes.n2_investigate._run_investigation",
+            return_value=report,
+        ):
+            candidates = investigate_dead_link(_make_dead_link("https://example.com/gone"))
+        assert len(candidates) == 1
+        assert candidates[0]["url"] == "https://example.com/new-page"
+        assert all("archive_only" not in c["source"] for c in candidates)
+
+    def test_filters_all_archive_only_returns_empty(self) -> None:
+        """If only ARCHIVE_ONLY candidates exist, result is empty."""
+        report = ForensicReport(
+            dead_url="https://example.com/gone",
+            http_status=404,
+            investigation=Investigation(
+                archive_snapshot="https://web.archive.org/web/2024/https://example.com/gone",
+                archive_title="Gone Page",
+                archive_content_summary=None,
+                candidate_replacements=[
+                    CandidateReplacement(
+                        url="https://web.archive.org/web/2024/https://example.com/gone",
+                        method=InvestigationMethod.ARCHIVE_ONLY,
+                        similarity_score=0.0,
+                        verified_live=False,
+                    ),
+                ],
+                investigation_log=["test"],
+            ),
+        )
+        with patch(
+            "gh_link_auditor.pipeline.nodes.n2_investigate._run_investigation",
+            return_value=report,
+        ):
+            candidates = investigate_dead_link(_make_dead_link("https://example.com/gone"))
+        assert candidates == []
+
 
 class TestN2Investigate:
     """Tests for n2_investigate() node function."""
