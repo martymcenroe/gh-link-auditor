@@ -1,7 +1,8 @@
 """Tests for N4 Human Review node.
 
-See LLD #22 §10.0 T140/T150/T240/T250: HITL routing and input.
+See LLD #22 section 10.0 T140/T150/T240/T250: HITL routing and input.
 Updated in Issue #101 for exit/skip options.
+Updated in Issue #148 for snooze key binding.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from unittest.mock import patch
 from gh_link_auditor.pipeline.nodes.n4_human_review import (
     _EXIT,
     _SKIP,
+    _SNOOZE,
     format_review_summary,
     format_verdict_for_review,
     n4_human_review,
@@ -191,6 +193,28 @@ class TestPromptUserApproval:
             except KeyboardInterrupt:
                 pass  # Expected
 
+    def test_snooze_with_z(self) -> None:
+        """'z' input returns _SNOOZE sentinel."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="z"):
+            result = prompt_user_approval(verdict)
+        assert result is _SNOOZE
+
+    def test_snooze_with_snooze(self) -> None:
+        """'snooze' input returns _SNOOZE sentinel."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="snooze"):
+            result = prompt_user_approval(verdict)
+        assert result is _SNOOZE
+
+    def test_prompt_text_includes_snooze(self) -> None:
+        """Prompt text should mention snooze option."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="a") as mock_input:
+            prompt_user_approval(verdict)
+        prompt_text = mock_input.call_args[0][0]
+        assert "snoo[z]e" in prompt_text
+
 
 class TestN4HumanReview:
     """Tests for n4_human_review() node function."""
@@ -277,7 +301,7 @@ class TestN4HumanReview:
         assert b[0]["approved"] is True
 
     def test_exit_after_approve_preserves_earlier(self) -> None:
-        """Approve first, exit second — first stays approved."""
+        """Approve first, exit second -- first stays approved."""
         state = create_initial_state(target="t", confidence_threshold=0.8)
         state["verdicts"] = [
             _make_verdict(confidence=0.3, url="https://a.com"),
@@ -331,6 +355,155 @@ class TestN4HumanReview:
         state["verdicts"] = [_make_verdict(confidence=0.3)]
         result = n4_human_review(state)
         assert result["review_aborted"] is False
+
+    def test_snooze_marks_not_approved(self) -> None:
+        """Snooze should mark verdict as not-approved."""
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3)]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_SNOOZE,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review._snooze_to_db",
+            ) as mock_snooze,
+        ):
+            result = n4_human_review(state)
+        assert len(result["reviewed_verdicts"]) == 1
+        assert result["reviewed_verdicts"][0]["approved"] is False
+        mock_snooze.assert_called_once()
+
+    def test_snooze_calls_snooze_to_db(self) -> None:
+        """Snooze should call _snooze_to_db with state and verdict."""
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        verdict = _make_verdict(confidence=0.3, url="https://dead.com/link")
+        state["verdicts"] = [verdict]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_SNOOZE,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review._snooze_to_db",
+            ) as mock_snooze,
+        ):
+            n4_human_review(state)
+        args = mock_snooze.call_args
+        assert args[0][0] is state  # first arg is state
+        # Second arg is the verdict dict passed
+        assert args[0][1]["dead_link"]["url"] == "https://dead.com/link"
+
+    def test_snooze_continues_to_next_verdict(self) -> None:
+        """Snooze one, approve next -- both get processed."""
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [
+            _make_verdict(confidence=0.3, url="https://a.com"),
+            _make_verdict(confidence=0.3, url="https://b.com"),
+        ]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                side_effect=[_SNOOZE, True],
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review._snooze_to_db",
+            ),
+        ):
+            result = n4_human_review(state)
+        a = [v for v in result["reviewed_verdicts"] if v["dead_link"]["url"] == "https://a.com"]
+        b = [v for v in result["reviewed_verdicts"] if v["dead_link"]["url"] == "https://b.com"]
+        assert a[0]["approved"] is False
+        assert b[0]["approved"] is True
+
+    def test_snooze_does_not_set_review_aborted(self) -> None:
+        """Snooze should not set review_aborted flag."""
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3)]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_SNOOZE,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review._snooze_to_db",
+            ),
+        ):
+            result = n4_human_review(state)
+        assert result["review_aborted"] is False
+
+
+class TestSnoozeToDb:
+    """Tests for _snooze_to_db() helper."""
+
+    def test_writes_to_recheck_queue(self, tmp_path) -> None:
+        """Snooze should write entry to recheck queue via UnifiedDatabase."""
+        from gh_link_auditor.pipeline.nodes.n4_human_review import _snooze_to_db
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = str(tmp_path / "test.db")
+        with UnifiedDatabase(db_path):
+            pass  # Create the DB
+
+        state = create_initial_state(target="https://github.com/org/repo", db_path=db_path)
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+
+        verdict = _make_verdict(url="https://example.com/dead")
+
+        _snooze_to_db(state, verdict)
+
+        # Verify entry was written
+        with UnifiedDatabase(db_path) as db:
+            rows = db._conn.execute("SELECT * FROM recheck_queue").fetchall()
+            assert len(rows) == 1
+            assert rows[0]["url"] == "https://example.com/dead"
+            assert rows[0]["repo_full_name"] == "org/repo"
+            assert rows[0]["source_file"] == "README.md"
+            assert rows[0]["last_status"] == "snoozed"
+
+    def test_handles_missing_db_path(self) -> None:
+        """No db_path should log warning, not crash."""
+        from gh_link_auditor.pipeline.nodes.n4_human_review import _snooze_to_db
+
+        state = create_initial_state(target="t")
+        state["db_path"] = ""
+        verdict = _make_verdict()
+
+        # Should not raise
+        _snooze_to_db(state, verdict)
+
+    def test_handles_db_error_gracefully(self, tmp_path) -> None:
+        """DB errors should be caught and logged, not propagated."""
+        from gh_link_auditor.pipeline.nodes.n4_human_review import _snooze_to_db
+
+        state = create_initial_state(target="t", db_path=str(tmp_path / "nonexistent" / "deep" / "test.db"))
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+        verdict = _make_verdict()
+
+        # Should not raise even with bad path (UnifiedDatabase creates parent dirs)
+        _snooze_to_db(state, verdict)
+
+    def test_uses_target_when_no_repo_parts(self, tmp_path) -> None:
+        """Falls back to target when repo_owner/repo_name_short are empty."""
+        from gh_link_auditor.pipeline.nodes.n4_human_review import _snooze_to_db
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = str(tmp_path / "test.db")
+        with UnifiedDatabase(db_path):
+            pass
+
+        state = create_initial_state(target="https://github.com/some/repo", db_path=db_path)
+        # repo_owner and repo_name_short are empty strings from create_initial_state
+        verdict = _make_verdict()
+
+        _snooze_to_db(state, verdict)
+
+        with UnifiedDatabase(db_path) as db:
+            rows = db._conn.execute("SELECT repo_full_name FROM recheck_queue").fetchall()
+            assert len(rows) == 1
+            assert rows[0]["repo_full_name"] == "https://github.com/some/repo"
 
 
 class TestFormatReviewSummary:

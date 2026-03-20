@@ -16,7 +16,7 @@ from gh_link_auditor.unified_db import UnifiedDatabase
 class StateDatabase:
     """Backward-compatible facade delegating to UnifiedDatabase."""
 
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, db_path: str = "state.db") -> None:
         self._db = UnifiedDatabase(db_path)

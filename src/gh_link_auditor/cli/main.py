@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
 from gh_link_auditor.cli.batch_cmd import build_batch_parser  # noqa: E402
 from gh_link_auditor.cli.blacklist_cmd import build_blacklist_parser  # noqa: E402
 from gh_link_auditor.cli.metrics_cmd import build_metrics_parser  # noqa: E402
+from gh_link_auditor.cli.recheck_cmd import build_recheck_parser  # noqa: E402
 from gh_link_auditor.cli.run import build_run_parser  # noqa: E402
 
 
@@ -35,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_batch_parser(subparsers)
     build_blacklist_parser(subparsers)
     build_metrics_parser(subparsers)
+    build_recheck_parser(subparsers)
 
     return parser
 

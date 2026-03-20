@@ -1,7 +1,7 @@
 """Unified SQLite database for gh-link-auditor.
 
 Consolidates state_db, metrics collector, and TinyDB state store into
-a single database file. Schema version 2 with migration from v1.
+a single database file. Schema version 3 with migration from v1/v2.
 
 See plan: Unified Database + 15 Issue Implementation Run.
 """
@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class UnifiedDatabase:
@@ -204,11 +204,17 @@ class UnifiedDatabase:
             )
         """)
 
-        # --- recheck_queue: snoozed findings (#125 placeholder) ---
+        # --- recheck_queue: snoozed findings (#148) ---
         c.execute("""
             CREATE TABLE IF NOT EXISTS recheck_queue (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 finding_id INTEGER REFERENCES findings(id),
+                url TEXT,
+                repo_full_name TEXT,
+                source_file TEXT,
+                recheck_count INTEGER DEFAULT 0,
+                last_status TEXT,
+                last_checked_at TEXT,
                 snooze_until TEXT NOT NULL,
                 reason TEXT,
                 created_at TEXT NOT NULL
@@ -287,6 +293,8 @@ class UnifiedDatabase:
     def _migrate(self, from_version: int) -> None:
         if from_version == 1:
             self._migrate_v1_to_v2()
+        if from_version <= 2:
+            self._migrate_v2_to_v3()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -305,6 +313,33 @@ class UnifiedDatabase:
         # Bump version
         c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
         logger.info("Migration to v2 complete")
+
+    # ------------------------------------------------------------------
+    # Migration v2 -> v3: recheck_queue columns (#148)
+    # ------------------------------------------------------------------
+
+    def _migrate_v2_to_v3(self) -> None:
+        logger.info("Migrating schema v2 → v3")
+        c = self._conn
+
+        # Check which columns exist in recheck_queue already
+        cols = {row[1] for row in c.execute("PRAGMA table_info(recheck_queue)").fetchall()}
+
+        new_cols = [
+            ("url", "TEXT"),
+            ("repo_full_name", "TEXT"),
+            ("source_file", "TEXT"),
+            ("recheck_count", "INTEGER DEFAULT 0"),
+            ("last_status", "TEXT"),
+            ("last_checked_at", "TEXT"),
+        ]
+        for col_name, col_type in new_cols:
+            if col_name not in cols:
+                c.execute(f"ALTER TABLE recheck_queue ADD COLUMN {col_name} {col_type}")  # noqa: S608
+
+        # Bump version
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        logger.info("Migration to v3 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db
@@ -1135,6 +1170,124 @@ class UnifiedDatabase:
                WHERE rt.trust_level = 'tier1_proven'""",
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Recheck Queue / Snooze (#148)
+    # ------------------------------------------------------------------
+
+    def snooze_finding(
+        self,
+        url: str,
+        repo_full_name: str,
+        source_file: str,
+        snooze_days: int = 7,
+        reason: str | None = None,
+    ) -> int:
+        """Snooze a dead link finding for later recheck.
+
+        Args:
+            url: The dead URL.
+            repo_full_name: Owner/repo of the source repository.
+            source_file: File where the dead link was found.
+            snooze_days: Number of days until recheck is due.
+            reason: Optional reason for snoozing.
+
+        Returns:
+            ID of the recheck_queue entry.
+        """
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc)
+        snooze_until = now + timedelta(days=snooze_days)
+        with self._conn:
+            cursor = self._conn.execute(
+                """INSERT INTO recheck_queue
+                (url, repo_full_name, source_file, recheck_count, last_status,
+                 last_checked_at, snooze_until, reason, created_at)
+                VALUES (?,?,?,0,?,?,?,?,?)""",
+                (
+                    url,
+                    repo_full_name,
+                    source_file,
+                    "snoozed",
+                    now.isoformat(),
+                    snooze_until.isoformat(),
+                    reason,
+                    now.isoformat(),
+                ),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_due_rechecks(self) -> list[dict[str, Any]]:
+        """Get all recheck queue entries where snooze_until < now.
+
+        Returns:
+            List of dicts with recheck queue entry data.
+        """
+        now = _now_iso()
+        rows = self._conn.execute(
+            """SELECT id, finding_id, url, repo_full_name, source_file,
+                      recheck_count, last_status, last_checked_at,
+                      snooze_until, reason, created_at
+               FROM recheck_queue
+               WHERE snooze_until < ? AND last_status != 'resolved'
+                     AND last_status != 'confirmed_dead'
+               ORDER BY snooze_until""",
+            (now,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def complete_recheck(self, recheck_id: int, new_status: str) -> None:
+        """Mark a recheck entry as resolved or confirmed_dead.
+
+        Args:
+            recheck_id: ID of the recheck_queue entry.
+            new_status: New status (resolved, confirmed_dead, or snoozed).
+        """
+        now = _now_iso()
+        self._conn.execute(
+            "UPDATE recheck_queue SET last_status = ?, last_checked_at = ? WHERE id = ?",
+            (new_status, now, recheck_id),
+        )
+        self._conn.commit()
+
+    def increment_recheck(self, recheck_id: int, snooze_days: int = 7) -> None:
+        """Increment recheck count and re-snooze for another period.
+
+        Args:
+            recheck_id: ID of the recheck_queue entry.
+            snooze_days: Number of days until next recheck.
+        """
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc)
+        snooze_until = now + timedelta(days=snooze_days)
+        self._conn.execute(
+            """UPDATE recheck_queue
+               SET recheck_count = recheck_count + 1,
+                   last_status = 'snoozed',
+                   last_checked_at = ?,
+                   snooze_until = ?
+               WHERE id = ?""",
+            (now.isoformat(), snooze_until.isoformat(), recheck_id),
+        )
+        self._conn.commit()
+
+    def get_recheck_stats(self) -> dict[str, int]:
+        """Get counts of recheck queue entries by status.
+
+        Returns:
+            Dict with keys: pending, resolved, confirmed_dead.
+        """
+        rows = self._conn.execute(
+            "SELECT last_status, COUNT(*) AS cnt FROM recheck_queue GROUP BY last_status"
+        ).fetchall()
+        stats = {r["last_status"]: r["cnt"] for r in rows}
+        return {
+            "pending": stats.get("snoozed", 0),
+            "resolved": stats.get("resolved", 0),
+            "confirmed_dead": stats.get("confirmed_dead", 0),
+        }
 
 
 # ------------------------------------------------------------------
