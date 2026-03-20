@@ -235,6 +235,61 @@ class TestHeadToGetFallback403:
         assert result["retries"] == 0
 
 
+class TestBrowserUaRetry:
+    """Tests for browser UA retry on 403 (#122)."""
+
+    def test_browser_ua_retry_succeeds(self, no_retry_backoff_config):
+        """403 on both HEAD and GET → retry with browser UA succeeds."""
+        http_error_403 = urllib.error.HTTPError(
+            "https://example.com",
+            403,
+            "Forbidden",
+            {},
+            None,
+        )
+        mock_resp_200 = _mock_urlopen_response(status=200)
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            request_obj = args[0]
+            ua = request_obj.get_header("User-agent")
+            # Third call (browser UA retry) succeeds
+            if "Chrome/124" in (ua or ""):
+                return mock_resp_200
+            raise http_error_403
+
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", side_effect=side_effect):
+            result = check_url(
+                "https://example.com",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] == "ok"
+
+    def test_browser_ua_retry_fails(self, no_retry_backoff_config):
+        """403 persists even with browser UA → returns dead."""
+        http_error_403 = urllib.error.HTTPError(
+            "https://example.com",
+            403,
+            "Forbidden",
+            {},
+            None,
+        )
+
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=http_error_403,
+        ):
+            result = check_url(
+                "https://example.com",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status_code"] == 403
+
+
 # ---------------------------------------------------------------------------
 # T070 / 070: Rate limited 429 triggers exponential backoff retry (REQ-2)
 # ---------------------------------------------------------------------------
