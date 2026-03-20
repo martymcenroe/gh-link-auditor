@@ -60,15 +60,16 @@ def prompt_user_approval(verdict: Verdict) -> bool | str:
     Raises:
         KeyboardInterrupt: If user presses Ctrl+C (aborts pipeline).
     """
-    response = input("[y]es / [n]o / [s]kip / e[x]it: ").strip().lower()
+    response = input("[a]pprove / [r]eject / [s]kip / e[x]it: ").strip().lower()
 
-    if response in ("y", "yes"):
+    if response in ("a", "approve", "y", "yes"):
         return True
     if response in ("s", "skip"):
         return _SKIP
     if response in ("x", "exit", "q", "quit"):
         return _EXIT
 
+    # "r", "reject", "n", "no", or anything else → reject
     return False
 
 
