@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from gh_link_auditor.pipeline.nodes.n1_scan import (
+    _clean_url_tail,
     _extract_urls_from_file,
     _is_dead,
     _read_file_content,
@@ -102,6 +103,59 @@ class TestExtractUrlsFromFile:
         md.write_text("Visit https://example.com/page.\n")
         results = _extract_urls_from_file(str(md))
         assert results[0][0] == "https://example.com/page"
+
+    def test_preserves_balanced_parens(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("[Wiki](https://en.wikipedia.org/wiki/Foo_(bar))\n")
+        results = _extract_urls_from_file(str(md))
+        assert results[0][0] == "https://en.wikipedia.org/wiki/Foo_(bar)"
+
+    def test_strips_unbalanced_trailing_paren(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("(see https://example.com/page)\n")
+        results = _extract_urls_from_file(str(md))
+        assert results[0][0] == "https://example.com/page"
+
+    def test_nested_parens(self, tmp_path: Path) -> None:
+        md = tmp_path / "test.md"
+        md.write_text("[link](https://en.wikipedia.org/wiki/A_(B_(C)))\n")
+        results = _extract_urls_from_file(str(md))
+        assert results[0][0] == "https://en.wikipedia.org/wiki/A_(B_(C))"
+
+
+class TestCleanUrlTail:
+    """Tests for _clean_url_tail() balanced paren logic."""
+
+    def test_simple_url(self) -> None:
+        assert _clean_url_tail("https://example.com/page") == "https://example.com/page"
+
+    def test_strips_period(self) -> None:
+        assert _clean_url_tail("https://example.com/page.") == "https://example.com/page"
+
+    def test_strips_comma(self) -> None:
+        assert _clean_url_tail("https://example.com/page,") == "https://example.com/page"
+
+    def test_preserves_balanced_parens(self) -> None:
+        assert _clean_url_tail("https://en.wikipedia.org/wiki/Foo_(bar)") == "https://en.wikipedia.org/wiki/Foo_(bar)"
+
+    def test_strips_unbalanced_close_paren(self) -> None:
+        assert _clean_url_tail("https://example.com/page)") == "https://example.com/page"
+
+    def test_strips_trailing_paren_and_punct(self) -> None:
+        assert _clean_url_tail("https://example.com/page).") == "https://example.com/page"
+
+    def test_nested_balanced_parens(self) -> None:
+        assert _clean_url_tail("https://en.wikipedia.org/wiki/A_(B_(C))") == "https://en.wikipedia.org/wiki/A_(B_(C))"
+
+    def test_markdown_link_paren(self) -> None:
+        # In [text](url), the regex now captures the closing ) so we need to strip it
+        assert _clean_url_tail("https://example.com/page)") == "https://example.com/page"
+
+    def test_preserves_parens_in_path(self) -> None:
+        assert _clean_url_tail("https://example.com/(test)") == "https://example.com/(test)"
+
+    def test_double_trailing_paren_unbalanced(self) -> None:
+        assert _clean_url_tail("https://example.com/page))") == "https://example.com/page"
 
 
 class TestIsDead:
