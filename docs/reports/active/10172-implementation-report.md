@@ -17,8 +17,10 @@ Audit on 2026-05-12 found three doc trees holding artifacts whose tracking issue
 ### `docs/lineage/`
 - Moved 16 lineage directories from `active/` to `done/` (the existing convention in this tree): `1-lld`, `2-lld`, `3-lld`, `4-lld`, `5-lld`, `9-lld`, `10-lld`, `11-lld`, `19-lld`, `19-lld-n1`, `20-lld`, `21-lld`, `22-lld`, `5-testing`, `9-testing`, `11-testing`. All map to closed issues.
 
-### Local config (NOT in this PR, no PR landing)
-- `.unleashed.json` (untracked file) had its deprecated `onboard.pickupThresholdMinutes` field removed locally. The field is ignored by the current event-ordered pickup system.
+### `.unleashed.json`
+- Removed deprecated `onboard.pickupThresholdMinutes` field. The current onboard skill uses event-ordered pickup detection (presence/absence of `<!-- picked-up -->` markers in `data/handoff-log.md`), not wall-clock age. The field was retained for tooling backwards-compat that no longer exists.
+
+Note: this file was tracked into the repo in PR #169 (#168), after my session began with a local-only untracked copy.
 
 ## Out of Scope
 
