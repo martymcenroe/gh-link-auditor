@@ -6,7 +6,6 @@
   "assemblyZero": false,
   "onboard": {
     "auto": true,
-    "pickupThresholdMinutes": 10,
     "guide": null,
     "plan": null
   }
