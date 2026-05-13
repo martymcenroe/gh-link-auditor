@@ -265,6 +265,102 @@ class TestN6SubmitPr:
         assert result.get("pr_url") == "https://github.com/org/repo/pull/42"
         assert result.get("pr_number") == 42
 
+    def test_writes_tier1_pending_trust_on_success(self, tmp_path: Path) -> None:
+        """Issue #177: successful PR submission transitions repo trust to tier1_pending."""
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "ghla.db"
+        state = create_initial_state(target="https://github.com/org/repo", db_path=str(db_path))
+        state["target_type"] = "url"
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+        state["fixes"] = [_make_fix()]
+        state["reviewed_verdicts"] = []
+
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        readme = clone_dir / "README.md"
+        readme.write_text("Check [link](https://old.example.com/page) here.\n")
+
+        def fake_run_gh(args, cwd=None):
+            cmd = args[0] if args else ""
+            if cmd == "repo" and "fork" in args:
+                return _mock_completed("fork created")
+            if cmd == "auth":
+                return _mock_completed("Logged in to github.com account testuser")
+            if cmd == "api" and "user" in args:
+                return _mock_completed("testuser")
+            if cmd == "api" and ".default_branch" in str(args):
+                return _mock_completed("main")
+            if cmd == "pr":
+                return _mock_completed("https://github.com/org/repo/pull/42")
+            return _mock_completed("")
+
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._run_gh",
+                side_effect=fake_run_gh,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._clone_fork",
+                return_value=clone_dir,
+            ),
+            patch("subprocess.run", return_value=_mock_completed("")),
+        ):
+            result = n6_submit_pr(state)
+
+        assert result.get("pr_url") == "https://github.com/org/repo/pull/42"
+
+        with UnifiedDatabase(str(db_path)) as udb:
+            trust = udb.get_repo_trust("org/repo")
+        assert trust is not None
+        assert trust["trust_level"] == "tier1_pending"
+        assert trust["total_prs"] == 1
+
+    def test_trust_update_failure_does_not_abort_pr(self, tmp_path: Path) -> None:
+        """If the trust DB write throws, the PR still wins."""
+        state = create_initial_state(target="https://github.com/org/repo", db_path="/nonexistent/dir/ghla.db")
+        state["target_type"] = "url"
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+        state["fixes"] = [_make_fix()]
+        state["reviewed_verdicts"] = []
+
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        (clone_dir / "README.md").write_text("Check [link](https://old.example.com/page) here.\n")
+
+        def fake_run_gh(args, cwd=None):
+            cmd = args[0] if args else ""
+            if cmd == "auth":
+                return _mock_completed("Logged in to github.com account testuser")
+            if cmd == "api" and "user" in args:
+                return _mock_completed("testuser")
+            if cmd == "api" and ".default_branch" in str(args):
+                return _mock_completed("main")
+            if cmd == "pr":
+                return _mock_completed("https://github.com/org/repo/pull/42")
+            return _mock_completed("")
+
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._run_gh",
+                side_effect=fake_run_gh,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._clone_fork",
+                return_value=clone_dir,
+            ),
+            patch("subprocess.run", return_value=_mock_completed("")),
+            patch(
+                "gh_link_auditor.pr_tracker.update_trust_on_submit",
+                side_effect=RuntimeError("simulated trust failure"),
+            ),
+        ):
+            result = n6_submit_pr(state)
+
+        assert result.get("pr_url") == "https://github.com/org/repo/pull/42"
+
     def test_handles_fork_failure(self) -> None:
         state = create_initial_state(target="https://github.com/org/repo")
         state["target_type"] = "url"
