@@ -675,6 +675,67 @@ class TestUpdateTrustOnMerge:
         assert trust["total_merges"] == 4
 
 
+class TestUpdateTrustOnSubmit:
+    """Tests for update_trust_on_submit() — issue #177."""
+
+    def test_creates_trust_for_unknown_repo_as_tier1_pending(self, db) -> None:
+        from gh_link_auditor.pr_tracker import update_trust_on_submit
+
+        update_trust_on_submit(db, "org/repo")
+
+        trust = db.get_repo_trust("org/repo")
+        assert trust is not None
+        assert trust["trust_level"] == "tier1_pending"
+        assert trust["total_prs"] == 1
+
+    def test_transitions_new_to_tier1_pending(self, db) -> None:
+        from gh_link_auditor.pr_tracker import update_trust_on_submit
+
+        db.update_repo_trust("org/repo", "new")
+        update_trust_on_submit(db, "org/repo")
+
+        trust = db.get_repo_trust("org/repo")
+        assert trust["trust_level"] == "tier1_pending"
+        assert trust["total_prs"] == 1
+
+    def test_idempotent_for_tier1_pending(self, db) -> None:
+        from gh_link_auditor.pr_tracker import update_trust_on_submit
+
+        db.update_repo_trust("org/repo", "tier1_pending", total_prs=1)
+        update_trust_on_submit(db, "org/repo")
+
+        trust = db.get_repo_trust("org/repo")
+        assert trust["trust_level"] == "tier1_pending"
+        assert trust["total_prs"] == 2
+
+    def test_does_not_downgrade_tier1_proven(self, db) -> None:
+        from gh_link_auditor.pr_tracker import update_trust_on_submit
+
+        db.update_repo_trust(
+            "org/repo",
+            "tier1_proven",
+            total_prs=1,
+            total_merges=1,
+            first_merge_at="2026-01-01T00:00:00+00:00",
+        )
+        update_trust_on_submit(db, "org/repo")
+
+        trust = db.get_repo_trust("org/repo")
+        assert trust["trust_level"] == "tier1_proven"
+        assert trust["total_prs"] == 2
+        assert trust["total_merges"] == 1
+
+    def test_does_not_downgrade_tier2_eligible(self, db) -> None:
+        from gh_link_auditor.pr_tracker import update_trust_on_submit
+
+        db.update_repo_trust("org/repo", "tier2_eligible", total_prs=3)
+        update_trust_on_submit(db, "org/repo")
+
+        trust = db.get_repo_trust("org/repo")
+        assert trust["trust_level"] == "tier2_eligible"
+        assert trust["total_prs"] == 4
+
+
 class TestUpgradeTier1ProvenRepos:
     """Tests for upgrade_tier1_proven_repos()."""
 

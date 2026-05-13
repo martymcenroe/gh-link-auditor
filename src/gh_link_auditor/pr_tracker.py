@@ -255,6 +255,33 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
         udb.close()
 
 
+def update_trust_on_submit(udb: UnifiedDatabase, repo_full_name: str) -> None:
+    """Update repo trust when a PR is submitted.
+
+    Transitions 'new' repos to 'tier1_pending'. Idempotent: never
+    downgrades a higher trust level; increments total_prs in place.
+
+    Called from `n6_submit_pr` immediately after a successful PR creation.
+    See LLD-177.
+    """
+    trust = udb.get_repo_trust(repo_full_name)
+
+    if trust is None:
+        udb.update_repo_trust(repo_full_name, "tier1_pending", total_prs=1)
+        logger.info("Trust: %s → tier1_pending (first PR submitted)", repo_full_name)
+        return
+
+    current = trust["trust_level"]
+    new_prs = (trust.get("total_prs") or 0) + 1
+
+    if current == "new":
+        udb.update_repo_trust(repo_full_name, "tier1_pending", total_prs=new_prs)
+        logger.info("Trust: %s new → tier1_pending", repo_full_name)
+    else:
+        # tier1_pending / tier1_proven / tier2_eligible: keep level, bump count.
+        udb.update_repo_trust(repo_full_name, current, total_prs=new_prs)
+
+
 def _update_trust_on_merge(
     udb: UnifiedDatabase,
     repo_full_name: str,

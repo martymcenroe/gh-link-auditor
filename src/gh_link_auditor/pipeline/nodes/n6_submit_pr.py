@@ -312,6 +312,17 @@ def n6_submit_pr(state: PipelineState) -> PipelineState:
             state["pr_number"] = pr_number
             logger.info("N6: PR created: %s", pr_url)
 
+            db_path = state.get("db_path")
+            if db_path:
+                from gh_link_auditor.pr_tracker import update_trust_on_submit
+                from gh_link_auditor.unified_db import UnifiedDatabase
+
+                try:
+                    with UnifiedDatabase(db_path) as udb:
+                        update_trust_on_submit(udb, f"{repo_owner}/{repo_name_short}")
+                except Exception as trust_exc:
+                    logger.warning("N6: trust update skipped: %s", trust_exc)
+
     except RuntimeError as exc:
         state["errors"] = state.get("errors", []) + [f"N6: {exc}"]
         logger.error("N6: PR submission failed: %s", exc)
