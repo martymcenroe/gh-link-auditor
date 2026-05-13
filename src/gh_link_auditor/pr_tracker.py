@@ -142,6 +142,28 @@ def _find_hostile_comments(owner: str, repo: str, pr_number: int) -> list[dict]:
     return hits
 
 
+def _find_anti_ai_comments(owner: str, repo: str, pr_number: int) -> list[dict]:
+    """Return maintainer-authored anti-AI-policy comments on a PR, oldest-first.
+
+    Mirrors :func:`_find_hostile_comments` but for the polite-but-firm
+    rejection class (#200). Same maintainer-filter; same oldest-first sort;
+    same swallow-on-failure behavior.
+    """
+    from gh_link_auditor.hostile_classifier import is_anti_ai_text, is_maintainer_comment
+
+    try:
+        comments = _fetch_pr_comments(owner, repo, pr_number)
+    except RuntimeError:
+        logger.warning("Failed to fetch comments for %s/%s#%d", owner, repo, pr_number)
+        return []
+
+    hits = [
+        c for c in comments if is_maintainer_comment(c.get("author_association")) and is_anti_ai_text(c.get("body"))
+    ]
+    hits.sort(key=lambda c: c.get("created_at") or "")
+    return hits
+
+
 def _check_maintainer_fixed(
     owner: str,
     repo: str,
@@ -259,6 +281,16 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                         source="hostile",
                     )
                     logger.info("Auto-blacklisted (hostile): %s", repo_url)
+                else:
+                    anti_ai = _find_anti_ai_comments(owner, repo, pr_number)
+                    if anti_ai:
+                        first = anti_ai[0]
+                        udb.add_to_blacklist(
+                            repo_url=repo_url,
+                            reason=f"Anti-AI policy comment from maintainer: {first.get('html_url', '?')}",
+                            source="anti_ai",
+                        )
+                        logger.info("Auto-blacklisted (anti_ai): %s", repo_url)
 
             if new_status == outcome.status:
                 # Still open — check for unresponsive timeout
