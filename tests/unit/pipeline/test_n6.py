@@ -5,6 +5,7 @@ See Issue #84 for specification.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -198,7 +199,7 @@ class TestN6SubmitPr:
         assert any("missing owner/repo" in e for e in result.get("errors", []))
 
     def test_happy_path_mocked(self, tmp_path: Path) -> None:
-        """Full N6 flow with all subprocess calls mocked."""
+        """Full N6 flow with all subprocess and REST calls mocked."""
         state = create_initial_state(target="https://github.com/org/repo")
         state["target_type"] = "url"
         state["repo_owner"] = "org"
@@ -206,59 +207,29 @@ class TestN6SubmitPr:
         state["fixes"] = [_make_fix()]
         state["reviewed_verdicts"] = []
 
-        # Create a fake clone directory
         clone_dir = tmp_path / "repo"
         clone_dir.mkdir()
         readme = clone_dir / "README.md"
         readme.write_text("Check [link](https://old.example.com/page) here.\n")
 
-        mock_run_results = {
-            "fork": _mock_completed("fork created"),
-            "auth": _mock_completed("Logged in to github.com account testuser"),
-            "clone": _mock_completed(""),
-            "checkout": _mock_completed(""),
-            "add": _mock_completed(""),
-            "commit": _mock_completed(""),
-            "push": _mock_completed(""),
-            "default_branch": _mock_completed("main"),
-            "pr_create": _mock_completed("https://github.com/org/repo/pull/42"),
-        }
-
-        def fake_run_gh(args, cwd=None):
-            """Simulate gh CLI calls."""
-            cmd = args[0] if args else ""
-            if cmd == "repo" and "fork" in args:
-                return mock_run_results["fork"]
-            if cmd == "auth":
-                return mock_run_results["auth"]
-            if cmd == "repo" and "clone" in args:
-                # Actually create the directory structure for clone
-                return mock_run_results["clone"]
-            if cmd == "api" and "user" in args:
-                return _mock_completed("testuser")
-            if cmd == "api" and ".default_branch" in str(args):
-                return mock_run_results["default_branch"]
-            if cmd == "pr":
-                return mock_run_results["pr_create"]
-            return _mock_completed("")
-
-        def fake_subprocess_run(cmd, **kwargs):
-            """Simulate git subprocess calls."""
-            return _mock_completed("")
-
         with (
             patch(
-                "gh_link_auditor.pipeline.nodes.n6_submit_pr._run_gh",
-                side_effect=fake_run_gh,
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
+                return_value="testuser/repo",
             ),
             patch(
                 "gh_link_auditor.pipeline.nodes.n6_submit_pr._clone_fork",
                 return_value=clone_dir,
             ),
             patch(
-                "subprocess.run",
-                side_effect=fake_subprocess_run,
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._get_default_branch",
+                return_value="main",
             ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._create_pr",
+                return_value=("https://github.com/org/repo/pull/42", 42),
+            ),
+            patch("subprocess.run", return_value=_mock_completed("")),
         ):
             result = n6_submit_pr(state)
 
@@ -282,28 +253,22 @@ class TestN6SubmitPr:
         readme = clone_dir / "README.md"
         readme.write_text("Check [link](https://old.example.com/page) here.\n")
 
-        def fake_run_gh(args, cwd=None):
-            cmd = args[0] if args else ""
-            if cmd == "repo" and "fork" in args:
-                return _mock_completed("fork created")
-            if cmd == "auth":
-                return _mock_completed("Logged in to github.com account testuser")
-            if cmd == "api" and "user" in args:
-                return _mock_completed("testuser")
-            if cmd == "api" and ".default_branch" in str(args):
-                return _mock_completed("main")
-            if cmd == "pr":
-                return _mock_completed("https://github.com/org/repo/pull/42")
-            return _mock_completed("")
-
         with (
             patch(
-                "gh_link_auditor.pipeline.nodes.n6_submit_pr._run_gh",
-                side_effect=fake_run_gh,
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
+                return_value="testuser/repo",
             ),
             patch(
                 "gh_link_auditor.pipeline.nodes.n6_submit_pr._clone_fork",
                 return_value=clone_dir,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._get_default_branch",
+                return_value="main",
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._create_pr",
+                return_value=("https://github.com/org/repo/pull/42", 42),
             ),
             patch("subprocess.run", return_value=_mock_completed("")),
         ):
@@ -330,26 +295,22 @@ class TestN6SubmitPr:
         clone_dir.mkdir()
         (clone_dir / "README.md").write_text("Check [link](https://old.example.com/page) here.\n")
 
-        def fake_run_gh(args, cwd=None):
-            cmd = args[0] if args else ""
-            if cmd == "auth":
-                return _mock_completed("Logged in to github.com account testuser")
-            if cmd == "api" and "user" in args:
-                return _mock_completed("testuser")
-            if cmd == "api" and ".default_branch" in str(args):
-                return _mock_completed("main")
-            if cmd == "pr":
-                return _mock_completed("https://github.com/org/repo/pull/42")
-            return _mock_completed("")
-
         with (
             patch(
-                "gh_link_auditor.pipeline.nodes.n6_submit_pr._run_gh",
-                side_effect=fake_run_gh,
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
+                return_value="testuser/repo",
             ),
             patch(
                 "gh_link_auditor.pipeline.nodes.n6_submit_pr._clone_fork",
                 return_value=clone_dir,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._get_default_branch",
+                return_value="main",
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._create_pr",
+                return_value=("https://github.com/org/repo/pull/42", 42),
             ),
             patch("subprocess.run", return_value=_mock_completed("")),
             patch(
@@ -407,50 +368,120 @@ class TestN6SubmitPr:
 
 
 class TestForkRepo:
-    """Tests for _fork_repo()."""
+    """Tests for _fork_repo() — classic-PAT REST implementation (issue #185)."""
 
-    def test_returns_fork_name(self) -> None:
+    @staticmethod
+    @contextmanager
+    def _fake_classic_pat(token: str = "ghp_fake_classic"):
+        yield token
+
+    def test_returns_fork_full_name(self) -> None:
+        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _fork_repo
+        from tests.fakes.http import FakeHTTPResponse
+
+        fake_response = FakeHTTPResponse(
+            status_code=202,
+            body={"full_name": "martymcenroe/upstream-repo"},
+        )
+        with (
+            patch(
+                "gh_link_auditor.classic_pat.classic_pat_session",
+                side_effect=self._fake_classic_pat,
+            ),
+            patch("httpx.post", return_value=fake_response) as mock_post,
+        ):
+            result = _fork_repo("upstream-org", "upstream-repo")
+
+        assert result == "martymcenroe/upstream-repo"
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/upstream-org/upstream-repo/forks"
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer ghp_fake_classic"
+        assert headers["Accept"] == "application/vnd.github+json"
+
+    def test_raises_on_api_error(self) -> None:
+        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _fork_repo
+        from tests.fakes.http import FakeHTTPResponse
+
+        fake_response = FakeHTTPResponse(status_code=403, body={"message": "forbidden"})
+        with (
+            patch(
+                "gh_link_auditor.classic_pat.classic_pat_session",
+                side_effect=self._fake_classic_pat,
+            ),
+            patch("httpx.post", return_value=fake_response),
+        ):
+            with pytest.raises(Exception):
+                _fork_repo("org", "repo")
+
+    def test_propagates_classic_pat_decryption_failure(self) -> None:
         from gh_link_auditor.pipeline.nodes.n6_submit_pr import _fork_repo
 
-        def fake_run_gh(args, cwd=None):
-            if args[0] == "repo" and "fork" in args:
-                return _mock_completed("Created fork testuser/myrepo")
-            if args[0] == "auth":
-                r = _mock_completed("")
-                r.stderr = "Logged in to github.com account testuser (token)"
-                return r
-            return _mock_completed("")
+        @contextmanager
+        def boom(*_a, **_kw):
+            raise RuntimeError("classic PAT unavailable")
+            yield  # unreachable
 
         with patch(
-            "gh_link_auditor.pipeline.nodes.n6_submit_pr._run_gh",
-            side_effect=fake_run_gh,
+            "gh_link_auditor.classic_pat.classic_pat_session",
+            side_effect=boom,
         ):
-            result = _fork_repo("upstream-org", "myrepo")
+            with pytest.raises(RuntimeError, match="classic PAT"):
+                _fork_repo("org", "repo")
 
-        assert result == "testuser/myrepo"
 
-    def test_fallback_to_api_user(self) -> None:
-        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _fork_repo
+class TestCreatePr:
+    """Tests for _create_pr() — classic-PAT REST implementation (issue #185)."""
 
-        def fake_run_gh(args, cwd=None):
-            if args[0] == "repo" and "fork" in args:
-                return _mock_completed("forked")
-            if args[0] == "auth":
-                r = _mock_completed("")
-                r.stderr = "no account info here"
-                r.stdout = "no account info here"
-                return r
-            if args[0] == "api" and "user" in args:
-                return _mock_completed("apiuser")
-            return _mock_completed("")
+    @staticmethod
+    @contextmanager
+    def _fake_classic_pat(token: str = "ghp_fake_classic"):
+        yield token
 
-        with patch(
-            "gh_link_auditor.pipeline.nodes.n6_submit_pr._run_gh",
-            side_effect=fake_run_gh,
+    def test_returns_url_and_number(self) -> None:
+        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _create_pr
+        from tests.fakes.http import FakeHTTPResponse
+
+        fake_response = FakeHTTPResponse(
+            status_code=201,
+            body={
+                "html_url": "https://github.com/org/repo/pull/42",
+                "number": 42,
+            },
+        )
+        with (
+            patch(
+                "gh_link_auditor.classic_pat.classic_pat_session",
+                side_effect=self._fake_classic_pat,
+            ),
+            patch("httpx.post", return_value=fake_response) as mock_post,
         ):
-            result = _fork_repo("org", "repo")
+            url, number = _create_pr("org", "repo", "user:branch", "main", "title", "body")
 
-        assert result == "apiuser/repo"
+        assert url == "https://github.com/org/repo/pull/42"
+        assert number == 42
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/org/repo/pulls"
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload == {
+            "title": "title",
+            "head": "user:branch",
+            "base": "main",
+            "body": "body",
+        }
+
+    def test_raises_on_api_error(self) -> None:
+        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _create_pr
+        from tests.fakes.http import FakeHTTPResponse
+
+        fake_response = FakeHTTPResponse(status_code=422, body={"message": "invalid"})
+        with (
+            patch(
+                "gh_link_auditor.classic_pat.classic_pat_session",
+                side_effect=self._fake_classic_pat,
+            ),
+            patch("httpx.post", return_value=fake_response),
+        ):
+            with pytest.raises(Exception):
+                _create_pr("org", "repo", "user:branch", "main", "t", "b")
 
 
 class TestCloneFork:
