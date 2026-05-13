@@ -10,6 +10,7 @@ See: LLD-009 (Issue #9) for design rationale.
 from __future__ import annotations
 
 import http.client
+import ipaddress
 import random
 import socket
 import ssl
@@ -18,6 +19,7 @@ import urllib.error
 import urllib.request
 from email.utils import parsedate_to_datetime
 from typing import TypedDict
+from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
 # Configuration data structures (LLD §2.3)
@@ -370,6 +372,49 @@ def _build_error_message(status_code: int | None, error_type: str | None) -> str
 
 
 # ---------------------------------------------------------------------------
+# CDN detection (#198) — used to gate the None-status stealth fallback
+# ---------------------------------------------------------------------------
+
+_CDN_RANGES = (
+    ipaddress.ip_network("104.16.0.0/12"),  # Cloudflare main
+    ipaddress.ip_network("172.64.0.0/13"),  # Cloudflare
+    ipaddress.ip_network("151.101.0.0/16"),  # Fastly
+    ipaddress.ip_network("199.232.0.0/16"),  # Fastly
+)
+
+
+def _resolves_to_cdn(url: str) -> bool:
+    """Return True if the URL's hostname resolves to a known-bot-fronting CDN.
+
+    Used to gate the expensive stealth-browser fallback: only fire it for hosts
+    that are likely returning bot-block errors (Cloudflare / Fastly), not for
+    genuinely dead hosts. Lookups go through the OS resolver and are typically
+    cached. Failure modes (DNS error, missing hostname) return False so we
+    don't accidentally trigger stealth for a broken URL.
+
+    See LLD-198.
+    """
+    try:
+        host = urlparse(url).hostname
+    except ValueError:
+        return False
+    if not host:
+        return False
+    try:
+        _, _, ip_list = socket.gethostbyname_ex(host)
+    except (socket.gaierror, OSError):
+        return False
+    for ip_str in ip_list:
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if any(ip in net for net in _CDN_RANGES):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Headless-browser fallback (#190)
 # ---------------------------------------------------------------------------
 
@@ -540,6 +585,23 @@ def check_url(
         # Only triggers after the modern-UA retry has also failed with 403.
         if (
             status_code == 403 and browser_ua_attempted and request_config.get("allow_headless")  # type: ignore[typeddict-item]
+        ):
+            return _headless_browser_get(
+                url,
+                timeout_s=request_config["timeout"] * 2,
+            )
+
+        # CDN-fronted None status — also try stealth (#198).
+        # Cloudflare / Fastly often block bot probes at the transport layer
+        # (connection reset / timeout) rather than returning 403. When the
+        # host resolves to a known CDN, the real-browser path is worth the
+        # cost; for genuinely unreachable hosts, the _resolves_to_cdn check
+        # short-circuits to False and we avoid spending 10-20s on stealth.
+        if (
+            status_code is None
+            and error_type in {"connection_reset", "timeout"}
+            and request_config.get("allow_headless")  # type: ignore[typeddict-item]
+            and _resolves_to_cdn(url)
         ):
             return _headless_browser_get(
                 url,
