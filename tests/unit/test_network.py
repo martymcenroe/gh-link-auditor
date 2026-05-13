@@ -393,6 +393,146 @@ class TestHeadlessFallback:
         assert not mock_headless.called
 
 
+class TestResolvesToCDN:
+    """Tests for _resolves_to_cdn() — DNS-based CDN heuristic (#198)."""
+
+    def test_cloudflare_ip_returns_true(self):
+        from gh_link_auditor.network import _resolves_to_cdn
+
+        with mock.patch(
+            "gh_link_auditor.network.socket.gethostbyname_ex",
+            return_value=("host", [], ["104.17.249.70"]),
+        ):
+            assert _resolves_to_cdn("https://example.com") is True
+
+    def test_fastly_ip_returns_true(self):
+        from gh_link_auditor.network import _resolves_to_cdn
+
+        with mock.patch(
+            "gh_link_auditor.network.socket.gethostbyname_ex",
+            return_value=("host", [], ["151.101.65.140"]),
+        ):
+            assert _resolves_to_cdn("https://example.com") is True
+
+    def test_non_cdn_ip_returns_false(self):
+        from gh_link_auditor.network import _resolves_to_cdn
+
+        with mock.patch(
+            "gh_link_auditor.network.socket.gethostbyname_ex",
+            return_value=("host", [], ["8.8.8.8"]),
+        ):
+            assert _resolves_to_cdn("https://example.com") is False
+
+    def test_dns_failure_returns_false(self):
+        from gh_link_auditor.network import _resolves_to_cdn
+
+        with mock.patch(
+            "gh_link_auditor.network.socket.gethostbyname_ex",
+            side_effect=socket.gaierror("nodename nor servname provided"),
+        ):
+            assert _resolves_to_cdn("https://nonexistent.example") is False
+
+    def test_no_hostname_returns_false(self):
+        from gh_link_auditor.network import _resolves_to_cdn
+
+        assert _resolves_to_cdn("not-a-url") is False
+
+
+class TestHeadlessFallbackOnNone:
+    """Tests for None-status + CDN headless fallback (#198)."""
+
+    def test_fires_on_connection_reset_when_cdn(self, no_retry_backoff_config):
+        from gh_link_auditor.network import RequestResult
+
+        fake_ok = RequestResult(
+            url="https://cdn.example.com",
+            status="ok",
+            status_code=200,
+            method="HEADLESS",
+            response_time_ms=8000,
+            retries=0,
+            error=None,
+        )
+
+        with (
+            mock.patch(
+                "gh_link_auditor.network.urllib.request.urlopen",
+                side_effect=ConnectionResetError("connection reset"),
+            ),
+            mock.patch(
+                "gh_link_auditor.network._resolves_to_cdn",
+                return_value=True,
+            ),
+            mock.patch(
+                "gh_link_auditor.network._headless_browser_get",
+                return_value=fake_ok,
+            ) as mock_headless,
+        ):
+            result = check_url(
+                "https://cdn.example.com",
+                request_config={
+                    "timeout": 10.0,
+                    "verify_ssl": True,
+                    "user_agent": "test",
+                    "allow_headless": True,
+                },
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] == "ok"
+        assert mock_headless.called
+
+    def test_skips_when_not_cdn(self, no_retry_backoff_config):
+        with (
+            mock.patch(
+                "gh_link_auditor.network.urllib.request.urlopen",
+                side_effect=ConnectionResetError("connection reset"),
+            ),
+            mock.patch(
+                "gh_link_auditor.network._resolves_to_cdn",
+                return_value=False,
+            ),
+            mock.patch(
+                "gh_link_auditor.network._headless_browser_get",
+            ) as mock_headless,
+        ):
+            result = check_url(
+                "https://genuinely-dead.example.com",
+                request_config={
+                    "timeout": 10.0,
+                    "verify_ssl": True,
+                    "user_agent": "test",
+                    "allow_headless": True,
+                },
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] != "ok"
+        assert not mock_headless.called
+
+    def test_skips_when_allow_headless_false(self, no_retry_backoff_config):
+        with (
+            mock.patch(
+                "gh_link_auditor.network.urllib.request.urlopen",
+                side_effect=ConnectionResetError("connection reset"),
+            ),
+            mock.patch(
+                "gh_link_auditor.network._resolves_to_cdn",
+                return_value=True,
+            ),
+            mock.patch(
+                "gh_link_auditor.network._headless_browser_get",
+            ) as mock_headless,
+        ):
+            result = check_url(
+                "https://cdn.example.com",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] != "ok"
+        assert not mock_headless.called
+
+
 class TestHeadlessBrowserGet:
     """Tests for _headless_browser_get() — the helper itself (#190)."""
 
