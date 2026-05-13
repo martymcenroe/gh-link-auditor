@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-DEFAULT_DB_PATH = Path("data/metrics/metrics.db")
+from gh_link_auditor.unified_db import DEFAULT_DB_PATH
 
 
 def build_metrics_parser(subparsers: argparse._SubParsersAction) -> None:

@@ -6,7 +6,8 @@ Provides list, add, remove, and stats operations on the blacklist.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+
+from gh_link_auditor.unified_db import DEFAULT_DB_PATH
 
 
 def build_blacklist_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -16,25 +17,25 @@ def build_blacklist_parser(subparsers: argparse._SubParsersAction) -> None:
 
     # ghla blacklist list
     list_parser = bl_sub.add_parser("list", help="Show active blacklist entries")
-    list_parser.add_argument("--db-path", type=str, default=None)
+    list_parser.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH))
     list_parser.set_defaults(func=_cmd_list)
 
     # ghla blacklist add
     add_parser = bl_sub.add_parser("add", help="Manually blacklist a repo")
     add_parser.add_argument("repo_url", help="Repository URL to blacklist")
     add_parser.add_argument("--reason", default="manual blacklist", help="Reason")
-    add_parser.add_argument("--db-path", type=str, default=None)
+    add_parser.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH))
     add_parser.set_defaults(func=_cmd_add)
 
     # ghla blacklist remove
     rm_parser = bl_sub.add_parser("remove", help="Remove a blacklist entry by ID")
     rm_parser.add_argument("entry_id", type=int, help="Blacklist entry ID")
-    rm_parser.add_argument("--db-path", type=str, default=None)
+    rm_parser.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH))
     rm_parser.set_defaults(func=_cmd_remove)
 
     # ghla blacklist stats
     stats_parser = bl_sub.add_parser("stats", help="Show blacklist statistics by source")
-    stats_parser.add_argument("--db-path", type=str, default=None)
+    stats_parser.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH))
     stats_parser.set_defaults(func=_cmd_stats)
 
     bl_parser.set_defaults(func=lambda args: bl_parser.print_help() or 0)
@@ -43,8 +44,7 @@ def build_blacklist_parser(subparsers: argparse._SubParsersAction) -> None:
 def _get_db(args: argparse.Namespace):
     from gh_link_auditor.unified_db import UnifiedDatabase
 
-    db_path = args.db_path or str(Path.home() / ".ghla" / "ghla.db")
-    return UnifiedDatabase(db_path)
+    return UnifiedDatabase(args.db_path)
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
