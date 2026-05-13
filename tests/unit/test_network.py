@@ -235,6 +235,61 @@ class TestHeadToGetFallback403:
         assert result["retries"] == 0
 
 
+class TestHeadToGetFallback404:
+    """Falls back to GET on 404, then succeeds (#193).
+
+    Some sites (Microsoft Marketplace observed) return 404 to HEAD as an
+    anti-crawler defense but 200 to GET. We treat 404 the same as 403/405:
+    one GET attempt, then accept the result.
+    """
+
+    def test_head_to_get_fallback_404(self, no_retry_backoff_config):
+        """404 on HEAD triggers GET fallback; returns ok on GET 200."""
+        http_error_404 = urllib.error.HTTPError(
+            "https://marketplace.example.com/item",
+            404,
+            "Not Found",
+            {},
+            None,
+        )
+        mock_resp_200 = _mock_urlopen_response(status=200)
+
+        def side_effect(*args, **kwargs):
+            request_obj = args[0]
+            if request_obj.get_method() == "HEAD":
+                raise http_error_404
+            return mock_resp_200
+
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", side_effect=side_effect):
+            result = check_url(
+                "https://marketplace.example.com/item",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] == "ok"
+        assert result["method"] == "GET"
+        assert result["retries"] == 0
+
+    def test_head_and_get_both_404(self, no_retry_backoff_config):
+        """404 on HEAD and GET → genuinely dead, status='error'."""
+        http_error_404 = urllib.error.HTTPError(
+            "https://gone.example.com",
+            404,
+            "Not Found",
+            {},
+            None,
+        )
+
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", side_effect=http_error_404):
+            result = check_url(
+                "https://gone.example.com",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] == "error"
+        assert result["status_code"] == 404
+
+
 class TestHeadlessFallback:
     """Tests for headless-browser fallback after persistent 403 (#190)."""
 
@@ -918,9 +973,9 @@ class TestShouldRetry:
         """301 → no retry, no fallback."""
         assert should_retry(301, None) == (False, False)
 
-    def test_404_no_retry(self):
-        """404 → no retry, no fallback."""
-        assert should_retry(404, None) == (False, False)
+    def test_404_get_fallback(self):
+        """404 → no retry, but try GET fallback (#193)."""
+        assert should_retry(404, None) == (False, True)
 
     def test_410_no_retry(self):
         """410 → no retry, no fallback."""
