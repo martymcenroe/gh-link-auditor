@@ -11,10 +11,13 @@ from unittest.mock import patch
 
 from gh_link_auditor.pipeline.nodes.n4_human_review import (
     _EXIT,
+    _LIVE,
     _SKIP,
     _SNOOZE,
+    build_github_source_url,
     format_review_summary,
     format_verdict_for_review,
+    generate_google_searches,
     n4_human_review,
     prompt_user_approval,
 )
@@ -214,6 +217,94 @@ class TestPromptUserApproval:
             prompt_user_approval(verdict)
         prompt_text = mock_input.call_args[0][0]
         assert "snoo[z]e" in prompt_text
+
+    def test_live_with_l(self) -> None:
+        """'l' input returns _LIVE sentinel (#195)."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="l"):
+            result = prompt_user_approval(verdict)
+        assert result is _LIVE
+
+    def test_live_with_live(self) -> None:
+        """'live' input returns _LIVE sentinel (#195)."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="live"):
+            result = prompt_user_approval(verdict)
+        assert result is _LIVE
+
+    def test_google_re_prompts(self, capsys) -> None:
+        """'g' prints search URLs and re-prompts; final answer determines result (#196)."""
+        verdict = _make_verdict(url="https://www.enthought.com/product/canopy/")
+        with patch("builtins.input", side_effect=["g", "a"]):
+            result = prompt_user_approval(verdict)
+        out = capsys.readouterr().out
+        assert "google.com/search" in out
+        assert "enthought" in out.lower()
+        assert result is True
+
+    def test_prompt_text_includes_live_and_google(self) -> None:
+        """Prompt text should mention [l]ive and [g]oogle options."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="a") as mock_input:
+            prompt_user_approval(verdict)
+        prompt_text = mock_input.call_args[0][0]
+        assert "[l]ive" in prompt_text
+        assert "[g]oogle" in prompt_text
+
+
+class TestGenerateGoogleSearches:
+    """Tests for generate_google_searches() (#196)."""
+
+    def test_returns_multiple_searches(self) -> None:
+        searches = generate_google_searches("https://www.enthought.com/product/canopy/")
+        assert len(searches) >= 3
+        for url in searches:
+            assert url.startswith("https://www.google.com/search?q=")
+
+    def test_includes_site_scoped_search(self) -> None:
+        searches = generate_google_searches("https://www.enthought.com/product/canopy/")
+        assert any("site%3Awww.enthought.com" in s or "site%3Aenthought.com" in s for s in searches)
+
+    def test_includes_quoted_url_search(self) -> None:
+        searches = generate_google_searches("https://www.example.com/dead-page/")
+        # At least one search should include the URL itself for triangulation.
+        assert any("dead-page" in s.lower() for s in searches)
+
+    def test_handles_empty_path(self) -> None:
+        """Bare-domain URL → still produces site: search."""
+        searches = generate_google_searches("https://www.enthought.com/")
+        assert len(searches) >= 1
+
+
+class TestBuildGithubSourceUrl:
+    """Tests for build_github_source_url() (#194)."""
+
+    def test_returns_blob_url(self) -> None:
+        url = build_github_source_url("realpython", "python-guide", "docs/dev/virtualenvs.rst", 113)
+        assert url == "https://github.com/realpython/python-guide/blob/HEAD/docs/dev/virtualenvs.rst#L113"
+
+    def test_returns_none_without_owner(self) -> None:
+        assert build_github_source_url("", "repo", "file.md", 1) is None
+
+    def test_returns_none_without_repo(self) -> None:
+        assert build_github_source_url("owner", "", "file.md", 1) is None
+
+
+class TestFormatVerdictWithGithubUrl:
+    """format_verdict_for_review with optional GitHub source URL (#194)."""
+
+    def test_includes_github_url_when_provided(self) -> None:
+        verdict = _make_verdict()
+        output = format_verdict_for_review(
+            verdict,
+            github_source_url="https://github.com/realpython/python-guide/blob/HEAD/README.md#L10",
+        )
+        assert "github.com/realpython/python-guide/blob/HEAD/README.md#L10" in output
+
+    def test_omits_github_url_when_absent(self) -> None:
+        verdict = _make_verdict()
+        output = format_verdict_for_review(verdict)
+        assert "github.com" not in output.split("Dead URL")[0]
 
 
 class TestN4HumanReview:
