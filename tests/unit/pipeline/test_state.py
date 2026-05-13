@@ -70,9 +70,10 @@ class TestCreateInitialState:
         assert s1["run_id"] != s2["run_id"]
 
     def test_default_db_path(self) -> None:
+        from gh_link_auditor.unified_db import DEFAULT_DB_PATH
+
         state = create_initial_state(target="t")
-        assert "state.db" in state["db_path"]
-        assert ".ghla" in state["db_path"]
+        assert state["db_path"] == str(DEFAULT_DB_PATH)
 
     def test_custom_db_path(self) -> None:
         state = create_initial_state(target="t", db_path="/tmp/test.db")

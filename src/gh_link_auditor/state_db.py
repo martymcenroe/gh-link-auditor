@@ -7,10 +7,11 @@ link_detective, tests) continue to work unchanged.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from gh_link_auditor.models import BlacklistEntry, InteractionRecord, InteractionStatus
-from gh_link_auditor.unified_db import UnifiedDatabase
+from gh_link_auditor.unified_db import DEFAULT_DB_PATH, UnifiedDatabase
 
 
 class StateDatabase:
@@ -18,7 +19,7 @@ class StateDatabase:
 
     SCHEMA_VERSION = 3
 
-    def __init__(self, db_path: str = "state.db") -> None:
+    def __init__(self, db_path: str | Path = DEFAULT_DB_PATH) -> None:
         self._db = UnifiedDatabase(db_path)
         # Expose _conn for tests that inspect schema directly
         self._conn = self._db._conn

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import argparse
 import logging
-from pathlib import Path
+
+from gh_link_auditor.unified_db import DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 def build_recheck_parser(subparsers: argparse._SubParsersAction) -> None:
     """Register the recheck subcommand."""
     rc_parser = subparsers.add_parser("recheck", help="Process snoozed findings due for recheck")
-    rc_parser.add_argument("--db-path", type=str, default=None, help="Path to GHLA database")
+    rc_parser.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH), help="Path to GHLA database")
     rc_parser.add_argument("--dry-run", action="store_true", help="Show what would be rechecked without acting")
     rc_parser.set_defaults(func=cmd_recheck)
 
@@ -46,10 +47,9 @@ def cmd_recheck(args: argparse.Namespace) -> int:
     """
     from gh_link_auditor.unified_db import UnifiedDatabase
 
-    db_path = args.db_path or str(Path.home() / ".ghla" / "ghla.db")
     dry_run = args.dry_run
 
-    with UnifiedDatabase(db_path) as db:
+    with UnifiedDatabase(args.db_path) as db:
         due = db.get_due_rechecks()
 
         if not due:

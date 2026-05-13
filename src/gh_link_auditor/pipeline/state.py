@@ -156,9 +156,11 @@ def create_initial_state(
     Returns:
         Initialized PipelineState.
     """
+    from gh_link_auditor.unified_db import DEFAULT_DB_PATH
+
     run_id = str(uuid.uuid4())
     if db_path is None:
-        db_path = str(Path.home() / ".ghla" / "state.db")
+        db_path = str(DEFAULT_DB_PATH)
 
     return PipelineState(
         target=target,
