@@ -87,6 +87,61 @@ def _fetch_pr_status(owner: str, repo: str, pr_number: int) -> dict:
         raise RuntimeError(msg) from exc
 
 
+def _fetch_pr_comments(owner: str, repo: str, pr_number: int) -> list[dict]:
+    """Fetch issue-level comments on a PR via gh CLI.
+
+    Returns a list of dicts with at minimum: id, body, html_url,
+    author_association, created_at.
+
+    Raises:
+        RuntimeError: If the API call fails.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"repos/{owner}/{repo}/issues/{pr_number}/comments",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            msg = f"gh api failed for {owner}/{repo}#{pr_number} comments: {result.stderr.strip()}"
+            raise RuntimeError(msg)
+
+        import json
+
+        return json.loads(result.stdout) if result.stdout else []
+
+    except FileNotFoundError as exc:
+        msg = "gh CLI not found"
+        raise RuntimeError(msg) from exc
+
+
+def _find_hostile_comments(owner: str, repo: str, pr_number: int) -> list[dict]:
+    """Return maintainer-authored hostile comments on a PR, oldest-first.
+
+    Swallows API failures and returns []; the caller's outer loop continues
+    on to other PRs rather than failing the whole refresh.
+    """
+    from gh_link_auditor.hostile_classifier import is_hostile_text, is_maintainer_comment
+
+    try:
+        comments = _fetch_pr_comments(owner, repo, pr_number)
+    except RuntimeError:
+        logger.warning("Failed to fetch comments for %s/%s#%d", owner, repo, pr_number)
+        return []
+
+    hits = [
+        c for c in comments if is_maintainer_comment(c.get("author_association")) and is_hostile_text(c.get("body"))
+    ]
+    hits.sort(key=lambda c: c.get("created_at") or "")
+    return hits
+
+
 def _check_maintainer_fixed(
     owner: str,
     repo: str,
@@ -193,6 +248,17 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
 
             repo_url = f"https://github.com/{outcome.repo_full_name}"
             new_status = _determine_status(api_data)
+
+            if not udb.is_blacklisted(repo_url):
+                hostile = _find_hostile_comments(owner, repo, pr_number)
+                if hostile:
+                    first = hostile[0]
+                    udb.add_to_blacklist(
+                        repo_url=repo_url,
+                        reason=f"Hostile maintainer comment: {first.get('html_url', '?')}",
+                        source="hostile",
+                    )
+                    logger.info("Auto-blacklisted (hostile): %s", repo_url)
 
             if new_status == outcome.status:
                 # Still open — check for unresponsive timeout

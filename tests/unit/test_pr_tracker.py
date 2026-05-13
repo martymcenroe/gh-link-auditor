@@ -165,6 +165,133 @@ class TestCheckMaintainerFixed:
             assert _check_maintainer_fixed("org", "repo", 42) is False
 
 
+class TestFetchPrComments:
+    """Tests for _fetch_pr_comments() — issue #178."""
+
+    def test_returns_parsed_list(self) -> None:
+        from gh_link_auditor.pr_tracker import _fetch_pr_comments
+
+        payload = (
+            '[{"id": 1, "body": "thanks", "html_url": "u/1", '
+            '"author_association": "OWNER", "created_at": "2026-04-01T00:00:00Z"}]'
+        )
+        with patch("subprocess.run", return_value=_mock_completed(payload)):
+            comments = _fetch_pr_comments("org", "repo", 42)
+        assert len(comments) == 1
+        assert comments[0]["id"] == 1
+        assert comments[0]["author_association"] == "OWNER"
+
+    def test_empty_list(self) -> None:
+        from gh_link_auditor.pr_tracker import _fetch_pr_comments
+
+        with patch("subprocess.run", return_value=_mock_completed("[]")):
+            assert _fetch_pr_comments("org", "repo", 42) == []
+
+    def test_raises_on_api_failure(self) -> None:
+        from gh_link_auditor.pr_tracker import _fetch_pr_comments
+
+        with patch("subprocess.run", return_value=_mock_completed("", returncode=1, stderr="rate limited")):
+            with pytest.raises(RuntimeError, match="gh api failed"):
+                _fetch_pr_comments("org", "repo", 42)
+
+    def test_raises_when_gh_not_found(self) -> None:
+        from gh_link_auditor.pr_tracker import _fetch_pr_comments
+
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            with pytest.raises(RuntimeError, match="gh CLI not found"):
+                _fetch_pr_comments("org", "repo", 42)
+
+
+class TestFindHostileComments:
+    """Tests for _find_hostile_comments() — issue #178."""
+
+    def test_no_comments_returns_empty(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_hostile_comments
+
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=[]):
+            assert _find_hostile_comments("org", "repo", 1) == []
+
+    def test_non_maintainer_hostile_is_ignored(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_hostile_comments
+
+        comments = [
+            {
+                "id": 1,
+                "body": "fuck off",
+                "html_url": "u/1",
+                "author_association": "CONTRIBUTOR",
+                "created_at": "2026-04-01T00:00:00Z",
+            }
+        ]
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=comments):
+            assert _find_hostile_comments("org", "repo", 1) == []
+
+    def test_maintainer_non_hostile_is_ignored(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_hostile_comments
+
+        comments = [
+            {
+                "id": 1,
+                "body": "Thanks! Merging.",
+                "html_url": "u/1",
+                "author_association": "OWNER",
+                "created_at": "2026-04-01T00:00:00Z",
+            }
+        ]
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=comments):
+            assert _find_hostile_comments("org", "repo", 1) == []
+
+    def test_maintainer_hostile_is_returned(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_hostile_comments
+
+        comments = [
+            {
+                "id": 1,
+                "body": "stop opening prs to my repo",
+                "html_url": "u/1",
+                "author_association": "OWNER",
+                "created_at": "2026-04-01T00:00:00Z",
+            }
+        ]
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=comments):
+            hits = _find_hostile_comments("org", "repo", 1)
+        assert len(hits) == 1
+        assert hits[0]["html_url"] == "u/1"
+
+    def test_multiple_hostile_returned_oldest_first(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_hostile_comments
+
+        comments = [
+            {
+                "id": 2,
+                "body": "spammer go away",
+                "html_url": "u/2",
+                "author_association": "MEMBER",
+                "created_at": "2026-04-05T00:00:00Z",
+            },
+            {
+                "id": 1,
+                "body": "fuck off",
+                "html_url": "u/1",
+                "author_association": "OWNER",
+                "created_at": "2026-04-01T00:00:00Z",
+            },
+        ]
+        # `spammer go away` contains 'spammer' which IS in the phrase list.
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=comments):
+            hits = _find_hostile_comments("org", "repo", 1)
+        assert [h["id"] for h in hits] == [1, 2]
+
+    def test_swallows_api_failure(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_hostile_comments
+
+        with patch(
+            "gh_link_auditor.pr_tracker._fetch_pr_comments",
+            side_effect=RuntimeError("rate limited"),
+        ):
+            assert _find_hostile_comments("org", "repo", 1) == []
+
+
 class TestRefreshPrOutcomes:
     """Tests for refresh_pr_outcomes()."""
 
@@ -341,6 +468,77 @@ class TestRefreshPrOutcomes:
         # Only PR 60 should be updated (61 still open, 62 already merged)
         assert len(updated) == 1
         assert "pull/60" in updated[0].pr_url
+
+    def test_blacklists_on_hostile_comment(self, tmp_path: Path) -> None:
+        """Issue #178: hostile maintainer comment auto-blacklists the repo."""
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "metrics.db"
+        _seed_db(
+            db_path,
+            [_make_outcome(pr_url="https://github.com/org/repo/pull/70", status="open")],
+        )
+
+        still_open = {"state": "open", "merged": False, "merged_at": None, "closed_at": None}
+        hostile_comments = [
+            {
+                "id": 99,
+                "body": "stop opening prs here, please",
+                "html_url": "https://github.com/org/repo/pull/70#issuecomment-99",
+                "author_association": "OWNER",
+                "created_at": "2026-04-01T00:00:00Z",
+            }
+        ]
+
+        with (
+            patch("gh_link_auditor.pr_tracker._fetch_pr_status", return_value=still_open),
+            patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=hostile_comments),
+        ):
+            refresh_pr_outcomes(db_path)
+
+        udb = UnifiedDatabase(db_path)
+        try:
+            entries = udb.get_blacklist()
+            hostile_entries = [e for e in entries if e.repo_url == "https://github.com/org/repo"]
+            assert len(hostile_entries) == 1
+            assert "comment" in hostile_entries[0].reason.lower()
+        finally:
+            udb.close()
+
+    def test_hostile_blacklist_is_idempotent(self, tmp_path: Path) -> None:
+        """Re-running refresh on already-blacklisted repo doesn't dup the row."""
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "metrics.db"
+        _seed_db(
+            db_path,
+            [_make_outcome(pr_url="https://github.com/org/repo/pull/71", status="open")],
+        )
+
+        still_open = {"state": "open", "merged": False, "merged_at": None, "closed_at": None}
+        hostile_comments = [
+            {
+                "id": 100,
+                "body": "fuck off",
+                "html_url": "https://github.com/org/repo/pull/71#issuecomment-100",
+                "author_association": "MEMBER",
+                "created_at": "2026-04-01T00:00:00Z",
+            }
+        ]
+
+        with (
+            patch("gh_link_auditor.pr_tracker._fetch_pr_status", return_value=still_open),
+            patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=hostile_comments),
+        ):
+            refresh_pr_outcomes(db_path)
+            refresh_pr_outcomes(db_path)
+
+        udb = UnifiedDatabase(db_path)
+        try:
+            entries = udb.get_blacklist()
+            assert len([e for e in entries if e.repo_url == "https://github.com/org/repo"]) == 1
+        finally:
+            udb.close()
 
 
 class TestCmdMetricsRefresh:
