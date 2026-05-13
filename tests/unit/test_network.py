@@ -235,6 +235,237 @@ class TestHeadToGetFallback403:
         assert result["retries"] == 0
 
 
+class TestHeadlessFallback:
+    """Tests for headless-browser fallback after persistent 403 (#190)."""
+
+    def test_headless_fallback_invoked_when_allow_headless_true(self, no_retry_backoff_config):
+        """403 on HEAD + GET + browser-UA → headless probe runs when flag set."""
+        from gh_link_auditor.network import RequestResult
+
+        http_error_403 = urllib.error.HTTPError("https://challenge.example.com", 403, "Forbidden", {}, None)
+
+        fake_ok = RequestResult(
+            url="https://challenge.example.com",
+            status="ok",
+            status_code=200,
+            method="HEADLESS",
+            response_time_ms=8000,
+            retries=0,
+            error=None,
+        )
+
+        with (
+            mock.patch(
+                "gh_link_auditor.network.urllib.request.urlopen",
+                side_effect=http_error_403,
+            ),
+            mock.patch(
+                "gh_link_auditor.network._headless_browser_get",
+                return_value=fake_ok,
+            ) as mock_headless,
+        ):
+            result = check_url(
+                "https://challenge.example.com",
+                request_config={
+                    "timeout": 10.0,
+                    "verify_ssl": True,
+                    "user_agent": "test",
+                    "allow_headless": True,
+                },
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] == "ok"
+        assert result["method"] == "HEADLESS"
+        assert mock_headless.called
+
+    def test_headless_fallback_skipped_when_flag_absent(self, no_retry_backoff_config):
+        """403 on HEAD + GET + browser-UA → headless NOT invoked by default."""
+        http_error_403 = urllib.error.HTTPError("https://challenge.example.com", 403, "Forbidden", {}, None)
+
+        with (
+            mock.patch(
+                "gh_link_auditor.network.urllib.request.urlopen",
+                side_effect=http_error_403,
+            ),
+            mock.patch(
+                "gh_link_auditor.network._headless_browser_get",
+            ) as mock_headless,
+        ):
+            result = check_url(
+                "https://challenge.example.com",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status_code"] == 403
+        assert not mock_headless.called
+
+    def test_headless_fallback_only_after_browser_ua_retry(self, no_retry_backoff_config):
+        """Headless NOT invoked on 403 from HEAD/GET — must exhaust browser-UA first."""
+
+        http_error_403 = urllib.error.HTTPError("https://challenge.example.com", 403, "Forbidden", {}, None)
+        mock_resp_200 = _mock_urlopen_response(status=200)
+
+        def side_effect(*args, **kwargs):
+            request_obj = args[0]
+            ua = request_obj.get_header("User-agent") or ""
+            # Browser UA retry succeeds — headless should NOT be invoked
+            if "Chrome/124" in ua:
+                return mock_resp_200
+            raise http_error_403
+
+        with (
+            mock.patch(
+                "gh_link_auditor.network.urllib.request.urlopen",
+                side_effect=side_effect,
+            ),
+            mock.patch(
+                "gh_link_auditor.network._headless_browser_get",
+            ) as mock_headless,
+        ):
+            result = check_url(
+                "https://challenge.example.com",
+                request_config={
+                    "timeout": 10.0,
+                    "verify_ssl": True,
+                    "user_agent": "test",
+                    "allow_headless": True,
+                },
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] == "ok"
+        assert not mock_headless.called
+
+
+class TestHeadlessBrowserGet:
+    """Tests for _headless_browser_get() — the helper itself (#190)."""
+
+    def test_returns_error_when_playwright_unavailable(self):
+        """ImportError on playwright → status='error' with clear message."""
+        # Patch the import to raise ImportError
+        import sys
+
+        from gh_link_auditor.network import _headless_browser_get
+
+        original_modules = sys.modules.copy()
+        sys.modules["playwright"] = None  # type: ignore[assignment]
+        sys.modules["playwright.sync_api"] = None  # type: ignore[assignment]
+        try:
+            result = _headless_browser_get("https://example.com", timeout_s=1.0)
+        finally:
+            sys.modules.clear()
+            sys.modules.update(original_modules)
+
+        assert result["status"] == "error"
+        assert "playwright" in (result["error"] or "").lower()
+
+    def test_returns_ok_when_navigation_succeeds(self):
+        """Mocked successful navigation → status='ok' with status_code from response."""
+        from gh_link_auditor.network import _headless_browser_get
+
+        class _Resp:
+            status = 200
+
+        class _Page:
+            def goto(self, url, **kwargs):
+                return _Resp()
+
+            def title(self):
+                return "Real Documentation"
+
+        class _Ctx:
+            def new_page(self):
+                return _Page()
+
+        class _Browser:
+            def new_context(self):
+                return _Ctx()
+
+            def close(self):
+                pass
+
+        class _Chromium:
+            def launch(self, **kwargs):
+                return _Browser()
+
+        class _Playwright:
+            chromium = _Chromium()
+
+        class _SyncCM:
+            def __enter__(self):
+                return _Playwright()
+
+            def __exit__(self, *a):
+                return False
+
+        class _FakeStealth:
+            def apply_stealth_sync(self, page):
+                pass
+
+        with (
+            mock.patch("playwright.sync_api.sync_playwright", return_value=_SyncCM()),
+            mock.patch("playwright_stealth.Stealth", return_value=_FakeStealth()),
+        ):
+            result = _headless_browser_get("https://example.com", timeout_s=5.0)
+
+        assert result["status"] == "ok"
+        assert result["status_code"] == 200
+        assert result["method"] == "HEADLESS"
+
+    def test_detects_still_on_challenge_page(self):
+        """If page.title contains 'checking your browser' → status='error'."""
+        from gh_link_auditor.network import _headless_browser_get
+
+        class _Resp:
+            status = 403
+
+        class _Page:
+            def goto(self, url, **kwargs):
+                return _Resp()
+
+            def title(self):
+                return "Checking your browser before accessing"
+
+        class _Ctx:
+            def new_page(self):
+                return _Page()
+
+        class _Browser:
+            def new_context(self):
+                return _Ctx()
+
+            def close(self):
+                pass
+
+        class _Chromium:
+            def launch(self, **kwargs):
+                return _Browser()
+
+        class _Playwright:
+            chromium = _Chromium()
+
+        class _SyncCM:
+            def __enter__(self):
+                return _Playwright()
+
+            def __exit__(self, *a):
+                return False
+
+        class _FakeStealth:
+            def apply_stealth_sync(self, page):
+                pass
+
+        with (
+            mock.patch("playwright.sync_api.sync_playwright", return_value=_SyncCM()),
+            mock.patch("playwright_stealth.Stealth", return_value=_FakeStealth()),
+        ):
+            result = _headless_browser_get("https://example.com", timeout_s=5.0)
+
+        assert result["status"] == "error"
+        assert "challenge" in (result["error"] or "").lower()
+
+
 class TestBrowserUaRetry:
     """Tests for browser UA retry on 403 (#122)."""
 

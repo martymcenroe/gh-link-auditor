@@ -367,6 +367,98 @@ def _build_error_message(status_code: int | None, error_type: str | None) -> str
 
 
 # ---------------------------------------------------------------------------
+# Headless-browser fallback (#190)
+# ---------------------------------------------------------------------------
+
+_CHALLENGE_TITLE_MARKERS = ("checking your browser", "just a moment")
+
+
+def _headless_browser_get(url: str, timeout_s: float = 20.0) -> RequestResult:
+    """Verify a URL by loading it via real Chrome with stealth patches.
+
+    For URLs that fail HTTP probing due to JavaScript anti-bot challenges
+    (Cloudflare-style 403 to non-browser clients). Uses ``channel='chrome'``
+    so it reuses the user's installed Chrome — no Chromium download.
+
+    Returns ``status='ok'`` if navigation completed and the final page is
+    not a challenge page. See LLD-190 for the heuristic.
+
+    Args:
+        url: URL to probe.
+        timeout_s: Hard cap for navigation. Defaults to 20s — enough for
+            most JS challenges to resolve.
+
+    Returns:
+        ``RequestResult`` with ``method='HEADLESS'``.
+    """
+    start = time.monotonic()
+    try:
+        from playwright.sync_api import sync_playwright
+        from playwright_stealth import Stealth
+    except ImportError as exc:
+        return RequestResult(
+            url=url,
+            status="error",
+            status_code=None,
+            method="HEADLESS",
+            response_time_ms=0,
+            retries=0,
+            error=f"playwright unavailable: {exc}",
+        )
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="chrome", headless=True)
+            try:
+                context = browser.new_context()
+                page = context.new_page()
+                Stealth().apply_stealth_sync(page)
+                response = page.goto(
+                    url,
+                    wait_until="networkidle",
+                    timeout=int(timeout_s * 1000),
+                )
+                final_status = response.status if response is not None else None
+                final_title = (page.title() or "").lower()
+            finally:
+                browser.close()
+    except Exception as exc:  # noqa: BLE001 — third-party error surface is wide
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return RequestResult(
+            url=url,
+            status="error",
+            status_code=None,
+            method="HEADLESS",
+            response_time_ms=elapsed_ms,
+            retries=0,
+            error=f"headless probe failed: {exc}",
+        )
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+
+    if any(marker in final_title for marker in _CHALLENGE_TITLE_MARKERS):
+        return RequestResult(
+            url=url,
+            status="error",
+            status_code=final_status,
+            method="HEADLESS",
+            response_time_ms=elapsed_ms,
+            retries=0,
+            error="still on JS challenge page after networkidle",
+        )
+
+    return RequestResult(
+        url=url,
+        status="ok",
+        status_code=(final_status if final_status is not None and final_status < 400 else 200),
+        method="HEADLESS",
+        response_time_ms=elapsed_ms,
+        retries=0,
+        error=None,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API (LLD §2.4 / §2.5)
 # ---------------------------------------------------------------------------
 
@@ -436,12 +528,20 @@ def check_url(
         # Browser UA retry on 403 after GET fallback (#122)
         if status_code == 403 and get_fallback_attempted and not browser_ua_attempted:
             browser_ua_attempted = True
-            request_config = RequestConfig(
-                timeout=request_config["timeout"],
-                verify_ssl=request_config["verify_ssl"],
-                user_agent=_BROWSER_RETRY_UA,
-            )
+            # Preserve all keys (including the optional allow_headless flag, #190)
+            # and only override user_agent.
+            request_config = {**request_config, "user_agent": _BROWSER_RETRY_UA}  # type: ignore[typeddict-item]
             continue
+
+        # Headless-browser fallback (#190) — gated by opt-in flag.
+        # Only triggers after the modern-UA retry has also failed with 403.
+        if (
+            status_code == 403 and browser_ua_attempted and request_config.get("allow_headless")  # type: ignore[typeddict-item]
+        ):
+            return _headless_browser_get(
+                url,
+                timeout_s=request_config["timeout"] * 2,
+            )
 
         # Permanent failures — return immediately
         if not retry_ok:

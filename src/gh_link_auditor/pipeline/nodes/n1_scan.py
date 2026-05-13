@@ -15,6 +15,7 @@ from pathlib import Path
 
 from gh_link_auditor.false_positives import is_api_test_endpoint, is_false_positive, is_placeholder_url
 from gh_link_auditor.network import check_url as network_check_url
+from gh_link_auditor.network import create_request_config
 from gh_link_auditor.pipeline.state import DeadLink, PipelineState
 
 _URL_RE = re.compile(r"https?://[^\s>\"\]`]+")
@@ -173,7 +174,12 @@ def _check_single_url(url: str) -> dict:
     Returns:
         RequestResult-like dict with status info.
     """
-    result = network_check_url(url)
+    # N1 enables the headless-browser fallback (#190) — one probe per URL,
+    # so the ~10-15s cost on JS-challenged URLs is acceptable here. N2's
+    # per-candidate probes keep this off.
+    config = create_request_config()
+    config["allow_headless"] = True  # type: ignore[typeddict-unknown-key]
+    result = network_check_url(url, request_config=config)
     return dict(result)
 
 
