@@ -1,12 +1,13 @@
-"""Tests for pipeline PR message generation.
+"""Tests for casual-register PR message generation.
 
-See Issue #85 for specification.
+See Issue #209 (current spec) and Issue #85 (original spec, now replaced).
 """
 
 from __future__ import annotations
 
+import pytest
+
 from gh_link_auditor.pipeline.pr_message import (
-    _build_verification_detail,
     _find_verdict_for_fix,
     generate_pr_body_from_fixes,
     generate_pr_title_from_fixes,
@@ -16,6 +17,16 @@ from gh_link_auditor.pipeline.state import (
     FixPatch,
     ReplacementCandidate,
     Verdict,
+)
+
+FORBIDDEN_AI_TELLS = (
+    "docs:",
+    "I ran",
+    "**",
+    "—",  # em-dash
+    "→",  # rightwards arrow
+    "Verified",
+    "automated",
 )
 
 
@@ -64,178 +75,97 @@ def _make_verdict(
 
 
 class TestGeneratePrTitleFromFixes:
-    """Tests for generate_pr_title_from_fixes()."""
-
     def test_empty_list(self) -> None:
-        assert generate_pr_title_from_fixes([]) == "docs: fix broken links"
+        assert generate_pr_title_from_fixes([]) == "fix broken docs links"
 
     def test_single_fix(self) -> None:
-        title = generate_pr_title_from_fixes([_make_fix()])
-        assert title == "docs: fix broken link in README.md"
+        assert generate_pr_title_from_fixes([_make_fix()]) == "fix broken docs link"
 
-    def test_multiple_fixes_same_file(self) -> None:
-        fixes = [
-            _make_fix(original_url="https://a.com"),
-            _make_fix(original_url="https://b.com"),
-        ]
-        title = generate_pr_title_from_fixes(fixes)
-        assert "2 broken links" in title
-        assert "README.md" in title
+    def test_multiple_fixes(self) -> None:
+        fixes = [_make_fix(original_url="https://a.com"), _make_fix(original_url="https://b.com")]
+        assert generate_pr_title_from_fixes(fixes) == "fix 2 broken docs links"
 
-    def test_multiple_files(self) -> None:
-        fixes = [
-            _make_fix(source_file="a.md"),
-            _make_fix(source_file="b.md"),
-        ]
-        title = generate_pr_title_from_fixes(fixes)
-        assert "2 broken links" in title
-        assert "a.md" not in title  # Multiple files, no specific name
+    def test_no_conventional_prefix(self) -> None:
+        for fixes in ([], [_make_fix()], [_make_fix(), _make_fix(original_url="https://b.com")]):
+            assert not generate_pr_title_from_fixes(fixes).startswith("docs:")
+            assert not generate_pr_title_from_fixes(fixes).startswith("feat:")
+            assert not generate_pr_title_from_fixes(fixes).startswith("chore:")
 
-    def test_starts_with_docs_prefix(self) -> None:
-        title = generate_pr_title_from_fixes([_make_fix()])
-        assert title.startswith("docs:")
+    def test_lowercase_only(self) -> None:
+        for fixes in ([], [_make_fix()], [_make_fix(), _make_fix(original_url="https://b.com")]):
+            title = generate_pr_title_from_fixes(fixes)
+            assert title == title.lower()
 
+    def test_no_period(self) -> None:
+        for fixes in ([], [_make_fix()], [_make_fix(), _make_fix(original_url="https://b.com")]):
+            assert not generate_pr_title_from_fixes(fixes).endswith(".")
 
-class TestBuildVerificationDetail:
-    """Tests for _build_verification_detail()."""
-
-    def test_redirect_source(self) -> None:
-        verdict = _make_verdict(source="redirect")
-        detail = _build_verification_detail(verdict)
-        assert "redirects" in detail
-
-    def test_archive_source(self) -> None:
-        verdict = _make_verdict(source="archive")
-        detail = _build_verification_detail(verdict)
-        assert "archive.org" in detail
-
-    def test_search_source(self) -> None:
-        verdict = _make_verdict(source="search")
-        detail = _build_verification_detail(verdict)
-        assert "search" in detail
-
-    def test_unknown_source(self) -> None:
-        verdict = _make_verdict(source="unknown")
-        detail = _build_verification_detail(verdict)
-        assert "Verified" in detail
-
-    def test_none_verdict(self) -> None:
-        detail = _build_verification_detail(None)
-        assert "Verified" in detail
-
-    def test_no_candidate(self) -> None:
-        verdict = Verdict(
-            dead_link=DeadLink(
-                url="https://old.com",
-                source_file="a.md",
-                line_number=1,
-                link_text="t",
-                http_status=404,
-                error_type="http_error",
-            ),
-            candidate=None,
-            confidence=0.0,
-            reasoning="no match",
-            approved=True,
-        )
-        detail = _build_verification_detail(verdict)
-        assert "Verified" in detail
+    def test_no_file_name_in_title(self) -> None:
+        """File name is in the body/diff, not the title."""
+        assert "README.md" not in generate_pr_title_from_fixes([_make_fix()])
 
 
 class TestFindVerdictForFix:
-    """Tests for _find_verdict_for_fix()."""
-
     def test_finds_matching_verdict(self) -> None:
         fix = _make_fix()
         verdict = _make_verdict()
-        result = _find_verdict_for_fix(fix, [verdict])
-        assert result is verdict
+        assert _find_verdict_for_fix(fix, [verdict]) is verdict
 
-    def test_returns_none_when_no_match(self) -> None:
+    def test_returns_none_when_no_url_match(self) -> None:
         fix = _make_fix(original_url="https://different.com")
-        verdict = _make_verdict()
-        result = _find_verdict_for_fix(fix, [verdict])
-        assert result is None
+        assert _find_verdict_for_fix(fix, [_make_verdict()]) is None
 
-    def test_matches_on_both_url_and_file(self) -> None:
+    def test_returns_none_when_no_file_match(self) -> None:
         fix = _make_fix(source_file="other.md")
         verdict = _make_verdict(source_file="README.md")
-        result = _find_verdict_for_fix(fix, [verdict])
-        assert result is None
+        assert _find_verdict_for_fix(fix, [verdict]) is None
 
     def test_empty_verdicts(self) -> None:
-        fix = _make_fix()
-        result = _find_verdict_for_fix(fix, [])
-        assert result is None
+        assert _find_verdict_for_fix(_make_fix(), []) is None
 
 
 class TestGeneratePrBodyFromFixes:
-    """Tests for generate_pr_body_from_fixes()."""
-
-    def test_single_fix_with_verdict(self) -> None:
+    def test_single_fix_exact_format(self) -> None:
         fix = _make_fix()
-        verdict = _make_verdict()
-        body = generate_pr_body_from_fixes([fix], [verdict])
-        assert "I ran a link checker" in body
-        assert "https://old.example.com/page" in body
-        assert "https://new.example.com/page" in body
-        assert "404" in body
-        assert "line 5" in body
+        body = generate_pr_body_from_fixes([fix], [_make_verdict()])
+        assert body == (
+            "https://old.example.com/page is dead\n\nthink this is the one you want: https://new.example.com/page"
+        )
 
     def test_single_fix_without_verdict(self) -> None:
-        fix = _make_fix()
-        body = generate_pr_body_from_fixes([fix])
-        assert "I ran a link checker" in body
-        assert "https://old.example.com/page" in body
-        assert "https://new.example.com/page" in body
+        body = generate_pr_body_from_fixes([_make_fix()])
+        assert "https://old.example.com/page is dead" in body
+        assert "think this is the one you want: https://new.example.com/page" in body
 
-    def test_multiple_fixes(self) -> None:
+    def test_single_fix_no_status_code(self) -> None:
+        """HTTP status not in body — it's noise; maintainer can curl."""
+        body = generate_pr_body_from_fixes([_make_fix()], [_make_verdict(http_status=404)])
+        assert "404" not in body
+
+    def test_single_fix_no_line_number(self) -> None:
+        """Line number not in single-fix body — it's in the diff."""
+        body = generate_pr_body_from_fixes([_make_fix()], [_make_verdict(line_number=42)])
+        assert "line 42" not in body
+        assert "line 5" not in body
+
+    def test_multiple_fixes_header(self) -> None:
+        fixes = [
+            _make_fix(source_file="a.md", original_url="https://a.com"),
+            _make_fix(source_file="b.md", original_url="https://b.com"),
+        ]
+        body = generate_pr_body_from_fixes(fixes)
+        assert body.startswith("found 2 dead links in the docs")
+
+    def test_multiple_fixes_arrows_are_ascii(self) -> None:
         fixes = [
             _make_fix(source_file="a.md", original_url="https://a.com", replacement_url="https://a-new.com"),
             _make_fix(source_file="b.md", original_url="https://b.com", replacement_url="https://b-new.com"),
         ]
-        verdicts = [
-            _make_verdict(source_file="a.md", original_url="https://a.com", replacement_url="https://a-new.com"),
-            _make_verdict(source_file="b.md", original_url="https://b.com", replacement_url="https://b-new.com"),
-        ]
-        body = generate_pr_body_from_fixes(fixes, verdicts)
-        assert "2 broken links" in body
-        assert "https://a.com" in body
-        assert "https://b.com" in body
-        assert "https://a-new.com" in body
-        assert "https://b-new.com" in body
+        body = generate_pr_body_from_fixes(fixes)
+        assert "->" in body
+        assert "→" not in body
 
-    def test_empty_fixes(self) -> None:
-        body = generate_pr_body_from_fixes([])
-        assert "no fixes to apply" in body
-
-    def test_no_bot_attribution(self) -> None:
-        fix = _make_fix()
-        body = generate_pr_body_from_fixes([fix])
-        assert "Bot" not in body
-        assert "bot" not in body
-        assert "automated scanning" not in body
-        assert "opt out" not in body
-
-    def test_redirect_verification_detail(self) -> None:
-        fix = _make_fix()
-        verdict = _make_verdict(source="redirect")
-        body = generate_pr_body_from_fixes([fix], [verdict])
-        assert "redirects" in body
-
-    def test_archive_verification_detail(self) -> None:
-        fix = _make_fix()
-        verdict = _make_verdict(source="archive")
-        body = generate_pr_body_from_fixes([fix], [verdict])
-        assert "archive.org" in body
-
-    def test_includes_status_code(self) -> None:
-        fix = _make_fix()
-        verdict = _make_verdict(http_status=410)
-        body = generate_pr_body_from_fixes([fix], [verdict])
-        assert "410" in body
-
-    def test_multiple_fixes_show_file_locations(self) -> None:
+    def test_multiple_fixes_with_line_numbers(self) -> None:
         fixes = [
             _make_fix(source_file="docs/guide.md", original_url="https://a.com", replacement_url="https://a-new.com"),
             _make_fix(source_file="docs/api.md", original_url="https://b.com", replacement_url="https://b-new.com"),
@@ -245,5 +175,69 @@ class TestGeneratePrBodyFromFixes:
             _make_verdict(source_file="docs/api.md", original_url="https://b.com", line_number=10),
         ]
         body = generate_pr_body_from_fixes(fixes, verdicts)
-        assert "`docs/guide.md`" in body
-        assert "`docs/api.md`" in body
+        assert "docs/guide.md line 42:" in body
+        assert "docs/api.md line 10:" in body
+
+    def test_multiple_fixes_without_verdicts_omit_line_number(self) -> None:
+        fixes = [
+            _make_fix(source_file="a.md", original_url="https://a.com"),
+            _make_fix(source_file="b.md", original_url="https://b.com"),
+        ]
+        body = generate_pr_body_from_fixes(fixes)
+        assert "a.md: https://a.com" in body
+        assert "b.md: https://b.com" in body
+        assert "line" not in body
+
+    def test_empty_fixes(self) -> None:
+        assert generate_pr_body_from_fixes([]) == "ran a check but found nothing worth fixing"
+
+    @pytest.mark.parametrize("tell", FORBIDDEN_AI_TELLS)
+    def test_single_fix_no_ai_tells(self, tell: str) -> None:
+        body = generate_pr_body_from_fixes([_make_fix()], [_make_verdict()])
+        assert tell not in body, f"AI-tell {tell!r} leaked into single-fix body"
+
+    @pytest.mark.parametrize("tell", FORBIDDEN_AI_TELLS)
+    def test_multiple_fixes_no_ai_tells(self, tell: str) -> None:
+        fixes = [
+            _make_fix(source_file="a.md", original_url="https://a.com"),
+            _make_fix(source_file="b.md", original_url="https://b.com"),
+        ]
+        verdicts = [
+            _make_verdict(source_file="a.md", original_url="https://a.com"),
+            _make_verdict(source_file="b.md", original_url="https://b.com"),
+        ]
+        body = generate_pr_body_from_fixes(fixes, verdicts)
+        assert tell not in body, f"AI-tell {tell!r} leaked into multi-fix body"
+
+    @pytest.mark.parametrize("tell", FORBIDDEN_AI_TELLS)
+    def test_empty_no_ai_tells(self, tell: str) -> None:
+        body = generate_pr_body_from_fixes([])
+        assert tell not in body
+
+    def test_body_is_lowercase_apart_from_urls(self) -> None:
+        """Body prose is lowercase. URLs may contain mixed case."""
+        body = generate_pr_body_from_fixes([_make_fix(original_url="https://Example.com/Page")])
+        prose = body.replace("https://Example.com/Page", "").replace("https://new.example.com/page", "")
+        for ch in prose:
+            if ch.isalpha():
+                assert ch.islower(), f"non-URL char {ch!r} not lowercase"
+
+    def test_no_bold_markdown(self) -> None:
+        body = generate_pr_body_from_fixes([_make_fix()], [_make_verdict()])
+        assert "**" not in body
+
+    def test_no_backticks(self) -> None:
+        """Backticked file paths look formatted/bot-like in casual register."""
+        fixes = [
+            _make_fix(source_file="docs/guide.md", original_url="https://a.com"),
+            _make_fix(source_file="docs/api.md", original_url="https://b.com"),
+        ]
+        body = generate_pr_body_from_fixes(fixes)
+        assert "`" not in body
+
+    def test_no_bot_words(self) -> None:
+        body = generate_pr_body_from_fixes([_make_fix()], [_make_verdict()])
+        lowered = body.lower()
+        assert "bot" not in lowered
+        assert "automated scanning" not in lowered
+        assert "opt out" not in lowered
