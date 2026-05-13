@@ -292,6 +292,58 @@ class TestFindHostileComments:
             assert _find_hostile_comments("org", "repo", 1) == []
 
 
+class TestFindAntiAiComments:
+    """Tests for _find_anti_ai_comments() — issue #200."""
+
+    def test_no_comments_returns_empty(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_anti_ai_comments
+
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=[]):
+            assert _find_anti_ai_comments("org", "repo", 1) == []
+
+    def test_non_maintainer_anti_ai_is_ignored(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_anti_ai_comments
+
+        comments = [
+            {
+                "id": 1,
+                "body": "please do not use genAI to generate or submit a PR",
+                "html_url": "u/1",
+                "author_association": "CONTRIBUTOR",
+                "created_at": "2026-04-01T00:00:00Z",
+            }
+        ]
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=comments):
+            assert _find_anti_ai_comments("org", "repo", 1) == []
+
+    def test_pallets_style_polite_rejection_caught(self) -> None:
+        """Real-world: davidism's pallets/flask #6019 maintainer comment."""
+        from gh_link_auditor.pr_tracker import _find_anti_ai_comments
+
+        comments = [
+            {
+                "id": 99,
+                "body": "Happy to update this, but please do not use genAI to generate or submit a PR.",
+                "html_url": "https://github.com/pallets/flask/pull/6019#issuecomment-99",
+                "author_association": "MEMBER",
+                "created_at": "2026-05-13T14:29:55Z",
+            }
+        ]
+        with patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=comments):
+            hits = _find_anti_ai_comments("pallets", "flask", 6019)
+        assert len(hits) == 1
+        assert hits[0]["id"] == 99
+
+    def test_swallows_api_failure(self) -> None:
+        from gh_link_auditor.pr_tracker import _find_anti_ai_comments
+
+        with patch(
+            "gh_link_auditor.pr_tracker._fetch_pr_comments",
+            side_effect=RuntimeError("rate limited"),
+        ):
+            assert _find_anti_ai_comments("org", "repo", 1) == []
+
+
 class TestRefreshPrOutcomes:
     """Tests for refresh_pr_outcomes()."""
 
@@ -537,6 +589,49 @@ class TestRefreshPrOutcomes:
         try:
             entries = udb.get_blacklist()
             assert len([e for e in entries if e.repo_url == "https://github.com/org/repo"]) == 1
+        finally:
+            udb.close()
+
+    def test_blacklists_on_anti_ai_comment(self, tmp_path: Path) -> None:
+        """Issue #200: anti-AI maintainer comment auto-blacklists with source=anti_ai."""
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "metrics.db"
+        _seed_db(
+            db_path,
+            [
+                _make_outcome(
+                    pr_url="https://github.com/pallets/flask/pull/6019", repo_full_name="pallets/flask", status="open"
+                )
+            ],
+        )
+
+        still_open = {"state": "open", "merged": False, "merged_at": None, "closed_at": None}
+        anti_ai_comments = [
+            {
+                "id": 99,
+                "body": "Happy to update this, but please do not use genAI to generate or submit a PR.",
+                "html_url": "https://github.com/pallets/flask/pull/6019#issuecomment-99",
+                "author_association": "MEMBER",
+                "created_at": "2026-05-13T14:29:55Z",
+            }
+        ]
+
+        with (
+            patch("gh_link_auditor.pr_tracker._fetch_pr_status", return_value=still_open),
+            patch("gh_link_auditor.pr_tracker._fetch_pr_comments", return_value=anti_ai_comments),
+        ):
+            refresh_pr_outcomes(db_path)
+
+        udb = UnifiedDatabase(db_path)
+        try:
+            entries = udb.get_blacklist()
+            anti_ai_entries = [e for e in entries if e.repo_url == "https://github.com/pallets/flask"]
+            assert len(anti_ai_entries) == 1
+            assert "anti-ai" in anti_ai_entries[0].reason.lower() or "policy" in anti_ai_entries[0].reason.lower()
+            # source should be "anti_ai" in the underlying row.
+            by_source = udb.get_blacklist_by_source()
+            assert by_source.get("anti_ai", 0) >= 1
         finally:
             udb.close()
 

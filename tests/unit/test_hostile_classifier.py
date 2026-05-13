@@ -6,8 +6,10 @@ See LLD-178 for the classifier design and the conservative phrase list.
 from __future__ import annotations
 
 from gh_link_auditor.hostile_classifier import (
+    ANTI_AI_PHRASES,
     HOSTILE_PHRASES,
     MAINTAINER_ASSOCIATIONS,
+    is_anti_ai_text,
     is_hostile_text,
     is_maintainer_comment,
 )
@@ -88,3 +90,40 @@ class TestConstants:
 
     def test_no_empty_phrases(self) -> None:
         assert all(p and p == p.lower() for p in HOSTILE_PHRASES)
+
+    def test_no_empty_anti_ai_phrases(self) -> None:
+        assert all(p and p == p.lower() for p in ANTI_AI_PHRASES)
+
+
+class TestIsAntiAiText:
+    """`is_anti_ai_text` returns True iff an anti-AI phrase appears (#200)."""
+
+    def test_clean_text_is_not_anti_ai(self) -> None:
+        assert is_anti_ai_text("Thanks for the PR! Merging.") is False
+
+    def test_empty_string_is_not_anti_ai(self) -> None:
+        assert is_anti_ai_text("") is False
+
+    def test_none_is_not_anti_ai(self) -> None:
+        assert is_anti_ai_text(None) is False
+
+    def test_pallets_flask_rejection_text(self) -> None:
+        """Real-world: davidism's pallets/flask #6019 comment hits."""
+        body = "Happy to update this, but please do not use genAI to generate or submit a PR."
+        assert is_anti_ai_text(body) is True
+
+    def test_case_insensitive(self) -> None:
+        assert is_anti_ai_text("NO AI-GENERATED PR PLEASE") is True
+
+    def test_each_phrase_hits(self) -> None:
+        for phrase in ANTI_AI_PHRASES:
+            assert is_anti_ai_text(phrase) is True, f"phrase missed: {phrase!r}"
+            assert is_anti_ai_text(f"prefix {phrase} suffix") is True
+
+    def test_hostile_text_is_not_anti_ai(self) -> None:
+        """Bias: anti-AI and hostile are disjoint signals."""
+        assert is_anti_ai_text("fuck off") is False
+
+    def test_anti_ai_text_is_not_hostile(self) -> None:
+        """Bias: anti-AI text doesn't trigger the rude classifier."""
+        assert is_hostile_text("please do not use AI to generate PRs") is False
