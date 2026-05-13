@@ -81,8 +81,13 @@ class TestInvalidScheme:
 
 
 class TestRedirectCandidate:
-    def test_redirect_chain_short_circuits(self):
-        """High-confidence redirect produces early return."""
+    def test_redirect_chain_suppressed_when_original_reachable(self):
+        """#197: a successful redirect chain proves the original URL works.
+
+        When dead_url responds with 30x leading to a live final_url, the
+        original is reachable — replacing it would be cosmetic, not a fix.
+        No candidate emitted; finding logged for diagnostics.
+        """
         detective = _make_detective()
         detective._redirect_resolver = FakeRedirectResolver(
             redirect_map={"https://old.com/page": ("https://new.com/page", ["301 -> https://new.com/page"])},
@@ -94,10 +99,11 @@ class TestRedirectCandidate:
 
         report = detective.investigate("https://old.com/page", 301)
 
-        candidates = report.investigation.candidate_replacements
-        assert len(candidates) >= 1
-        assert candidates[0].method == InvestigationMethod.REDIRECT_CHAIN
-        assert candidates[0].verified_live is True
+        redirect_candidates = [
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.REDIRECT_CHAIN
+        ]
+        assert redirect_candidates == []
+        assert any("candidate suppressed (#197)" in line for line in report.investigation.investigation_log)
 
 
 # ---------------------------------------------------------------------------
