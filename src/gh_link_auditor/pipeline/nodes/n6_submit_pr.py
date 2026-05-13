@@ -13,9 +13,19 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import httpx
+
 from gh_link_auditor.pipeline.state import FixPatch, PipelineState
 
 logger = logging.getLogger(__name__)
+
+_GH_API = "https://api.github.com"
+_GH_API_HEADERS_BASE = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "gh-link-auditor",
+}
+_GH_API_TIMEOUT_S = 30
 
 
 def _run_gh(args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -51,41 +61,79 @@ def _run_gh(args: list[str], cwd: str | None = None) -> subprocess.CompletedProc
 
 
 def _fork_repo(owner: str, repo: str) -> str:
-    """Fork a repository via gh CLI. Returns the fork's full name (owner/repo).
+    """Fork a repository via the GitHub REST API + classic PAT.
+
+    The fine-grained PAT can't fork arbitrary external repos (issue #185),
+    so we route this call through the classic PAT in-process context
+    manager (ADR-0216). The PAT lives only in the heap during the `with`
+    block.
+
+    Idempotent: POST /forks against an already-forked repo returns the
+    existing fork.
 
     Args:
         owner: Upstream repository owner.
         repo: Repository name.
 
     Returns:
-        Fork full name, e.g. "martymcenroe/flask".
+        Fork full name from the API response, e.g. "martymcenroe/flask".
     """
-    _run_gh(
-        [
-            "repo",
-            "fork",
-            f"{owner}/{repo}",
-            "--clone=false",
-        ]
-    )
-    # gh repo fork prints the fork name or "already exists" message.
-    # Parse the fork owner from the output or default to authenticated user.
-    auth_result = _run_gh(["auth", "status", "--hostname", "github.com"])
-    # Extract username from auth status output
-    for line in auth_result.stderr.splitlines() + auth_result.stdout.splitlines():
-        if "Logged in to" in line and "account" in line:
-            # "Logged in to github.com account martymcenroe"
-            parts = line.strip().split()
-            for i, part in enumerate(parts):
-                if part == "account":
-                    return f"{parts[i + 1].rstrip('(').rstrip(')')}/{repo}"
-    # Fallback: try gh api to get authenticated user
-    user_result = _run_gh(["api", "user", "--jq", ".login"])
-    username = user_result.stdout.strip()
-    if username:
-        return f"{username}/{repo}"
-    msg = "Could not determine fork owner from gh auth status"
-    raise RuntimeError(msg)
+    from gh_link_auditor.classic_pat import classic_pat_session
+
+    with classic_pat_session() as pat:
+        r = httpx.post(
+            f"{_GH_API}/repos/{owner}/{repo}/forks",
+            headers={**_GH_API_HEADERS_BASE, "Authorization": f"Bearer {pat}"},
+            timeout=_GH_API_TIMEOUT_S,
+        )
+    if r.status_code >= 400:
+        msg = f"GitHub fork API failed for {owner}/{repo}: HTTP {r.status_code} — {r.text[:200]}"
+        raise RuntimeError(msg)
+    return r.json()["full_name"]
+
+
+def _create_pr(
+    upstream_owner: str,
+    upstream_repo: str,
+    head: str,
+    base: str,
+    title: str,
+    body: str,
+) -> tuple[str, int]:
+    """Open a cross-fork PR via the GitHub REST API + classic PAT.
+
+    The fine-grained PAT can't open cross-fork PRs against arbitrary
+    external repos (issue #185), so this routes through the classic PAT
+    in-process context manager (ADR-0216).
+
+    Args:
+        upstream_owner: Owner of the upstream (target) repo.
+        upstream_repo: Name of the upstream repo.
+        head: PR head in "fork_owner:branch" form.
+        base: Base branch on upstream (e.g. "main").
+        title: PR title.
+        body: PR body (Markdown).
+
+    Returns:
+        Tuple of (html_url, pr_number) from the API response.
+    """
+    from gh_link_auditor.classic_pat import classic_pat_session
+
+    with classic_pat_session() as pat:
+        r = httpx.post(
+            f"{_GH_API}/repos/{upstream_owner}/{upstream_repo}/pulls",
+            json={"title": title, "head": head, "base": base, "body": body},
+            headers={**_GH_API_HEADERS_BASE, "Authorization": f"Bearer {pat}"},
+            timeout=_GH_API_TIMEOUT_S,
+        )
+    if r.status_code >= 400:
+        msg = (
+            f"GitHub PR-create API failed for {upstream_owner}/{upstream_repo} "
+            f"(head={head}): HTTP {r.status_code} — {r.text[:200]}"
+        )
+        raise RuntimeError(msg)
+    data = r.json()
+    return data["html_url"], data["number"]
 
 
 def _clone_fork(fork_full_name: str, work_dir: Path) -> Path:
@@ -282,31 +330,18 @@ def n6_submit_pr(state: PipelineState) -> PipelineState:
             verdicts = state.get("reviewed_verdicts", [])
             pr_body = generate_pr_body_from_fixes(fixes, verdicts)
 
-            # Step 8: Create PR from fork → upstream
+            # Step 8: Create PR from fork → upstream (classic-PAT REST, #185)
             default_branch = _get_default_branch(repo_owner, repo_name_short)
             fork_owner = fork_full_name.split("/")[0]
 
-            result = _run_gh(
-                [
-                    "pr",
-                    "create",
-                    "--repo",
-                    f"{repo_owner}/{repo_name_short}",
-                    "--head",
-                    f"{fork_owner}:{branch_name}",
-                    "--base",
-                    default_branch,
-                    "--title",
-                    pr_title,
-                    "--body",
-                    pr_body,
-                ]
+            pr_url, pr_number = _create_pr(
+                upstream_owner=repo_owner,
+                upstream_repo=repo_name_short,
+                head=f"{fork_owner}:{branch_name}",
+                base=default_branch,
+                title=pr_title,
+                body=pr_body,
             )
-
-            # Parse PR URL from output
-            pr_url = result.stdout.strip()
-            # Extract PR number from URL
-            pr_number = _extract_pr_number(pr_url)
 
             state["pr_url"] = pr_url
             state["pr_number"] = pr_number
