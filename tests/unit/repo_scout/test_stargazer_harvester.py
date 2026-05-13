@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from repo_scout.models import DiscoverySource, make_repo_record
 from repo_scout.stargazer_harvester import (
     _is_recently_active,
@@ -9,11 +11,16 @@ from repo_scout.stargazer_harvester import (
 )
 from tests.fakes.github import FakeGitHubClient
 
+# Computed at import time. Tests need a "recently pushed" timestamp that stays
+# inside the 6-month _is_recently_active window regardless of when the suite
+# runs. Hardcoded dates rot — see #174.
+RECENT_PUSH = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 def _make_user_repo(
     owner: str = "user1",
     name: str = "my-tool",
-    pushed_at: str | None = "2026-02-01T00:00:00Z",
+    pushed_at: str | None = None,
     has_issues: bool = True,
     language: str | None = "Python",
     fork: bool = False,
@@ -22,6 +29,8 @@ def _make_user_repo(
     description: str | None = "A tool",
 ) -> dict:
     """Build a fake GitHub repo API response dict."""
+    if pushed_at is None:
+        pushed_at = RECENT_PUSH
     return {
         "owner": {"login": owner},
         "name": name,
@@ -39,7 +48,8 @@ class TestIsRecentlyActive:
     """Tests for _is_recently_active helper."""
 
     def test_recent_date_returns_true(self) -> None:
-        assert _is_recently_active("2026-02-01T00:00:00Z", 6) is True
+        recent = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        assert _is_recently_active(recent, 6) is True
 
     def test_old_date_returns_false(self) -> None:
         assert _is_recently_active("2020-01-01T00:00:00Z", 6) is False
@@ -48,8 +58,9 @@ class TestIsRecentlyActive:
         assert _is_recently_active(None, 6) is False
 
     def test_boundary_exact_age(self) -> None:
-        # 6 months * 30 days = 180 days; use a date within that window
-        assert _is_recently_active("2025-10-01T00:00:00Z", 6) is True
+        # max_age_months=6 → threshold is 180 days; 170 days ago is inside the window
+        within = (datetime.now(timezone.utc) - timedelta(days=170)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        assert _is_recently_active(within, 6) is True
 
     def test_malformed_date_returns_false(self) -> None:
         """Malformed date string triggers ValueError path (lines 36-37)."""
@@ -76,7 +87,7 @@ class TestHarvestFromStargazers:
                     metadata={
                         "seed_repo": "anthropics/claude-code",
                         "stargazer_username": "alice",
-                        "pushed_at": "2026-02-01T00:00:00Z",
+                        "pushed_at": RECENT_PUSH,
                         "has_issues": True,
                         "language": "Python",
                     },
@@ -164,7 +175,7 @@ class TestHarvestFromStargazers:
             metadata={
                 "seed_repo": "org/repo",
                 "stargazer_username": "alice",
-                "pushed_at": "2026-02-01T00:00:00Z",
+                "pushed_at": RECENT_PUSH,
                 "has_issues": True,
                 "language": "Python",
             },
@@ -212,7 +223,7 @@ class TestHarvestFromStargazers:
             metadata={
                 "seed_repo": "anthropics/claude-code",
                 "stargazer_username": "bob",
-                "pushed_at": "2026-02-15T00:00:00Z",
+                "pushed_at": RECENT_PUSH,
                 "has_issues": True,
                 "language": "TypeScript",
             },
@@ -262,7 +273,7 @@ class TestHarvestFromStargazers:
             metadata={
                 "seed_repo": "org/repo",
                 "stargazer_username": "alice",
-                "pushed_at": "2026-02-01T00:00:00Z",
+                "pushed_at": RECENT_PUSH,
                 "has_issues": True,
                 "language": "Python",
             },
@@ -286,7 +297,7 @@ class TestHarvestFromStargazers:
             metadata={
                 "seed_repo": "org/r1",
                 "stargazer_username": "alice",
-                "pushed_at": "2026-02-01T00:00:00Z",
+                "pushed_at": RECENT_PUSH,
                 "has_issues": True,
                 "language": None,
             },
@@ -298,7 +309,7 @@ class TestHarvestFromStargazers:
             metadata={
                 "seed_repo": "org/r2",
                 "stargazer_username": "bob",
-                "pushed_at": "2026-02-01T00:00:00Z",
+                "pushed_at": RECENT_PUSH,
                 "has_issues": True,
                 "language": None,
             },
