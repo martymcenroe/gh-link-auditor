@@ -296,41 +296,26 @@ class LinkDetective:
         archive_title: str | None = None
         archive_summary: str | None = None
 
-        # 4. REDIRECT DETECTION (highest priority)
+        # 4. REDIRECT DETECTION — informational only (#197)
+        #
+        # If follow_redirects returns a live final_url, the ORIGINAL dead_url
+        # responded with 30x. That means the original URL itself works (it
+        # redirected). Replacing dead_url with final_url would be a cosmetic
+        # canonical-URL update, not a broken-link fix. We log the finding for
+        # diagnostics but emit no candidate.
         try:
             final_url, chain_log = self._redirect_resolver.follow_redirects(dead_url)
             log.extend(chain_log)
 
             if final_url and self._redirect_resolver.verify_live(final_url):
-                # Check if redirect landed on a parking/marketplace domain
                 final_host = (urlparse(final_url).hostname or "").lower()
                 is_parked = any(final_host == d or final_host.endswith(f".{d}") for d in PARKING_DOMAINS)
                 if is_parked:
                     log.append(f"Redirect landed on parking domain: {final_url}")
                 else:
-                    candidate = CandidateReplacement(
-                        url=final_url,
-                        method=InvestigationMethod.REDIRECT_CHAIN,
-                        similarity_score=0.98,
-                        verified_live=True,
+                    log.append(
+                        f"Redirect chain to live final {final_url} — original is reachable, candidate suppressed (#197)"
                     )
-                    candidates.append(candidate)
-
-                # Short-circuit on high-confidence redirect (only if not parked)
-                if not is_parked and candidates and candidates[-1].similarity_score >= 0.95:
-                    report = ForensicReport(
-                        dead_url=dead_url,
-                        http_status=http_status,
-                        investigation=Investigation(
-                            archive_snapshot=None,
-                            archive_title=None,
-                            archive_content_summary=None,
-                            candidate_replacements=candidates,
-                            investigation_log=log,
-                        ),
-                    )
-                    self._cache_result(report)
-                    return report
         except SSRFBlocked as e:
             log.append(f"SSRF blocked: {e}")
 
