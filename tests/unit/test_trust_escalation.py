@@ -551,7 +551,7 @@ class TestPrPreviewGateTrustFiltering:
                 "gh_link_auditor.pipeline.graph._get_repo_trust_level",
                 return_value="new",
             ),
-            patch("builtins.input", return_value="y"),
+            patch("builtins.input", return_value="s"),
         ):
             result = _pr_preview_gate(state)
 
@@ -598,7 +598,7 @@ class TestPrPreviewGateTrustFiltering:
                 "gh_link_auditor.pipeline.graph._get_repo_trust_level",
                 return_value="tier1_proven",
             ),
-            patch("builtins.input", return_value="y"),
+            patch("builtins.input", return_value="s"),
         ):
             result = _pr_preview_gate(state)
 
@@ -751,10 +751,14 @@ class TestRefreshPrOutcomesTrustIntegration:
         )
         collector.close()
 
+        # Use a recent merged_at so the 14-day tier1_proven → tier2_eligible
+        # auto-upgrade in upgrade_tier1_proven_repos() does NOT trigger. A
+        # hardcoded ISO date here is a time bomb (see lessons-learned 2026-05-12).
+        recent_merge = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         api_response = {
             "state": "closed",
             "merged": True,
-            "merged_at": "2026-03-15T12:00:00Z",
+            "merged_at": recent_merge,
             "closed_at": None,
         }
 
