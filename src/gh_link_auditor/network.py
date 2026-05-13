@@ -184,9 +184,12 @@ def should_retry(status_code: int | None, error_type: str | None) -> tuple[bool,
     if status_code is not None:
         if 200 <= status_code < 400:
             return False, False
-        if status_code in (404, 410):
+        if status_code == 410:
+            # 410 Gone is intentional permanent removal — HEAD/GET difference unlikely.
             return False, False
-        if status_code in (403, 405):
+        if status_code in (403, 404, 405):
+            # 403/405 commonly block HEAD; 404 sometimes does too (anti-crawler
+            # defense on sites like Microsoft Marketplace, #193). Try GET once.
             return False, True
         if status_code in (429, 503):
             return True, False

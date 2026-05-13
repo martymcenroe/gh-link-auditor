@@ -105,9 +105,15 @@ class TestShouldFallbackToGet:
     def test_405_triggers_fallback(self):
         assert should_fallback_to_get(405) is True
 
-    # T080 — 404 → False
-    def test_404_does_not_trigger_fallback(self):
-        assert should_fallback_to_get(404) is False
+    # T080 (#193) — 404 → True
+    # Some sites (e.g. Microsoft Marketplace) return 404 to HEAD but 200 to GET
+    # as an anti-crawler defense. Try GET once before declaring dead.
+    def test_404_triggers_fallback(self):
+        assert should_fallback_to_get(404) is True
+
+    # 410 stays no-fallback (intentional permanent removal).
+    def test_410_does_not_trigger_fallback(self):
+        assert should_fallback_to_get(410) is False
 
 
 class TestFallbackLogging:
