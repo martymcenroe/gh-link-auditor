@@ -6,8 +6,9 @@ from gh_link_auditor.unified_db import SCHEMA_VERSION, UnifiedDatabase
 
 
 class TestSchemaVersion:
-    def test_schema_version_is_4(self) -> None:
-        assert SCHEMA_VERSION == 4
+    def test_schema_version_at_least_4(self) -> None:
+        # rewrite_queue table added in v4 — later schema bumps keep it.
+        assert SCHEMA_VERSION >= 4
 
     def test_fresh_db_has_rewrite_queue_table(self, tmp_path) -> None:
         db_path = str(tmp_path / "rq.db")
@@ -17,11 +18,11 @@ class TestSchemaVersion:
             ).fetchall()
             assert len(rows) == 1
 
-    def test_fresh_db_records_schema_v4(self, tmp_path) -> None:
+    def test_fresh_db_records_current_schema(self, tmp_path) -> None:
         db_path = str(tmp_path / "rq.db")
         with UnifiedDatabase(db_path) as db:
             row = db._conn.execute("SELECT version FROM schema_version").fetchone()
-            assert row["version"] == 4
+            assert row["version"] >= 4
 
 
 class TestAddToRewriteQueue:
@@ -188,10 +189,11 @@ class TestMigrationV3ToV4:
         conn.commit()
         conn.close()
 
-        # Open via UnifiedDatabase — should trigger migration
+        # Open via UnifiedDatabase — should trigger migration. Later schema
+        # bumps chain in, so we assert ``>= 4``.
         with UnifiedDatabase(db_path) as db:
             row = db._conn.execute("SELECT version FROM schema_version").fetchone()
-            assert row["version"] == 4
+            assert row["version"] >= 4
             tables = db._conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='rewrite_queue'"
             ).fetchall()
