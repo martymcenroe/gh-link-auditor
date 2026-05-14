@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class UnifiedDatabase:
@@ -286,6 +286,23 @@ class UnifiedDatabase:
             )
         """)
 
+        # --- rewrite_queue: operator-flagged deferred-rewrite candidates (#212) ---
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS rewrite_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dead_url TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                line_number INTEGER,
+                repo_full_name TEXT NOT NULL,
+                reason TEXT,
+                added_at TEXT NOT NULL,
+                exported_to_issue INTEGER
+            )
+        """)
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rewrite_queue_repo ON rewrite_queue (repo_full_name, exported_to_issue)"
+        )
+
     # ------------------------------------------------------------------
     # Migration v1 -> v2
     # ------------------------------------------------------------------
@@ -295,6 +312,8 @@ class UnifiedDatabase:
             self._migrate_v1_to_v2()
         if from_version <= 2:
             self._migrate_v2_to_v3()
+        if from_version <= 3:
+            self._migrate_v3_to_v4()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -337,9 +356,33 @@ class UnifiedDatabase:
             if col_name not in cols:
                 c.execute(f"ALTER TABLE recheck_queue ADD COLUMN {col_name} {col_type}")  # noqa: S608
 
-        # Bump version
-        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        c.execute("UPDATE schema_version SET version = ?", (3,))
         logger.info("Migration to v3 complete")
+
+    # ------------------------------------------------------------------
+    # Migration v3 -> v4: rewrite_queue table (#212)
+    # ------------------------------------------------------------------
+
+    def _migrate_v3_to_v4(self) -> None:
+        logger.info("Migrating schema v3 → v4")
+        c = self._conn
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS rewrite_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dead_url TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                line_number INTEGER,
+                repo_full_name TEXT NOT NULL,
+                reason TEXT,
+                added_at TEXT NOT NULL,
+                exported_to_issue INTEGER
+            )
+        """)
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rewrite_queue_repo ON rewrite_queue (repo_full_name, exported_to_issue)"
+        )
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        logger.info("Migration to v4 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db
@@ -1310,6 +1353,81 @@ class UnifiedDatabase:
             "resolved": stats.get("resolved", 0),
             "confirmed_dead": stats.get("confirmed_dead", 0),
         }
+
+    # ------------------------------------------------------------------
+    # Rewrite queue (#212) — operator-flagged deferred-rewrite candidates
+    # ------------------------------------------------------------------
+
+    def add_to_rewrite_queue(
+        self,
+        dead_url: str,
+        source_file: str,
+        line_number: int | None,
+        repo_full_name: str,
+        reason: str | None = None,
+    ) -> int:
+        """Insert a deferred-rewrite candidate. Returns the new row id."""
+        with self._conn:
+            cursor = self._conn.execute(
+                """INSERT INTO rewrite_queue
+                (dead_url, source_file, line_number, repo_full_name, reason, added_at)
+                VALUES (?,?,?,?,?,?)""",
+                (dead_url, source_file, line_number, repo_full_name, reason, _now_iso()),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_rewrite_queue(
+        self,
+        repo_full_name: str | None = None,
+        include_exported: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return rewrite-queue entries, newest first.
+
+        Args:
+            repo_full_name: Filter to one repo (e.g. ``"owner/name"``). None = all repos.
+            include_exported: If False (default), only entries not yet linked to an issue.
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        if repo_full_name is not None:
+            clauses.append("repo_full_name = ?")
+            params.append(repo_full_name)
+        if not include_exported:
+            clauses.append("exported_to_issue IS NULL")
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        query = f"SELECT * FROM rewrite_queue {where} ORDER BY added_at DESC, id DESC"  # noqa: S608
+        rows = self._conn.execute(query, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_rewrite_queue_exported(
+        self,
+        repo_full_name: str,
+        issue_number: int,
+    ) -> int:
+        """Mark every unexported entry for the repo as linked to ``issue_number``.
+
+        Returns the count of rows updated.
+        """
+        with self._conn:
+            cursor = self._conn.execute(
+                """UPDATE rewrite_queue
+                SET exported_to_issue = ?
+                WHERE repo_full_name = ? AND exported_to_issue IS NULL""",
+                (issue_number, repo_full_name),
+            )
+            return cursor.rowcount
+
+    def clear_rewrite_queue(self, repo_full_name: str) -> int:
+        """Hard-delete all rewrite-queue entries for the given repo.
+
+        Returns the count of rows deleted.
+        """
+        with self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM rewrite_queue WHERE repo_full_name = ?",
+                (repo_full_name,),
+            )
+            return cursor.rowcount
 
 
 # ------------------------------------------------------------------

@@ -10,6 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from gh_link_auditor.pipeline.nodes.n4_human_review import (
+    _DEAD,
     _EXIT,
     _LIVE,
     _SKIP,
@@ -250,6 +251,96 @@ class TestPromptUserApproval:
         prompt_text = mock_input.call_args[0][0]
         assert "[l]ive" in prompt_text
         assert "[g]oogle" in prompt_text
+
+    def test_dead_with_d(self) -> None:
+        """'d' input returns _DEAD sentinel (#212)."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="d"):
+            result = prompt_user_approval(verdict)
+        assert result is _DEAD
+
+    def test_dead_with_dead(self) -> None:
+        """'dead' input returns _DEAD sentinel (#212)."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="dead"):
+            result = prompt_user_approval(verdict)
+        assert result is _DEAD
+
+    def test_dead_with_dead_product(self) -> None:
+        """'dead-product' input returns _DEAD sentinel (#212)."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="dead-product"):
+            result = prompt_user_approval(verdict)
+        assert result is _DEAD
+
+    def test_prompt_text_includes_dead_product(self) -> None:
+        """Prompt text should mention [d]ead-product option (#212)."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="a") as mock_input:
+            prompt_user_approval(verdict)
+        assert "[d]ead-product" in mock_input.call_args[0][0]
+
+    def test_manual_sets_candidate_and_approves(self) -> None:
+        """'m' + valid URL replaces candidate (source='manual') and returns True (#214)."""
+        verdict = _make_verdict(replacement=None)
+        with patch("builtins.input", side_effect=["m", "https://numpy.org/"]):
+            result = prompt_user_approval(verdict)
+        assert result is True
+        assert verdict["candidate"] is not None
+        assert verdict["candidate"]["url"] == "https://numpy.org/"
+        assert verdict["candidate"]["source"] == "manual"
+
+    def test_manual_with_manual_word(self) -> None:
+        """Full 'manual' word also triggers the URL prompt (#214)."""
+        verdict = _make_verdict(replacement=None)
+        with patch("builtins.input", side_effect=["manual", "https://numpy.org/"]):
+            result = prompt_user_approval(verdict)
+        assert result is True
+        assert verdict["candidate"]["url"] == "https://numpy.org/"
+
+    def test_manual_overwrites_existing_candidate(self) -> None:
+        """[m]anual replaces a low-confidence pipeline candidate with operator's choice."""
+        verdict = _make_verdict(replacement="https://wrong.example.com/")
+        with patch("builtins.input", side_effect=["m", "https://right.example.com/"]):
+            result = prompt_user_approval(verdict)
+        assert result is True
+        assert verdict["candidate"]["url"] == "https://right.example.com/"
+        assert verdict["candidate"]["source"] == "manual"
+
+    def test_manual_cancel_with_empty_returns_to_main_prompt(self) -> None:
+        """Empty URL input cancels [m]anual and re-shows the main prompt."""
+        verdict = _make_verdict()
+        # Sequence: 'm' → empty (cancel) → 'r' (final reject)
+        with patch("builtins.input", side_effect=["m", "", "r"]):
+            result = prompt_user_approval(verdict)
+        assert result is False
+        # candidate untouched (had a default redirect candidate from _make_verdict)
+        assert verdict["candidate"]["source"] == "redirect"
+
+    def test_manual_invalid_url_reprompts(self, capsys) -> None:
+        """Non-http(s) input reprompts; eventual valid URL is accepted."""
+        verdict = _make_verdict(replacement=None)
+        # Sequence: 'm' → 'not-a-url' (invalid, reprompt) → valid URL
+        with patch("builtins.input", side_effect=["m", "not-a-url", "https://valid.example.com/"]):
+            result = prompt_user_approval(verdict)
+        assert result is True
+        assert verdict["candidate"]["url"] == "https://valid.example.com/"
+        out = capsys.readouterr().out
+        assert "Invalid" in out
+
+    def test_manual_accepts_http_not_just_https(self) -> None:
+        verdict = _make_verdict(replacement=None)
+        with patch("builtins.input", side_effect=["m", "http://internal.example.com/"]):
+            result = prompt_user_approval(verdict)
+        assert result is True
+        assert verdict["candidate"]["url"] == "http://internal.example.com/"
+
+    def test_prompt_text_includes_manual(self) -> None:
+        """Prompt text should mention [m]anual option (#214)."""
+        verdict = _make_verdict()
+        with patch("builtins.input", return_value="a") as mock_input:
+            prompt_user_approval(verdict)
+        assert "[m]anual" in mock_input.call_args[0][0]
 
 
 class TestGenerateGoogleSearches:
@@ -595,6 +686,171 @@ class TestSnoozeToDb:
             rows = db._conn.execute("SELECT repo_full_name FROM recheck_queue").fetchall()
             assert len(rows) == 1
             assert rows[0]["repo_full_name"] == "https://github.com/some/repo"
+
+
+class TestDeadProductFlag:
+    """Tests for the [d]ead-product flag at the orchestrator level (#212)."""
+
+    def test_dead_marks_not_approved(self) -> None:
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3)]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_DEAD,
+            ),
+            patch("gh_link_auditor.pipeline.nodes.n4_human_review._rewrite_queue_to_db") as mock_rq,
+        ):
+            result = n4_human_review(state)
+        assert len(result["reviewed_verdicts"]) == 1
+        assert result["reviewed_verdicts"][0]["approved"] is False
+        mock_rq.assert_called_once()
+
+    def test_dead_calls_rewrite_queue_to_db(self) -> None:
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        verdict = _make_verdict(confidence=0.3, url="https://canopy.example.com/")
+        state["verdicts"] = [verdict]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_DEAD,
+            ),
+            patch("gh_link_auditor.pipeline.nodes.n4_human_review._rewrite_queue_to_db") as mock_rq,
+        ):
+            n4_human_review(state)
+        args = mock_rq.call_args
+        assert args[0][0] is state
+        assert args[0][1]["dead_link"]["url"] == "https://canopy.example.com/"
+
+    def test_dead_populates_rewrite_queued_in_state(self) -> None:
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3, url="https://x.com")]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_DEAD,
+            ),
+            patch("gh_link_auditor.pipeline.nodes.n4_human_review._rewrite_queue_to_db"),
+        ):
+            result = n4_human_review(state)
+        assert "rewrite_queued" in result
+        assert len(result["rewrite_queued"]) == 1
+        assert result["rewrite_queued"][0]["url"] == "https://x.com"
+
+    def test_dead_does_not_set_review_aborted(self) -> None:
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3)]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_DEAD,
+            ),
+            patch("gh_link_auditor.pipeline.nodes.n4_human_review._rewrite_queue_to_db"),
+        ):
+            result = n4_human_review(state)
+        assert result["review_aborted"] is False
+
+    def test_dead_mixed_with_approve(self) -> None:
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [
+            _make_verdict(confidence=0.3, url="https://canopy.example.com/"),
+            _make_verdict(confidence=0.3, url="https://numpy.scipy.org/"),
+        ]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                side_effect=[_DEAD, True],
+            ),
+            patch("gh_link_auditor.pipeline.nodes.n4_human_review._rewrite_queue_to_db") as mock_rq,
+        ):
+            result = n4_human_review(state)
+        # canopy was DEAD, numpy was approve
+        urls_approved = [v["dead_link"]["url"] for v in result["reviewed_verdicts"] if v["approved"]]
+        assert urls_approved == ["https://numpy.scipy.org/"]
+        assert mock_rq.call_count == 1
+        assert len(result["rewrite_queued"]) == 1
+
+    def test_summary_printed_when_rewrite_queued(self, capsys) -> None:
+        state = create_initial_state(target="t", confidence_threshold=0.8)
+        state["verdicts"] = [_make_verdict(confidence=0.3, url="https://x.com")]
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n4_human_review.prompt_user_approval",
+                return_value=_DEAD,
+            ),
+            patch("gh_link_auditor.pipeline.nodes.n4_human_review._rewrite_queue_to_db"),
+        ):
+            n4_human_review(state)
+        out = capsys.readouterr().out
+        assert "queued for deeper rewrite" in out
+        assert "ghla rewrite-queue export" in out
+
+
+class TestRewriteQueueToDb:
+    """Tests for _rewrite_queue_to_db() helper (#212)."""
+
+    def test_writes_row(self, tmp_path) -> None:
+        from gh_link_auditor.pipeline.nodes.n4_human_review import _rewrite_queue_to_db
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = str(tmp_path / "rq.db")
+        with UnifiedDatabase(db_path):
+            pass
+
+        state = create_initial_state(target="https://github.com/org/repo", db_path=db_path)
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+
+        verdict = _make_verdict(url="https://canopy.example.com/")
+        _rewrite_queue_to_db(state, verdict)
+
+        with UnifiedDatabase(db_path) as db:
+            rows = db.get_rewrite_queue("org/repo")
+            assert len(rows) == 1
+            assert rows[0]["dead_url"] == "https://canopy.example.com/"
+            assert rows[0]["source_file"] == "README.md"
+            assert rows[0]["line_number"] == 10
+            assert rows[0]["reason"] == "dead product / section needs rewrite"
+
+    def test_handles_missing_db_path(self) -> None:
+        from gh_link_auditor.pipeline.nodes.n4_human_review import _rewrite_queue_to_db
+
+        state = create_initial_state(target="t")
+        state["db_path"] = ""
+        _rewrite_queue_to_db(state, _make_verdict())  # should not raise
+
+    def test_uses_target_when_repo_parts_missing(self, tmp_path) -> None:
+        from gh_link_auditor.pipeline.nodes.n4_human_review import _rewrite_queue_to_db
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = str(tmp_path / "rq.db")
+        with UnifiedDatabase(db_path):
+            pass
+
+        state = create_initial_state(target="some/local/path", db_path=db_path)
+        _rewrite_queue_to_db(state, _make_verdict())
+
+        with UnifiedDatabase(db_path) as db:
+            rows = db.get_rewrite_queue("some/local/path")
+            assert len(rows) == 1
+
+    def test_swallows_db_exception(self) -> None:
+        """If the DB layer raises, helper logs and returns rather than propagating."""
+        from gh_link_auditor.pipeline.nodes import n4_human_review as n4_mod
+
+        state = create_initial_state(target="t", db_path="anything")
+        with patch.object(n4_mod, "UnifiedDatabase", create=True, side_effect=RuntimeError("boom")):
+            # _rewrite_queue_to_db imports UnifiedDatabase locally, so patch the
+            # symbol at the module path it imports from.
+            pass
+
+        # The function imports `UnifiedDatabase` inside its body — patch the
+        # source module's symbol instead so the local import sees the stub.
+        with patch(
+            "gh_link_auditor.unified_db.UnifiedDatabase",
+            side_effect=RuntimeError("boom"),
+        ):
+            n4_mod._rewrite_queue_to_db(state, _make_verdict())  # should not raise
 
 
 class TestFormatReviewSummary:

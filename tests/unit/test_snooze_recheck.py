@@ -35,11 +35,13 @@ class TestSchemaV3:
     """Tests for schema version 3 and recheck_queue columns."""
 
     def test_schema_version_is_3(self, db) -> None:
+        # Recheck-queue v3 columns persist at later versions; fresh DBs land
+        # at the current SCHEMA_VERSION.
         row = db._conn.execute("SELECT version FROM schema_version").fetchone()
-        assert row["version"] == 3
+        assert row["version"] >= 3
 
     def test_schema_version_constant(self) -> None:
-        assert SCHEMA_VERSION == 3
+        assert SCHEMA_VERSION >= 3
 
     def test_recheck_queue_has_url_column(self, db) -> None:
         cols = {row[1] for row in db._conn.execute("PRAGMA table_info(recheck_queue)").fetchall()}
@@ -146,9 +148,9 @@ class TestMigrationV2ToV3:
                 assert "last_status" in cols
                 assert "last_checked_at" in cols
 
-                # Verify version is bumped
+                # Verify version is bumped past 3 (later migrations chain in).
                 row = db._conn.execute("SELECT version FROM schema_version").fetchone()
-                assert row["version"] == 3
+                assert row["version"] >= 3
 
     def test_migration_idempotent_when_columns_exist(self) -> None:
         """Migration should not fail if columns already exist (fresh v3 install)."""

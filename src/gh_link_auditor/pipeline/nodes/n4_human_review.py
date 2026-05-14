@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote_plus, urlparse
 
-from gh_link_auditor.pipeline.state import PipelineState, Verdict
+from gh_link_auditor.pipeline.state import PipelineState, ReplacementCandidate, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,22 @@ _EXIT = "exit"
 _SKIP = "skip"
 _SNOOZE = "snooze"
 _LIVE = "live"
+_DEAD = "dead"
+
+
+def _prompt_replacement_url() -> str | None:
+    """Prompt operator for a manually-typed replacement URL (#214).
+
+    Returns the URL if valid (http/https), or None if cancelled (empty input).
+    Re-prompts on invalid input.
+    """
+    while True:
+        url = input("  Replacement URL (or Enter to cancel): ").strip()
+        if not url:
+            return None
+        if url.startswith(("http://", "https://")):
+            return url
+        print("  Invalid — must start with http:// or https://")
 
 
 def generate_google_searches(dead_url: str) -> list[str]:
@@ -172,7 +188,7 @@ def prompt_user_approval(verdict: Verdict) -> bool | str:
         KeyboardInterrupt: If the operator presses Ctrl+C (aborts pipeline).
     """
     dead_url = verdict["dead_link"]["url"]
-    prompt = "[a]pprove / [r]eject / [s]kip / snoo[z]e / [l]ive / [g]oogle / e[x]it: "
+    prompt = "[a]pprove / [r]eject / [m]anual / [s]kip / snoo[z]e / [l]ive / [d]ead-product / [g]oogle / e[x]it: "
     while True:
         response = input(prompt).strip().lower()
 
@@ -183,6 +199,18 @@ def prompt_user_approval(verdict: Verdict) -> bool | str:
             print()
             continue  # re-prompt; doesn't advance the verdict
 
+        if response in ("m", "manual"):
+            new_url = _prompt_replacement_url()
+            if new_url is None:
+                continue  # cancelled — back to main prompt
+            verdict["candidate"] = ReplacementCandidate(
+                url=new_url,
+                source="manual",
+                title=None,
+                snippet=None,
+            )
+            return True
+
         if response in ("a", "approve", "y", "yes"):
             return True
         if response in ("s", "skip"):
@@ -191,6 +219,8 @@ def prompt_user_approval(verdict: Verdict) -> bool | str:
             return _SNOOZE
         if response in ("l", "live"):
             return _LIVE
+        if response in ("d", "dead", "dead-product"):
+            return _DEAD
         if response in ("x", "exit", "q", "quit"):
             return _EXIT
 
@@ -240,6 +270,42 @@ def _snooze_to_db(state: PipelineState, verdict: Verdict) -> None:
         logger.exception("Failed to write snooze to recheck queue")
 
 
+def _rewrite_queue_to_db(state: PipelineState, verdict: Verdict) -> None:
+    """Persist a [d]ead-product flag to the rewrite queue (#212).
+
+    Operator-confirmed dead URL whose section needs structural rewrite, not URL
+    swap. Excluded from this PR's fixes; surfaces in ``ghla rewrite-queue`` for
+    later batching into an upstream content-rewrite issue.
+    """
+    try:
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = state.get("db_path", "")
+        if not db_path:
+            logger.warning("No db_path in state; cannot write to rewrite queue")
+            return
+
+        repo_owner = state.get("repo_owner", "")
+        repo_name_short = state.get("repo_name_short", "")
+        if repo_owner and repo_name_short:
+            repo_full_name = f"{repo_owner}/{repo_name_short}"
+        else:
+            repo_full_name = state.get("target", "")
+
+        dead_link = verdict["dead_link"]
+        with UnifiedDatabase(db_path) as db:
+            entry_id = db.add_to_rewrite_queue(
+                dead_url=dead_link["url"],
+                source_file=dead_link["source_file"],
+                line_number=dead_link.get("line_number"),
+                repo_full_name=repo_full_name,
+                reason="dead product / section needs rewrite",
+            )
+            logger.info("Queued %s for deeper rewrite (entry %d)", dead_link["url"], entry_id)
+    except Exception:
+        logger.exception("Failed to write to rewrite queue")
+
+
 def n4_human_review(state: PipelineState) -> PipelineState:
     """N4 node: Terminal-based human review for low-confidence verdicts.
 
@@ -258,6 +324,7 @@ def n4_human_review(state: PipelineState) -> PipelineState:
 
     reviewed: list[Verdict] = []
     false_positives: list[dict] = []
+    rewrite_queued: list[dict] = []
     exit_review = False
     total = len(verdicts)
     repo_owner = state.get("repo_owner", "")
@@ -323,6 +390,21 @@ def n4_human_review(state: PipelineState) -> PipelineState:
                     }
                 )
                 print(f"  → logged as false positive: {dl['url']}")
+            elif result is _DEAD:
+                # Operator confirmed dead-product / deferred-rewrite candidate (#212).
+                # Excluded from this PR's fixes; queued for upstream rewrite issue.
+                updated = dict(verdict)
+                updated["approved"] = False
+                reviewed.append(updated)  # type: ignore[arg-type]
+                rewrite_queued.append(
+                    {
+                        "url": dl["url"],
+                        "source_file": dl["source_file"],
+                        "line_number": dl["line_number"],
+                    }
+                )
+                _rewrite_queue_to_db(state, verdict)
+                print(f"  → queued for deeper rewrite: {dl['url']}")
             else:
                 updated = dict(verdict)
                 updated["approved"] = bool(result)
@@ -333,7 +415,14 @@ def n4_human_review(state: PipelineState) -> PipelineState:
         for fp in false_positives:
             print(f"    - {fp['url']} ({fp['source_file']}:{fp['line_number']})")
 
+    if rewrite_queued:
+        print(f"\n  {len(rewrite_queued)} URL(s) queued for deeper rewrite:")
+        for rq in rewrite_queued:
+            print(f"    - {rq['url']} ({rq['source_file']}:{rq['line_number']})")
+        print("  Run `ghla rewrite-queue export --repo <owner/name>` to draft the upstream issue.")
+
     state["reviewed_verdicts"] = reviewed
     state["review_aborted"] = exit_review
     state["false_positives"] = false_positives  # type: ignore[typeddict-unknown-key]
+    state["rewrite_queued"] = rewrite_queued  # type: ignore[typeddict-unknown-key]
     return state
