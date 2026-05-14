@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -79,7 +80,16 @@ def extract_urls_from_text(text: str) -> list[tuple[str, int]]:
 
 
 def filter_url(url: str) -> bool:
-    """True if the URL is worth probing. False = skip (already-known-fp)."""
+    """True if the URL is worth probing. False = skip (already-known-fp).
+
+    Malformed URLs (``urlparse`` raises ValueError on bracketed-bare,
+    NFKC-bad netlocs, embedded newlines, etc.) are silently skipped here
+    rather than allowed to crash the whole repo's inventory (#227).
+    """
+    try:
+        urlparse(url)
+    except ValueError:
+        return False
     if is_placeholder_url(url):
         return False
     if is_api_test_endpoint(url):
