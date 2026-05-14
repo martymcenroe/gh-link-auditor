@@ -11,13 +11,19 @@ from pathlib import Path
 from typing import Any
 
 from gh_link_auditor.models import BlacklistEntry, InteractionRecord, InteractionStatus
-from gh_link_auditor.unified_db import DEFAULT_DB_PATH, UnifiedDatabase
+from gh_link_auditor.unified_db import (
+    DEFAULT_DB_PATH,
+    UnifiedDatabase,
+)
+from gh_link_auditor.unified_db import (
+    SCHEMA_VERSION as _UNIFIED_SCHEMA_VERSION,
+)
 
 
 class StateDatabase:
     """Backward-compatible facade delegating to UnifiedDatabase."""
 
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = _UNIFIED_SCHEMA_VERSION  # mirrors UnifiedDatabase's version
 
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH) -> None:
         self._db = UnifiedDatabase(db_path)
