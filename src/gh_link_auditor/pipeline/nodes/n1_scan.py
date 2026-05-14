@@ -13,7 +13,12 @@ import re
 import sys
 from pathlib import Path
 
-from gh_link_auditor.false_positives import is_api_test_endpoint, is_false_positive, is_placeholder_url
+from gh_link_auditor.false_positives import (
+    is_always_alive_domain,
+    is_api_test_endpoint,
+    is_false_positive,
+    is_placeholder_url,
+)
 from gh_link_auditor.network import check_url as network_check_url
 from gh_link_auditor.network import create_request_config
 from gh_link_auditor.pipeline.state import DeadLink, PipelineState
@@ -273,7 +278,7 @@ def run_link_scan(
             seen_urls.add(url)
 
             # Pre-check: skip URLs that are false positives without status
-            if is_placeholder_url(url) or is_api_test_endpoint(url):
+            if is_placeholder_url(url) or is_api_test_endpoint(url) or is_always_alive_domain(url):
                 continue
 
             result = _check_single_url(url)

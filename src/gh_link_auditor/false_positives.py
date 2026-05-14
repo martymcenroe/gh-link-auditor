@@ -22,6 +22,20 @@ SKIP_DOMAINS: set[str] = {
     "0.0.0.0",
 }
 
+# Stack Exchange network — categorical skip. URLs here have semantics our
+# pipeline doesn't encode: /a/N and /q/N redirect to long form, content is
+# essentially never deleted, and "fixing" SO links is almost always wrong
+# (#211, 2026-05-13).
+ALWAYS_ALIVE_DOMAINS: set[str] = {
+    "stackoverflow.com",
+    "stackexchange.com",  # plus every *.stackexchange.com subdomain
+    "serverfault.com",
+    "superuser.com",
+    "askubuntu.com",
+    "mathoverflow.net",
+    "stackapps.com",
+}
+
 # Domains that return 403/429 to bots but work fine in browsers.
 BOT_BLOCKED_DOMAINS: set[str] = {
     "stackoverflow.com",
@@ -98,6 +112,26 @@ def is_placeholder_url(url: str) -> bool:
         if hostname == domain or hostname.endswith(f".{domain}"):
             return True
 
+    return False
+
+
+def is_always_alive_domain(url: str) -> bool:
+    """Categorical skip for Stack Exchange network (#211).
+
+    SE domains have URL semantics our pipeline can't reason about — short
+    /a/N and /q/N permalinks 302 to long form, content is community-moderated
+    and effectively never deleted, and any "replacement" we propose for a
+    bot-blocked SE URL is almost always wrong. Skip the probe entirely.
+
+    Matches the host AND any subdomain (so ``physics.stackexchange.com``
+    matches via ``stackexchange.com``).
+    """
+    hostname = (urlparse(url).hostname or "").lower()
+    if not hostname:
+        return False
+    for domain in ALWAYS_ALIVE_DOMAINS:
+        if hostname == domain or hostname.endswith(f".{domain}"):
+            return True
     return False
 
 
@@ -230,6 +264,9 @@ def is_false_positive(url: str, http_status: int | None = None) -> bool:
         return True
 
     if is_api_test_endpoint(url):
+        return True
+
+    if is_always_alive_domain(url):
         return True
 
     if http_status is not None:
