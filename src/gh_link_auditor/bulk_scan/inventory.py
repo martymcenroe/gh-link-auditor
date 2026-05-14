@@ -89,8 +89,12 @@ def filter_url(url: str) -> bool:
     return True
 
 
-def _list_doc_files(client: httpx.Client, full_name: str) -> list[str]:
-    """One Git Trees API call → all doc files in the repo."""
+def _list_doc_files(client: Any, full_name: str) -> list[str]:
+    """One Git Trees API call → all doc files in the repo.
+
+    ``client`` may be either an ``httpx.Client`` or a
+    :class:`GitHubRateLimitedClient` — both expose ``.get(url, params=...)``.
+    """
     r = client.get(f"{_GH_API}/repos/{full_name}/git/trees/HEAD", params={"recursive": "1"})
     r.raise_for_status()
     tree = r.json().get("tree", [])
@@ -120,7 +124,7 @@ def _fetch_raw(client: httpx.Client, full_name: str, path: str) -> str | None:
 
 def inventory_repo(
     full_name: str,
-    api_client: httpx.Client,
+    api_client: Any,  # GitHubRateLimitedClient or httpx.Client (tests)
     raw_client: httpx.Client,
 ) -> dict[str, Any]:
     """Walk one repo. Returns ``{"doc_files": [...], "urls": [(url, file, line), ...]}``.
@@ -150,15 +154,29 @@ def inventory_repo(
     return {"doc_files": docs, "urls": urls}
 
 
-def build_api_client(token: str | None = None) -> httpx.Client:
-    headers: dict[str, str] = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "gh-link-auditor-bulk",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return httpx.Client(headers=headers, timeout=30.0)
+def build_api_client(token: str | None = None) -> Any:
+    """Build the rate-limited GitHub REST client used by the bulk scan (#224).
+
+    Returns a :class:`GitHubRateLimitedClient` (compatible with the prior
+    ``httpx.Client`` interface — supports ``.get(url, params=...)`` and
+    ``.close()`` / context-manager use).
+
+    If ``token`` is not provided AND ``GITHUB_TOKEN`` is not in env, falls
+    back to ``gh auth token`` via :func:`resolve_github_token`. This is
+    critical for the bulk run — without auth, GitHub's anonymous rate limit
+    is **60 req/hr**, which trips the secondary rate limit immediately on
+    a 7500-repo sweep. The first 2026-05-14 fire failed for exactly this
+    reason: ``GITHUB_TOKEN`` was unset and the client was anonymous.
+    """
+    from gh_link_auditor.auth import resolve_github_token
+    from gh_link_auditor.bulk_scan.gh_client import GitHubRateLimitedClient
+
+    if not token:
+        try:
+            token = resolve_github_token()
+        except Exception:
+            token = None
+    return GitHubRateLimitedClient(token=token)
 
 
 def build_raw_client() -> httpx.Client:
