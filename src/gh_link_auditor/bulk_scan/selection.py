@@ -53,17 +53,26 @@ def _gh_search_one_slice(
     pushed_since: str,
     limit: int = 1000,
 ) -> list[dict[str, Any]]:
-    """Search GitHub for one star-range slice. Returns repo metadata."""
-    query = (
-        f"language:Python stars:{stars_low}..{stars_high} pushed:>{pushed_since} archived:false is:public NOT fork:true"
-    )
+    """Search GitHub for one star-range slice. Returns repo metadata.
+
+    Uses ``gh search repos`` flag form rather than a bundled query string
+    (the gh CLI treats the positional argument as a *keyword* and rejects
+    embedded qualifiers as 'None of the search qualifiers apply'). ``gh``
+    has no ``--pushed`` flag; we approximate with ``--updated`` which
+    captures most active-repo signal and accepts the ``>YYYY-MM-DD`` form.
+    Forks are excluded via ``--include-forks=false``.
+    """
     cmd = [
         "gh",
         "search",
         "repos",
-        query,
-        "--limit",
-        str(limit),
+        "--language=Python",
+        f"--stars={stars_low}..{stars_high}",
+        "--archived=false",
+        "--visibility=public",
+        "--include-forks=false",
+        f"--updated=>{pushed_since}",
+        f"--limit={limit}",
         "--json",
         "fullName,stargazersCount,pushedAt,isArchived,visibility",
     ]
@@ -71,7 +80,16 @@ def _gh_search_one_slice(
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
         return json.loads(result.stdout)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
-        logger.warning("gh search failed for slice %s-%s: %s", stars_low, stars_high, e)
+        stderr_tail = ""
+        if isinstance(e, subprocess.CalledProcessError) and e.stderr:
+            stderr_tail = f" :: {e.stderr.strip()[:200]}"
+        logger.warning(
+            "gh search failed for slice %s-%s: %s%s",
+            stars_low,
+            stars_high,
+            type(e).__name__,
+            stderr_tail,
+        )
         return []
 
 
