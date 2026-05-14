@@ -62,3 +62,13 @@ class TestFilterUrl:
 
     def test_github_passes(self) -> None:
         assert filter_url("https://github.com/foo/bar") is True
+
+    def test_bracketed_bare_url_skipped(self) -> None:
+        # #227 — extracted-from-Markdown URL with unclosed `[` would crash
+        # urlparse with "Invalid IPv6 URL"; filter_url must return False
+        # to keep the rest of the repo's inventory alive.
+        assert filter_url("https://[unclosed") is False
+
+    def test_nfkc_bad_netloc_skipped(self) -> None:
+        # #227 — Chinese full-width punctuation in netloc fails NFKC.
+        assert filter_url("https://visualstudio.microsoft.com)：用于编译") is False

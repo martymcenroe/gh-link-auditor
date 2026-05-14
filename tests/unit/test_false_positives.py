@@ -389,3 +389,48 @@ class TestIsAlwaysAliveDomain:
 
     def test_case_insensitive_host(self) -> None:
         assert is_always_alive_domain("https://StackOverflow.com/a/1") is True
+
+
+class TestMalformedUrlSafety:
+    """Regression tests for #227 — malformed URLs must not bubble ValueError.
+
+    `urllib.parse.urlparse` raises ValueError on bracketed-bare authority
+    (``https://[unclosed``) and on netlocs that fail NFKC normalization
+    (Chinese full-width punctuation in the host). All five hostname-based
+    predicates and `is_placeholder_path` MUST coerce these to a False return,
+    not propagate the exception — otherwise one bad URL in a doc kills the
+    entire bulk-scan repo inventory.
+    """
+
+    BRACKETED = "https://[unclosed"
+    NFKC_NETLOC = "https://visualstudio.microsoft.com)：用于编译"
+
+    def test_is_placeholder_url_bracketed(self) -> None:
+        assert is_placeholder_url(self.BRACKETED) is False
+
+    def test_is_placeholder_url_nfkc(self) -> None:
+        assert is_placeholder_url(self.NFKC_NETLOC) is False
+
+    def test_is_always_alive_domain_bracketed(self) -> None:
+        assert is_always_alive_domain(self.BRACKETED) is False
+
+    def test_is_always_alive_domain_nfkc(self) -> None:
+        assert is_always_alive_domain(self.NFKC_NETLOC) is False
+
+    def test_is_bot_blocked_bracketed(self) -> None:
+        assert is_bot_blocked(self.BRACKETED, 403) is False
+
+    def test_is_bot_blocked_nfkc(self) -> None:
+        assert is_bot_blocked(self.NFKC_NETLOC, 429) is False
+
+    def test_is_api_test_endpoint_bracketed(self) -> None:
+        assert is_api_test_endpoint(self.BRACKETED) is False
+
+    def test_is_api_test_endpoint_nfkc(self) -> None:
+        assert is_api_test_endpoint(self.NFKC_NETLOC) is False
+
+    def test_is_placeholder_path_bracketed(self) -> None:
+        assert is_placeholder_path(self.BRACKETED) is False
+
+    def test_is_placeholder_path_nfkc(self) -> None:
+        assert is_placeholder_path(self.NFKC_NETLOC) is False

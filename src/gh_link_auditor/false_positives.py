@@ -95,6 +95,22 @@ _GITHUB_AUTH_PATHS = re.compile(
 )
 
 
+def _safe_hostname(url: str) -> str:
+    """Return lowercased hostname from a URL, empty string on parse failure (#227).
+
+    ``urllib.parse.urlparse`` raises ``ValueError`` on malformed URLs:
+    bracketed-bare authority (``https://[unclosed``), non-NFKC netloc chars
+    (Chinese full-width parens), embedded ``\\n``, etc. Predicate callers
+    treat the empty-hostname case identically to a non-matching real URL,
+    so silently coercing here keeps every false-positive predicate safe
+    to call on extracted URLs without surrounding try/except.
+    """
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
 def is_placeholder_url(url: str) -> bool:
     """Check if a URL uses a known placeholder/example domain.
 
@@ -106,7 +122,7 @@ def is_placeholder_url(url: str) -> bool:
     Returns:
         True if the URL is a placeholder.
     """
-    hostname = (urlparse(url).hostname or "").lower()
+    hostname = _safe_hostname(url)
 
     for domain in SKIP_DOMAINS:
         if hostname == domain or hostname.endswith(f".{domain}"):
@@ -126,7 +142,7 @@ def is_always_alive_domain(url: str) -> bool:
     Matches the host AND any subdomain (so ``physics.stackexchange.com``
     matches via ``stackexchange.com``).
     """
-    hostname = (urlparse(url).hostname or "").lower()
+    hostname = _safe_hostname(url)
     if not hostname:
         return False
     for domain in ALWAYS_ALIVE_DOMAINS:
@@ -148,7 +164,7 @@ def is_bot_blocked(url: str, http_status: int | None) -> bool:
     if http_status not in (403, 429):
         return False
 
-    hostname = (urlparse(url).hostname or "").lower()
+    hostname = _safe_hostname(url)
 
     for domain in BOT_BLOCKED_DOMAINS:
         if hostname == domain or hostname.endswith(f".{domain}"):
@@ -169,7 +185,7 @@ def is_api_test_endpoint(url: str) -> bool:
     Returns:
         True if the URL is a known API test endpoint.
     """
-    hostname = (urlparse(url).hostname or "").lower()
+    hostname = _safe_hostname(url)
 
     for domain in API_TEST_DOMAINS:
         if hostname == domain or hostname.endswith(f".{domain}"):
@@ -190,7 +206,10 @@ def is_placeholder_path(url: str) -> bool:
     Returns:
         True if the URL contains placeholder segments.
     """
-    path = urlparse(url).path
+    try:
+        path = urlparse(url).path
+    except ValueError:
+        return False
     return bool(_PLACEHOLDER_PATH_RE.search(path))
 
 
