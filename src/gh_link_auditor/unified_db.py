@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class UnifiedDatabase:
@@ -303,6 +303,63 @@ class UnifiedDatabase:
             "CREATE INDEX IF NOT EXISTS idx_rewrite_queue_repo ON rewrite_queue (repo_full_name, exported_to_issue)"
         )
 
+        # --- bulk_scan_* — unattended 7500-repo Python doc audit (#218) ---
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bulk_scan_runs (
+                run_id TEXT PRIMARY KEY,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'selecting',
+                target_repo_count INTEGER,
+                config_json TEXT,
+                quality_aborted INTEGER DEFAULT 0,
+                error TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bulk_scan_repos (
+                run_id TEXT NOT NULL,
+                repo_full_name TEXT NOT NULL,
+                stars INTEGER,
+                pushed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                doc_files_json TEXT,
+                url_count INTEGER DEFAULT 0,
+                dead_url_count INTEGER DEFAULT 0,
+                surface_candidate_count INTEGER DEFAULT 0,
+                error TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, repo_full_name)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bulk_scan_repos_status ON bulk_scan_repos (run_id, status)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bulk_scan_findings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                repo_full_name TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                line_number INTEGER,
+                dead_url TEXT NOT NULL,
+                candidate_url TEXT NOT NULL,
+                method TEXT,
+                tier INTEGER,
+                similarity_score REAL,
+                verified_live INTEGER,
+                confidence REAL,
+                surfaced INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+        """)
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bulk_scan_findings_run_repo "
+            "ON bulk_scan_findings (run_id, repo_full_name, surfaced)"
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bulk_scan_findings_confidence "
+            "ON bulk_scan_findings (run_id, confidence DESC, surfaced)"
+        )
+
     # ------------------------------------------------------------------
     # Migration v1 -> v2
     # ------------------------------------------------------------------
@@ -314,6 +371,8 @@ class UnifiedDatabase:
             self._migrate_v2_to_v3()
         if from_version <= 3:
             self._migrate_v3_to_v4()
+        if from_version <= 4:
+            self._migrate_v4_to_v5()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -381,8 +440,73 @@ class UnifiedDatabase:
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_rewrite_queue_repo ON rewrite_queue (repo_full_name, exported_to_issue)"
         )
-        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        c.execute("UPDATE schema_version SET version = ?", (4,))
         logger.info("Migration to v4 complete")
+
+    # ------------------------------------------------------------------
+    # Migration v4 -> v5: bulk_scan_* tables (#218)
+    # ------------------------------------------------------------------
+
+    def _migrate_v4_to_v5(self) -> None:
+        logger.info("Migrating schema v4 → v5")
+        c = self._conn
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bulk_scan_runs (
+                run_id TEXT PRIMARY KEY,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'selecting',
+                target_repo_count INTEGER,
+                config_json TEXT,
+                quality_aborted INTEGER DEFAULT 0,
+                error TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bulk_scan_repos (
+                run_id TEXT NOT NULL,
+                repo_full_name TEXT NOT NULL,
+                stars INTEGER,
+                pushed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                doc_files_json TEXT,
+                url_count INTEGER DEFAULT 0,
+                dead_url_count INTEGER DEFAULT 0,
+                surface_candidate_count INTEGER DEFAULT 0,
+                error TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, repo_full_name)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bulk_scan_repos_status ON bulk_scan_repos (run_id, status)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bulk_scan_findings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                repo_full_name TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                line_number INTEGER,
+                dead_url TEXT NOT NULL,
+                candidate_url TEXT NOT NULL,
+                method TEXT,
+                tier INTEGER,
+                similarity_score REAL,
+                verified_live INTEGER,
+                confidence REAL,
+                surfaced INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+        """)
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bulk_scan_findings_run_repo "
+            "ON bulk_scan_findings (run_id, repo_full_name, surfaced)"
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bulk_scan_findings_confidence "
+            "ON bulk_scan_findings (run_id, confidence DESC, surfaced)"
+        )
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        logger.info("Migration to v5 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db
