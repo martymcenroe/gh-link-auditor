@@ -6,6 +6,7 @@ See Issues #94, #97 for specification.
 from __future__ import annotations
 
 from gh_link_auditor.false_positives import (
+    is_always_alive_domain,
     is_api_test_endpoint,
     is_auth_wall,
     is_bot_blocked,
@@ -282,7 +283,14 @@ class TestIsFalsePositive:
         assert is_false_positive("https://some-api.com/endpoint", http_status=403) is False
 
     def test_bot_blocked_without_status(self) -> None:
-        assert is_false_positive("https://stackoverflow.com/q/1") is False
+        # As of #211, SE-network URLs are categorically filtered regardless of
+        # status. (Previously this returned False — required a 403/429 to fire.)
+        assert is_false_positive("https://stackoverflow.com/q/1") is True
+
+    def test_non_se_bot_blocked_without_status_not_filtered(self) -> None:
+        # Non-SE bot-blocked domains (medium, wikipedia, etc.) still require a
+        # status code to be flagged — they aren't always-alive, just bot-blocked.
+        assert is_false_positive("https://medium.com/something") is False
 
     def test_github_auth_required(self) -> None:
         assert is_false_positive("https://github.com/org/repo/issues/new", http_status=404) is True
@@ -299,3 +307,85 @@ class TestIsFalsePositive:
     def test_github_repo_404_not_filtered(self) -> None:
         # Deleted repos ARE real dead links
         assert is_false_positive("https://github.com/org/deleted-repo", http_status=404) is False
+
+    def test_stackoverflow_categorical_skip(self) -> None:
+        # SO URLs filtered even without an HTTP status (#211)
+        assert is_false_positive("https://stackoverflow.com/a/12345") is True
+
+    def test_stackexchange_subdomain_categorical_skip(self) -> None:
+        assert is_false_positive("https://physics.stackexchange.com/q/678") is True
+
+    def test_askubuntu_categorical_skip(self) -> None:
+        assert is_false_positive("https://askubuntu.com/questions/1/x") is True
+
+
+class TestIsAlwaysAliveDomain:
+    """Tests for is_always_alive_domain (#211 — SE network)."""
+
+    def test_stackoverflow_root(self) -> None:
+        assert is_always_alive_domain("https://stackoverflow.com/") is True
+
+    def test_stackoverflow_short_answer(self) -> None:
+        assert is_always_alive_domain("https://stackoverflow.com/a/14638025") is True
+
+    def test_stackoverflow_short_question(self) -> None:
+        assert is_always_alive_domain("https://stackoverflow.com/q/14638025") is True
+
+    def test_stackoverflow_long_question(self) -> None:
+        assert (
+            is_always_alive_domain("https://stackoverflow.com/questions/14638025/how-to-permanently-set-path") is True
+        )
+
+    def test_stackexchange_subdomain_physics(self) -> None:
+        assert is_always_alive_domain("https://physics.stackexchange.com/q/1") is True
+
+    def test_stackexchange_subdomain_unix(self) -> None:
+        assert is_always_alive_domain("https://unix.stackexchange.com/a/2") is True
+
+    def test_stackexchange_subdomain_security(self) -> None:
+        assert is_always_alive_domain("https://security.stackexchange.com/x") is True
+
+    def test_stackexchange_bare(self) -> None:
+        assert is_always_alive_domain("https://stackexchange.com/") is True
+
+    def test_serverfault(self) -> None:
+        assert is_always_alive_domain("https://serverfault.com/a/1") is True
+
+    def test_superuser(self) -> None:
+        assert is_always_alive_domain("https://superuser.com/a/1") is True
+
+    def test_askubuntu(self) -> None:
+        assert is_always_alive_domain("https://askubuntu.com/questions/1/x") is True
+
+    def test_mathoverflow(self) -> None:
+        assert is_always_alive_domain("https://mathoverflow.net/q/1") is True
+
+    def test_stackapps(self) -> None:
+        assert is_always_alive_domain("https://stackapps.com/x") is True
+
+    def test_http_scheme_too(self) -> None:
+        assert is_always_alive_domain("http://stackoverflow.com/a/1") is True
+
+    def test_unrelated_domain_not_skipped(self) -> None:
+        assert is_always_alive_domain("https://example.com/") is False
+
+    def test_github_not_skipped(self) -> None:
+        assert is_always_alive_domain("https://github.com/foo/bar") is False
+
+    def test_wikipedia_not_skipped(self) -> None:
+        # Wikipedia is bot-blocked but not in the always-alive set — different policy
+        assert is_always_alive_domain("https://en.wikipedia.org/wiki/Python") is False
+
+    def test_stackoverflow_typosquat_not_skipped(self) -> None:
+        # stackoverflow-clone.com or similar must NOT match
+        assert is_always_alive_domain("https://stackoverflow-clone.com/x") is False
+
+    def test_empty_url(self) -> None:
+        assert is_always_alive_domain("") is False
+
+    def test_no_host(self) -> None:
+        # urlparse("not-a-url").hostname is None
+        assert is_always_alive_domain("not-a-url") is False
+
+    def test_case_insensitive_host(self) -> None:
+        assert is_always_alive_domain("https://StackOverflow.com/a/1") is True
