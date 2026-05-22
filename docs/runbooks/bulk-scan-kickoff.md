@@ -111,6 +111,14 @@ poetry run python -m gh_link_auditor.cli.main bulk-scan start --run-id <run-id>
 
 The runner reads the saved status and picks up at the appropriate stage. Repos with status `done` or `error` are skipped.
 
+**About Stage 2 persistence (#230):** Each URL probe result is written to `url_check_cache` as it completes (30-day TTL). On resume, the runner reads cache first and re-probes only the URLs not yet cached or whose TTL expired. A 2026-05-14 power cut lost ~3 hours of Stage-2 work; with this in place that work survives across crashes.
+
+**`run-id` typos are rejected (#231):** `bulk-scan start --run-id <unknown>` now exits with error and prefix-match "Did you mean..." suggestions rather than silently creating a fresh run under the typo'd id. To intentionally create a new run under a chosen id, pass `--new-run`:
+
+```bash
+poetry run python -m gh_link_auditor.cli.main bulk-scan start --run-id bulk-custom-id --new-run
+```
+
 ## When you're back
 
 1. **Snapshot status:**
@@ -148,10 +156,13 @@ The runner reads the saved status and picks up at the appropriate stage. Repos w
 
 ## Disaster recovery
 
-- **Power outage:** state in DB survives. Resume with same `run_id`.
+- **Power outage during Stage 0/1:** state in DB survives. Resume with same `run_id`.
+- **Power outage during Stage 2:** persisted per-URL via `url_check_cache` (#230). Resume re-probes only the URLs not yet in cache — no lost work.
+- **Power outage during Stage 3/4:** findings persisted to DB; resume re-runs investigation on remaining `method='pending'` rows.
+- **Operator-requested stop (`bulk-scan stop`):** writes `data/bulk-scan-abort`. Run exits at the next batch boundary with status `aborted`. To resume, **delete the abort marker first**, then run `bulk-scan start --run-id <id>`. If status is `aborted` the runner's stage gates may need a manual reset (see #229 — `--resume-aborted` flag is the planned ergonomic fix).
 - **Disk full:** runner refuses new writes; the abort marker auto-trips; status becomes `aborted` cleanly.
 - **GitHub PAT expired:** Stage 1 will start failing on every repo. Heartbeat will show all repos transitioning to `error`. Renew the PAT, resume with the same `run_id`.
-- **Quality aborts on day 1:** Don't restart with same `run_id` — the abort flag persists. Start a fresh run after we diagnose post-trip.
+- **Quality-aborts (auto, by stop-loss):** do NOT restart with same `run_id` — the abort flag persists by design. Diagnose post-trip, then start a fresh run.
 
 ## Quick reference
 
