@@ -15,7 +15,8 @@ MAX_URLS_PER_REPO = 1000  # circuit-breaker for huge docs
 
 # --- Liveness (Stage 2) ---
 LIVENESS_WORKER_COUNT = 20
-URL_CACHE_TTL_HOURS = 24  # re-check URLs older than this
+URL_CACHE_TTL_HOURS = 24  # legacy alias (kept for non-bulk callers)
+LIVENESS_CACHE_TTL_HOURS = 720  # 30 days; bulk runs span days, cache survives crashes (#230)
 
 # --- Investigation (Stage 3) ---
 INVESTIGATION_WORKER_COUNT = 8

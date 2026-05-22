@@ -29,6 +29,7 @@ from gh_link_auditor.bulk_scan.config import (
     BATCH_SIZE,
     HEARTBEAT_FILE,
     HEARTBEAT_INTERVAL_S,
+    LIVENESS_CACHE_TTL_HOURS,
     QUALITY_MEDIAN_THRESHOLD,
     QUALITY_SAMPLE_AFTER_N_CANDIDATES,
     REPORT_FILE,
@@ -178,13 +179,59 @@ def _get_pending_urls(db: UnifiedDatabase, run_id: str) -> list[str]:
     return [r["dead_url"] for r in rows]
 
 
+def _liveness_result_from_cache(c: dict) -> dict:
+    """Reconstruct the run_investigation-compatible result shape from a cache row.
+
+    Downstream only reads ``status_code`` from each result, but the full shape
+    is rebuilt so cache-hits are indistinguishable from fresh probes.
+    """
+    code = c.get("http_status")
+    status = "alive" if (code is not None and code < 400) else "dead"
+    return {
+        "status_code": code,
+        "final_url": c.get("final_url"),
+        "is_bot_blocked": bool(c.get("is_bot_blocked", False)),
+        "status": status,
+    }
+
+
 def run_liveness(db: UnifiedDatabase, run_id: str) -> dict[str, dict]:
+    """Probe Stage-1 findings for liveness, reading/writing ``url_check_cache``.
+
+    Per #230: each probe result is persisted as it completes so a crash
+    mid-stage doesn't lose work — resume reads cache and only re-probes the
+    URLs not yet in cache (or whose TTL has expired).
+    """
     storage.update_run_status(db, run_id, "checking")
     urls = _get_pending_urls(db, run_id)
     if not urls:
         return {}
-    logger.info("liveness: probing %d unique URLs", len(urls))
-    return liveness.check_urls_bulk(urls)
+
+    cached: dict[str, dict] = {}
+    to_probe: list[str] = []
+    for u in urls:
+        c = db.get_cached_url_check(u)
+        if c is not None:
+            cached[u] = _liveness_result_from_cache(c)
+        else:
+            to_probe.append(u)
+
+    logger.info("liveness: %d cached hits, %d to probe (of %d total)", len(cached), len(to_probe), len(urls))
+    if not to_probe:
+        return cached
+
+    def _persist(url: str, result: dict) -> None:
+        db.cache_url_check(
+            url,
+            http_status=result.get("status_code"),
+            final_url=result.get("final_url"),
+            is_bot_blocked=bool(result.get("is_bot_blocked")),
+            ttl_hours=LIVENESS_CACHE_TTL_HOURS,
+        )
+
+    fresh = liveness.check_urls_bulk(to_probe, on_result=_persist)
+    cached.update(fresh)
+    return cached
 
 
 def run_investigation(

@@ -7,6 +7,7 @@ Uses the existing `network.check_url` for consistency with N1's behavior
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from gh_link_auditor.bulk_scan.config import LIVENESS_WORKER_COUNT
@@ -41,8 +42,15 @@ def is_dead_result(result: dict) -> bool:
 def check_urls_bulk(
     urls: list[str],
     workers: int = LIVENESS_WORKER_COUNT,
+    on_result: Callable[[str, dict], None] | None = None,
 ) -> dict[str, dict]:
-    """Probe each URL in `urls` concurrently. Returns dict[url -> result]."""
+    """Probe each URL in `urls` concurrently. Returns dict[url -> result].
+
+    If ``on_result`` is provided, it is invoked from the **main thread** after
+    each future completes (sqlite-safe; callers can write to DB without their
+    own locking). Used by ``runner.run_liveness`` to persist each probe to
+    ``url_check_cache`` so a crash mid-stage doesn't lose work (#230).
+    """
     out: dict[str, dict] = {}
     if not urls:
         return out
@@ -51,4 +59,6 @@ def check_urls_bulk(
         for fut in as_completed(futures):
             url, result = fut.result()
             out[url] = result
+            if on_result is not None:
+                on_result(url, result)
     return out
