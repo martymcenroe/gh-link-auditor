@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,11 @@ def build_bulk_scan_parser(subparsers: argparse._SubParsersAction) -> None:
     start.add_argument("--run-id", default=None, help="Existing run_id to resume (else timestamped)")
     start.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH))
     start.add_argument("--token", type=str, default=None, help="GITHUB_TOKEN override")
+    start.add_argument(
+        "--new-run",
+        action="store_true",
+        help="Create a new run with the given --run-id (required if id doesn't exist in DB).",
+    )
     start.set_defaults(func=_cmd_start)
 
     status = sub.add_parser("status", help="Print status snapshot for the most-recent (or given) run")
@@ -56,8 +62,52 @@ def build_bulk_scan_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(func=lambda args: parser.print_help() or 0)
 
 
+def _suggest_run_ids(db: UnifiedDatabase, candidate: str, max_suggest: int = 5) -> list[str]:
+    """Return up to ``max_suggest`` existing run_ids that share a prefix with ``candidate``.
+
+    Catches typos like ``bulk-20260514T042627`` vs ``bulk-20260514T042627Z`` — the longer
+    common prefix wins, so the resume target surfaces first.
+    """
+    runs = storage.list_runs(db, limit=50)
+
+    def common_prefix_len(a: str, b: str) -> int:
+        n = 0
+        for ca, cb in zip(a, b):
+            if ca != cb:
+                break
+            n += 1
+        return n
+
+    ranked = sorted(
+        ((common_prefix_len(r["run_id"], candidate), r["run_id"]) for r in runs),
+        key=lambda t: -t[0],
+    )
+    # Keep only those with a meaningful prefix overlap (≥8 chars)
+    return [rid for n, rid in ranked if n >= 8][:max_suggest]
+
+
 def _cmd_start(args: argparse.Namespace) -> int:
     from gh_link_auditor.bulk_scan import runner
+
+    # #231: reject unknown --run-id unless --new-run is set; reject --new-run on existing id
+    if args.run_id is not None:
+        with UnifiedDatabase(args.db_path) as db:
+            existing = storage.get_run(db, args.run_id)
+            if existing is None and not args.new_run:
+                print(f"error: run-id {args.run_id!r} not found in DB.", file=sys.stderr)
+                print("Pass --new-run to create a new run with this id.", file=sys.stderr)
+                suggestions = _suggest_run_ids(db, args.run_id)
+                if suggestions:
+                    print("Did you mean:", file=sys.stderr)
+                    for s in suggestions:
+                        print(f"  {s}", file=sys.stderr)
+                return 2
+            if existing is not None and args.new_run:
+                print(
+                    f"error: run-id {args.run_id!r} already exists. Drop --new-run to resume it.",
+                    file=sys.stderr,
+                )
+                return 2
 
     run_id = args.run_id or f"bulk-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     print(f"starting bulk-scan run: {run_id}")
