@@ -6,9 +6,9 @@ from gh_link_auditor.bulk_scan import storage
 from gh_link_auditor.unified_db import SCHEMA_VERSION, UnifiedDatabase
 
 
-class TestSchemaV5:
+class TestSchemaV6:
     def test_schema_version(self) -> None:
-        assert SCHEMA_VERSION == 5
+        assert SCHEMA_VERSION == 6
 
     def test_fresh_db_has_bulk_scan_tables(self, tmp_path) -> None:
         with UnifiedDatabase(str(tmp_path / "x.db")) as db:
@@ -18,6 +18,53 @@ class TestSchemaV5:
             assert "bulk_scan_runs" in tables
             assert "bulk_scan_repos" in tables
             assert "bulk_scan_findings" in tables
+
+    def test_fresh_db_has_detected_language_column(self, tmp_path) -> None:
+        """#238 schema v6 — bulk_scan_repos.detected_language exists on fresh DBs."""
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            cols = {r[1] for r in db._conn.execute("PRAGMA table_info(bulk_scan_repos)")}
+            assert "detected_language" in cols
+
+    def test_migration_v5_to_v6_adds_column(self, tmp_path) -> None:
+        """Existing v5 DB (without column) gets the column on next open."""
+        import sqlite3
+
+        db_path = str(tmp_path / "y.db")
+        # Manually fabricate a v5 DB
+        with UnifiedDatabase(db_path):
+            pass
+        # Roll back schema version + drop the column
+        con = sqlite3.connect(db_path)
+        con.execute("UPDATE schema_version SET version = 5")
+        # SQLite has no native DROP COLUMN; we simulate by recreating without it
+        con.executescript("""
+            CREATE TABLE bulk_scan_repos_old AS SELECT * FROM bulk_scan_repos;
+            DROP TABLE bulk_scan_repos;
+            CREATE TABLE bulk_scan_repos (
+                run_id TEXT NOT NULL,
+                repo_full_name TEXT NOT NULL,
+                stars INTEGER,
+                pushed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                doc_files_json TEXT,
+                url_count INTEGER DEFAULT 0,
+                dead_url_count INTEGER DEFAULT 0,
+                surface_candidate_count INTEGER DEFAULT 0,
+                error TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, repo_full_name)
+            );
+            DROP TABLE bulk_scan_repos_old;
+        """)
+        con.commit()
+        con.close()
+
+        # Re-open via UnifiedDatabase → triggers v5→v6 migration
+        with UnifiedDatabase(db_path) as db:
+            cols = {r[1] for r in db._conn.execute("PRAGMA table_info(bulk_scan_repos)")}
+            assert "detected_language" in cols
+            ver = db._conn.execute("SELECT version FROM schema_version").fetchone()[0]
+            assert ver == 6
 
 
 class TestRunLifecycle:

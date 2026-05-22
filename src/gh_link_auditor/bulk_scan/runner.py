@@ -29,6 +29,7 @@ from gh_link_auditor.bulk_scan.config import (
     BATCH_SIZE,
     HEARTBEAT_FILE,
     HEARTBEAT_INTERVAL_S,
+    INCLUDE_LANGUAGES,
     LIVENESS_CACHE_TTL_HOURS,
     QUALITY_MEDIAN_THRESHOLD,
     QUALITY_SAMPLE_AFTER_N_CANDIDATES,
@@ -234,6 +235,22 @@ def run_liveness(db: UnifiedDatabase, run_id: str) -> dict[str, dict]:
     return cached
 
 
+def _load_repo_languages(db: UnifiedDatabase, run_id: str) -> dict[str, str | None]:
+    """Pre-load detected_language per repo for fast Stage 3 filtering (#238)."""
+    rows = db._conn.execute(
+        "SELECT repo_full_name, detected_language FROM bulk_scan_repos WHERE run_id = ?",
+        (run_id,),
+    ).fetchall()
+    return {r["repo_full_name"]: r["detected_language"] for r in rows}
+
+
+def _is_repo_language_included(detected: str | None, include: frozenset[str]) -> bool:
+    """NULL/None passes through; detected non-None must be in include-set."""
+    if detected is None:
+        return True
+    return detected in include
+
+
 def run_investigation(
     db: UnifiedDatabase,
     run_id: str,
@@ -243,6 +260,8 @@ def run_investigation(
     last_hb = 0.0
     sample_median: float | None = None
     repo_dead_counts: dict[str, int] = {}
+    repo_languages = _load_repo_languages(db, run_id)
+    skipped_non_english = 0
 
     # Group pending findings by repo so we can update per-repo status after.
     rows = db._conn.execute(
@@ -257,6 +276,13 @@ def run_investigation(
         if _abort_requested():
             storage.update_run_status(db, run_id, "aborted")
             return
+        # #238: skip findings from repos whose detected language is NOT in include-set
+        repo_lang = repo_languages.get(finding["repo_full_name"])
+        if not _is_repo_language_included(repo_lang, INCLUDE_LANGUAGES):
+            db._conn.execute("DELETE FROM bulk_scan_findings WHERE id = ?", (finding["id"],))
+            db._conn.commit()
+            skipped_non_english += 1
+            continue
         url = finding["dead_url"]
         result = liveness_results.get(url, {})
         if not liveness.is_dead_result(result):
@@ -300,6 +326,8 @@ def run_investigation(
 
     for repo, cnt in repo_dead_counts.items():
         storage.update_repo_status(db, run_id, repo, "investigated", dead_url_count=cnt)
+    if skipped_non_english:
+        logger.info("investigation: skipped %d findings from non-English repos (#238)", skipped_non_english)
 
 
 def run_scoring(db: UnifiedDatabase, run_id: str) -> None:

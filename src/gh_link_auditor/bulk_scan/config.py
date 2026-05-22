@@ -21,6 +21,9 @@ LIVENESS_CACHE_TTL_HOURS = 720  # 30 days; bulk runs span days, cache survives c
 # --- Investigation (Stage 3) ---
 INVESTIGATION_WORKER_COUNT = 8
 INVESTIGATE_TIMEOUT_S = 30
+INCLUDE_LANGUAGES: frozenset[str] = frozenset(
+    {"en"}
+)  # repos detected outside this set are skipped (#238); NULL passes through
 
 # --- Scoring (Stage 4) ---
 SURFACE_CONFIDENCE_THRESHOLD = 0.7

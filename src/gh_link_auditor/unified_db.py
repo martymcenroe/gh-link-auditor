@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class UnifiedDatabase:
@@ -328,6 +328,7 @@ class UnifiedDatabase:
                 dead_url_count INTEGER DEFAULT 0,
                 surface_candidate_count INTEGER DEFAULT 0,
                 error TEXT,
+                detected_language TEXT,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (run_id, repo_full_name)
             )
@@ -373,6 +374,8 @@ class UnifiedDatabase:
             self._migrate_v3_to_v4()
         if from_version <= 4:
             self._migrate_v4_to_v5()
+        if from_version <= 5:
+            self._migrate_v5_to_v6()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -474,6 +477,7 @@ class UnifiedDatabase:
                 dead_url_count INTEGER DEFAULT 0,
                 surface_candidate_count INTEGER DEFAULT 0,
                 error TEXT,
+                detected_language TEXT,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (run_id, repo_full_name)
             )
@@ -505,8 +509,21 @@ class UnifiedDatabase:
             "CREATE INDEX IF NOT EXISTS idx_bulk_scan_findings_confidence "
             "ON bulk_scan_findings (run_id, confidence DESC, surfaced)"
         )
-        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        c.execute("UPDATE schema_version SET version = ?", (5,))
         logger.info("Migration to v5 complete")
+
+    # ------------------------------------------------------------------
+    # Migration v5 -> v6: bulk_scan_repos.detected_language column (#238)
+    # ------------------------------------------------------------------
+
+    def _migrate_v5_to_v6(self) -> None:
+        logger.info("Migrating schema v5 → v6")
+        c = self._conn
+        cols = {row[1] for row in c.execute("PRAGMA table_info(bulk_scan_repos)").fetchall()}
+        if "detected_language" not in cols:
+            c.execute("ALTER TABLE bulk_scan_repos ADD COLUMN detected_language TEXT")
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        logger.info("Migration to v6 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db
