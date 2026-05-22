@@ -19,7 +19,9 @@
 | Batch engine (run pipeline across many repos with rate limits) | Shipped |
 | Campaign metrics dashboard (`ghla metrics campaign`) | Shipped |
 | Repo discovery via stargazer harvesting | Shipped |
-| Hostile-maintainer comment detection + auto-blacklist | Planned (#178) |
+| Hostile-maintainer comment detection + auto-blacklist | Shipped |
+| Anti-AI policy-rejection classifier + auto-blacklist | Shipped |
+| Bulk-scan (unattended 7,500-repo audit with crash-resumable persistence) | Shipped |
 
 ## Quickstart
 
@@ -38,6 +40,7 @@ This is a dry run by default — N0 through N3 only. Add `--dry-run=false` (or o
 |---|---|
 | `ghla run <target>` | Run the full pipeline against one repo URL or local clone |
 | `ghla batch <yaml-config>` | Run the pipeline across many repos with rate limiting |
+| `ghla bulk-scan {start,status,stop,report,list-runs}` | Unattended thousand-repo audit with resumable persistence (#218, #230) |
 | `ghla blacklist {list,add,remove,stats}` | Manage the repo blacklist |
 | `ghla metrics {campaign,refresh,scan-history}` | Show campaign dashboard and refresh PR statuses |
 | `ghla recheck` | Process snoozed findings due for re-verification |
@@ -58,6 +61,8 @@ Two zero-dep scripts at the repo root pre-date the unified CLI and remain for ad
 
 ## Documentation
 
+- [`docs/design/`](docs/design/) — system architecture + pipeline process diagrams
+- [`docs/runbooks/`](docs/runbooks/) — operator-facing runbooks (single-repo `operator-guide.md`, `bulk-scan-kickoff.md`, `first-live-audit.md`)
 - [`docs/lld/`](docs/lld/) — low-level designs (active + archived)
 - [`docs/adrs/`](docs/adrs/) — architecture decision records
 - [`docs/reports/`](docs/reports/) — per-issue implementation and test reports
