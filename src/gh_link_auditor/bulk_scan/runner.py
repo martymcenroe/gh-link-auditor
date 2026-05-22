@@ -20,6 +20,7 @@ from gh_link_auditor.bulk_scan import (
     inventory,
     investigation,
     liveness,
+    process_lock,
     scoring,
     selection,
     storage,
@@ -251,6 +252,27 @@ def _is_repo_language_included(detected: str | None, include: frozenset[str]) ->
     return detected in include
 
 
+def _mark_finding(
+    db: UnifiedDatabase,
+    finding_id: int,
+    new_state: str,
+) -> None:
+    """Update a finding's investigation state (#244 — non-destructive Stage 3).
+
+    Replaces the prior 'DELETE then maybe INSERT replacement' pattern with a
+    pure UPDATE. Stage 1's source-file + line + URL mapping is preserved
+    regardless of Stage 3's outcome.
+    """
+    db._conn.execute(
+        "UPDATE bulk_scan_findings SET "
+        "investigation_state = ?, "
+        "investigation_completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+        "investigation_attempts = investigation_attempts + 1 "
+        "WHERE id = ?",
+        (new_state, finding_id),
+    )
+
+
 def run_investigation(
     db: UnifiedDatabase,
     run_id: str,
@@ -262,11 +284,17 @@ def run_investigation(
     repo_dead_counts: dict[str, int] = {}
     repo_languages = _load_repo_languages(db, run_id)
     skipped_non_english = 0
+    skipped_alive = 0
+    investigated_no_cand = 0
+    investigated_with_cand = 0
 
-    # Group pending findings by repo so we can update per-repo status after.
+    # Read pending findings (Stage 1 output, still 'pending' state).
+    # Non-pending rows (derived_candidate from prior runs, or skip-state rows from
+    # a prior partial Stage 3) are left alone — resume is idempotent (#244).
     rows = db._conn.execute(
         "SELECT id, repo_full_name, source_file, line_number, dead_url "
-        "FROM bulk_scan_findings WHERE run_id = ? AND method = 'pending'",
+        "FROM bulk_scan_findings WHERE run_id = ? AND method = 'pending' "
+        "AND investigation_state = 'pending'",
         (run_id,),
     ).fetchall()
     pending = [dict(r) for r in rows]
@@ -279,43 +307,57 @@ def run_investigation(
         # #238: skip findings from repos whose detected language is NOT in include-set
         repo_lang = repo_languages.get(finding["repo_full_name"])
         if not _is_repo_language_included(repo_lang, INCLUDE_LANGUAGES):
-            db._conn.execute("DELETE FROM bulk_scan_findings WHERE id = ?", (finding["id"],))
-            db._conn.commit()
+            with db._conn:
+                _mark_finding(db, finding["id"], "skipped_language")
             skipped_non_english += 1
             continue
         url = finding["dead_url"]
         result = liveness_results.get(url, {})
         if not liveness.is_dead_result(result):
-            # URL is alive — drop the placeholder finding row
-            db._conn.execute("DELETE FROM bulk_scan_findings WHERE id = ?", (finding["id"],))
-            db._conn.commit()
+            # URL is alive — mark and move on (#244: no DELETE, preserves Stage 1 mapping)
+            with db._conn:
+                _mark_finding(db, finding["id"], "skipped_alive")
+            skipped_alive += 1
             continue
 
         repo_dead_counts[finding["repo_full_name"]] = repo_dead_counts.get(finding["repo_full_name"], 0) + 1
 
         candidates = investigation.investigate_one(url, result.get("status_code") or "error")
         tier1 = investigation.filter_tier1(candidates)
-        # Replace the placeholder row with real candidates (delete + insert)
-        db._conn.execute("DELETE FROM bulk_scan_findings WHERE id = ?", (finding["id"],))
-        db._conn.commit()
-        if not tier1:
-            continue
-        for c in tier1:
-            confidence = investigation.compute_confidence(c)
-            storage.add_finding(
-                db,
-                run_id,
-                finding["repo_full_name"],
-                finding["source_file"],
-                finding["line_number"],
-                url,
-                c["candidate_url"],
-                c["method"],
-                c["tier"],
-                c["similarity_score"],
-                c["verified_live"],
-                confidence,
-            )
+
+        # #244: atomic state transition + candidate insert in one transaction.
+        # Stage 1 row stays put; we just update its state and insert derived candidates.
+        with db._conn:
+            if not tier1:
+                _mark_finding(db, finding["id"], "investigated_no_candidate")
+                investigated_no_cand += 1
+            else:
+                _mark_finding(db, finding["id"], "investigated_with_candidate")
+                investigated_with_cand += 1
+                for c in tier1:
+                    confidence = investigation.compute_confidence(c)
+                    # Insert a derived-candidate row; method is the real investigation method.
+                    db._conn.execute(
+                        "INSERT INTO bulk_scan_findings "
+                        "(run_id, repo_full_name, source_file, line_number, dead_url, "
+                        "candidate_url, method, tier, similarity_score, verified_live, "
+                        "confidence, surfaced, created_at, investigation_state) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, "
+                        "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'derived_candidate')",
+                        (
+                            run_id,
+                            finding["repo_full_name"],
+                            finding["source_file"],
+                            finding["line_number"],
+                            url,
+                            c["candidate_url"],
+                            c["method"],
+                            c["tier"],
+                            c["similarity_score"],
+                            1 if c.get("verified_live") else 0,
+                            confidence,
+                        ),
+                    )
 
         # Mid-run sample + stop-loss check
         if i % BATCH_SIZE == 0:
@@ -326,8 +368,14 @@ def run_investigation(
 
     for repo, cnt in repo_dead_counts.items():
         storage.update_repo_status(db, run_id, repo, "investigated", dead_url_count=cnt)
-    if skipped_non_english:
-        logger.info("investigation: skipped %d findings from non-English repos (#238)", skipped_non_english)
+    logger.info(
+        "investigation done: skipped_language=%d skipped_alive=%d "
+        "investigated_no_candidate=%d investigated_with_candidate=%d",
+        skipped_non_english,
+        skipped_alive,
+        investigated_no_cand,
+        investigated_with_cand,
+    )
 
 
 def run_scoring(db: UnifiedDatabase, run_id: str) -> None:
@@ -365,31 +413,42 @@ def run_full(
     token: str | None = None,
     skip_selection: bool = False,
 ) -> dict[str, Any]:
-    """End-to-end orchestration. Resumable: existing state respected."""
-    run = storage.get_run(db, run_id)
-    if run is None:
-        storage.create_run(db, run_id, target_count, {"target_count": target_count})
+    """End-to-end orchestration. Resumable: existing state respected.
+
+    #244: acquires a single-process lock per (run_id, host) at the start, releases
+    on exit. Concurrent invocations of bulk-scan against the same run-id raise
+    LockBusyError, preventing the racing-processes data-loss scenario from
+    2026-05-22.
+    """
+    # Acquire the per-(run_id, host) lock before any work
+    process_lock.acquire(db, run_id)
+    try:
         run = storage.get_run(db, run_id)
+        if run is None:
+            storage.create_run(db, run_id, target_count, {"target_count": target_count})
+            run = storage.get_run(db, run_id)
 
-    if not skip_selection and run["status"] in ("selecting", None):
-        run_selection(db, run_id, target_count, get_blacklisted_repos(db))
+        if not skip_selection and run["status"] in ("selecting", None):
+            run_selection(db, run_id, target_count, get_blacklisted_repos(db))
 
-    if run["status"] in ("selecting", "inventorying"):
-        run_inventory(db, run_id, token=token or os.environ.get("GITHUB_TOKEN"))
+        if run["status"] in ("selecting", "inventorying"):
+            run_inventory(db, run_id, token=token or os.environ.get("GITHUB_TOKEN"))
 
-    run = storage.get_run(db, run_id)
-    if run["status"] in ("inventorying", "checking"):
-        liveness_results = run_liveness(db, run_id)
-    else:
-        liveness_results = {}
+        run = storage.get_run(db, run_id)
+        if run["status"] in ("inventorying", "checking"):
+            liveness_results = run_liveness(db, run_id)
+        else:
+            liveness_results = {}
 
-    run = storage.get_run(db, run_id)
-    if run["status"] in ("checking", "investigating"):
-        run_investigation(db, run_id, liveness_results)
+        run = storage.get_run(db, run_id)
+        if run["status"] in ("checking", "investigating"):
+            run_investigation(db, run_id, liveness_results)
 
-    run = storage.get_run(db, run_id)
-    if run["status"] not in ("aborted", "quality_aborted", "done"):
-        run_scoring(db, run_id)
+        run = storage.get_run(db, run_id)
+        if run["status"] not in ("aborted", "quality_aborted", "done"):
+            run_scoring(db, run_id)
 
-    heartbeat.write_heartbeat(db, run_id, HEARTBEAT_FILE)
-    return storage.get_run(db, run_id) or {}
+        heartbeat.write_heartbeat(db, run_id, HEARTBEAT_FILE)
+        return storage.get_run(db, run_id) or {}
+    finally:
+        process_lock.release(db, run_id)
