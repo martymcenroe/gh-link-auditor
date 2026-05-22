@@ -158,3 +158,108 @@ class TestLivenessResultFromCache:
     def test_final_url_preserved(self) -> None:
         out = runner._liveness_result_from_cache({"http_status": 200, "final_url": "https://moved.example/"})
         assert out["final_url"] == "https://moved.example/"
+
+
+class TestLanguageFilter:
+    """#238 — Stage 3 skips findings from repos whose detected_language is set and not in INCLUDE_LANGUAGES."""
+
+    def test_helper_null_passes(self) -> None:
+        assert runner._is_repo_language_included(None, frozenset({"en"})) is True
+
+    def test_helper_en_passes(self) -> None:
+        assert runner._is_repo_language_included("en", frozenset({"en"})) is True
+
+    def test_helper_zh_excluded(self) -> None:
+        assert runner._is_repo_language_included("zh-cn", frozenset({"en"})) is False
+
+    def test_helper_multi_language_set(self) -> None:
+        include = frozenset({"en", "fr"})
+        assert runner._is_repo_language_included("fr", include) is True
+        assert runner._is_repo_language_included("de", include) is False
+
+    def test_load_repo_languages(self, tmp_path) -> None:
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 3, {})
+            storage.upsert_repo(db, "r1", "a/en1")
+            storage.upsert_repo(db, "r1", "a/zh1")
+            storage.upsert_repo(db, "r1", "a/none1")
+            db._conn.execute(
+                "UPDATE bulk_scan_repos SET detected_language = ? WHERE repo_full_name = ?",
+                ("en", "a/en1"),
+            )
+            db._conn.execute(
+                "UPDATE bulk_scan_repos SET detected_language = ? WHERE repo_full_name = ?",
+                ("zh-cn", "a/zh1"),
+            )
+            db._conn.commit()
+            out = runner._load_repo_languages(db, "r1")
+            assert out == {"a/en1": "en", "a/zh1": "zh-cn", "a/none1": None}
+
+    def test_run_investigation_skips_non_english(self, tmp_path) -> None:
+        """Real run: an English and a Chinese repo each have one dead finding.
+        Stage 3 should investigate only the English one."""
+        from unittest.mock import patch
+
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 2, {})
+            for repo in ("en/repo", "zh/repo"):
+                storage.upsert_repo(db, "r1", repo)
+                storage.add_finding(
+                    db,
+                    "r1",
+                    repo,
+                    "README.md",
+                    1,
+                    f"https://dead.test/{repo.split('/')[0]}",
+                    candidate_url="",
+                    method="pending",
+                    tier=0,
+                    similarity_score=None,
+                    verified_live=False,
+                    confidence=0.0,
+                )
+            db._conn.execute("UPDATE bulk_scan_repos SET detected_language = 'en' WHERE repo_full_name = 'en/repo'")
+            db._conn.execute("UPDATE bulk_scan_repos SET detected_language = 'zh-cn' WHERE repo_full_name = 'zh/repo'")
+            db._conn.commit()
+            liveness_results = {
+                "https://dead.test/en": {"status_code": 404, "status": "dead"},
+                "https://dead.test/zh": {"status_code": 404, "status": "dead"},
+            }
+            with patch("gh_link_auditor.bulk_scan.investigation.investigate_one", return_value=[]) as p:
+                runner.run_investigation(db, "r1", liveness_results)
+            # Only the en/repo URL was passed to investigate_one
+            urls_investigated = {call.args[0] for call in p.call_args_list}
+            assert "https://dead.test/en" in urls_investigated
+            assert "https://dead.test/zh" not in urls_investigated
+            # The zh row was deleted (skipped at the language gate)
+            remaining_zh = db._conn.execute(
+                "SELECT COUNT(*) FROM bulk_scan_findings WHERE run_id='r1' AND repo_full_name='zh/repo'"
+            ).fetchone()[0]
+            assert remaining_zh == 0
+
+    def test_run_investigation_passes_null_language(self, tmp_path) -> None:
+        """A repo with detected_language=NULL still gets its findings investigated."""
+        from unittest.mock import patch
+
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 1, {})
+            storage.upsert_repo(db, "r1", "unknown/repo")
+            storage.add_finding(
+                db,
+                "r1",
+                "unknown/repo",
+                "README.md",
+                1,
+                "https://dead.test/u",
+                candidate_url="",
+                method="pending",
+                tier=0,
+                similarity_score=None,
+                verified_live=False,
+                confidence=0.0,
+            )
+            # leave detected_language NULL
+            liveness_results = {"https://dead.test/u": {"status_code": 404, "status": "dead"}}
+            with patch("gh_link_auditor.bulk_scan.investigation.investigate_one", return_value=[]) as p:
+                runner.run_investigation(db, "r1", liveness_results)
+            assert p.call_count == 1
