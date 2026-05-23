@@ -107,6 +107,48 @@ def _group_by_repo(rows: list[dict]) -> dict[str, list[dict]]:
     return by_repo
 
 
+_MARKDOWN_SUFFIX_CHARS = frozenset(")'\"*] \t")
+
+
+def _is_safely_replaceable(dead_url: str, candidate_url: str) -> tuple[bool, str]:
+    """Return (safe, reason). Reject candidates whose `str.replace(dead, candidate)`
+    application would corrupt surrounding markdown.
+
+    The extractor (``bulk_scan.inventory.extract_urls_from_text``) sometimes
+    captures trailing markdown punctuation into the URL. e.g.::
+
+        [BM25](https://en.wikipedia.org/wiki/Okapi_BM25)'s implementation
+
+    becomes a dead_url of ``https://en.wikipedia.org/wiki/Okapi_BM25)'s``
+    because `_clean_url_tail`'s trailing-punctuation strip is blocked by the
+    `s`. The candidate URL is the clean Wikipedia URL. If N6 runs
+    ``content.replace(dead, candidate)``, the `)'s` gets deleted from the
+    README — corrupting both the markdown link and the surrounding text.
+
+    Two checks:
+
+    1. Unbalanced closing paren in dead_url. Real URLs have balanced parens;
+       extras came from surrounding markdown.
+    2. candidate is a strict prefix of dead AND dead's trailing suffix
+       contains markdown-junk chars (``)'\"*] \\t``). This catches the
+       general case where the extractor caught trailing markdown without
+       triggering check 1 — e.g., ``URL"`` or ``URL extra``. Legitimate
+       URL mutations like ``URL/foo.html → URL/`` are NOT caught because
+       the deleted suffix (``foo.html``) is pure URL-path content.
+    """
+    closes = dead_url.count(")")
+    opens = dead_url.count("(")
+    if closes > opens:
+        return False, "unbalanced_paren"
+
+    if dead_url != candidate_url and dead_url.startswith(candidate_url):
+        suffix = dead_url[len(candidate_url) :]
+        if set(suffix) & _MARKDOWN_SUFFIX_CHARS:
+            return False, "dead_url_suffix_has_markdown_chars"
+
+    return True, ""
+
+
 def _build_state(
     repo_full_name: str,
     fixes: list[dict],
@@ -276,6 +318,18 @@ def derive_and_submit(
             if _has_open_pr(udb, repo_full_name):
                 skipped.append((repo_full_name, "open_pr_exists"))
                 continue
+
+            # Drop rows whose str.replace would corrupt the file. See
+            # _is_safely_replaceable for why.
+            safe_rows = []
+            for r in repo_rows:
+                ok, reason = _is_safely_replaceable(r["dead_url"], r["candidate_url"])
+                if ok:
+                    safe_rows.append(r)
+            if not safe_rows:
+                skipped.append((repo_full_name, "all_candidates_unsafe"))
+                continue
+            repo_rows = safe_rows
 
             fixes = _rows_to_fixes(repo_rows)
             verdicts = _rows_to_verdicts(repo_rows)

@@ -136,6 +136,95 @@ class TestRowToVerdict:
         assert v["candidate"]["source"] == ""
 
 
+class TestIsSafelyReplaceable:
+    def test_clean_url_pair_safe(self):
+        ok, reason = mod._is_safely_replaceable(
+            "https://old.example.com/page",
+            "https://new.example.com/page",
+        )
+        assert ok is True
+        assert reason == ""
+
+    def test_url_mutation_safe(self):
+        # index.htm → / — candidate is NOT a substring of dead (the / changes it)
+        ok, reason = mod._is_safely_replaceable(
+            "https://sumo.dlr.de/docs/Installing/index.htm",
+            "https://sumo.dlr.de/docs/Installing/",
+        )
+        assert ok is True
+
+    def test_github_rename_safe(self):
+        ok, reason = mod._is_safely_replaceable(
+            "https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md",
+            "https://github.com/verl-project/verl/blob/main/docs/README_vllm0.7.md",
+        )
+        assert ok is True
+
+    def test_balanced_wikipedia_paren_safe(self):
+        # Real Wikipedia URLs with parens like Measure_(mathematics) are fine
+        ok, reason = mod._is_safely_replaceable(
+            "https://en.wikipedia.org/wiki/Measure_(mathematics%29)",  # bad encoding
+            "https://en.wikipedia.org/wiki/Measure_(mathematics)",  # fixed encoding
+        )
+        assert ok is True
+
+    def test_unbalanced_paren_rejected(self):
+        # The Okapi_BM25)'s case — extractor caught a closing paren from markdown
+        ok, reason = mod._is_safely_replaceable(
+            "https://en.wikipedia.org/wiki/Okapi_BM25)'s",
+            "https://en.wikipedia.org/wiki/Okapi_BM25",
+        )
+        assert ok is False
+        assert reason == "unbalanced_paren"
+
+    def test_unbalanced_paren_with_trailing_letters_rejected(self):
+        ok, reason = mod._is_safely_replaceable(
+            "https://en.wikipedia.org/wiki/Remote_procedure_call)is",
+            "https://en.wikipedia.org/wiki/Remote_procedure_call",
+        )
+        assert ok is False
+        assert reason == "unbalanced_paren"
+
+    def test_candidate_prefix_with_quote_suffix_rejected(self):
+        # No unbalanced paren but trailing quote — markdown-junk suffix
+        ok, reason = mod._is_safely_replaceable(
+            'https://example.com/page"',
+            "https://example.com/page",
+        )
+        assert ok is False
+        assert reason == "dead_url_suffix_has_markdown_chars"
+
+    def test_candidate_prefix_with_space_suffix_rejected(self):
+        ok, reason = mod._is_safely_replaceable(
+            "https://example.com/page extra",
+            "https://example.com/page",
+        )
+        assert ok is False
+        assert reason == "dead_url_suffix_has_markdown_chars"
+
+    def test_candidate_prefix_with_url_path_suffix_safe(self):
+        # url_mutation case: candidate ends in /, dead has more path. The
+        # suffix is URL-valid chars only — legitimate URL change.
+        ok, reason = mod._is_safely_replaceable(
+            "https://example.com/docs/foo/index.html",
+            "https://example.com/docs/foo/",
+        )
+        assert ok is True
+
+    def test_substring_in_middle_not_rejected(self):
+        # candidate appears INSIDE dead but not as a prefix — different URL
+        ok, reason = mod._is_safely_replaceable(
+            "https://prefix/example.com/page/suffix",
+            "https://example.com/page",
+        )
+        assert ok is True
+
+    def test_identical_urls_safe(self):
+        # Edge case: dead == candidate is treated as safe (no-op replace)
+        ok, _ = mod._is_safely_replaceable("https://x.com/a", "https://x.com/a")
+        assert ok is True
+
+
 class TestGroupByRepo:
     def test_single_repo(self):
         rows = [_make_row(id=1), _make_row(id=2)]
@@ -473,6 +562,58 @@ class TestDeriveAndSubmit:
         result = mod.derive_and_submit(_make_args(db=db_path), n6_fn=fake_n6)
         assert len(result["errors"]) == 1
         assert "no pr_url" in result["errors"][0][1]
+
+    def test_skips_repo_with_only_unsafe_candidates(self, db_path):
+        # All findings for this repo have unbalanced parens — N6 must NOT be
+        # called; the repo gets logged as all_candidates_unsafe.
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(
+                udb,
+                repo_full_name="unsafe/repo",
+                dead_url="https://en.wikipedia.org/wiki/Foo)'s",
+                candidate_url="https://en.wikipedia.org/wiki/Foo",
+            )
+
+        n6_calls = []
+
+        def fake_n6(state):
+            n6_calls.append(state)
+            return state
+
+        result = mod.derive_and_submit(_make_args(db=db_path), n6_fn=fake_n6)
+        assert n6_calls == []
+        assert ("unsafe/repo", "all_candidates_unsafe") in result["skipped"]
+
+    def test_partial_unsafe_keeps_safe_candidates(self, db_path):
+        # Same repo has one safe + one unsafe candidate. N6 should be called
+        # with ONLY the safe one.
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(
+                udb,
+                repo_full_name="mixed/repo",
+                source_file="a.md",
+                dead_url="https://en.wikipedia.org/wiki/Foo)'s",
+                candidate_url="https://en.wikipedia.org/wiki/Foo",
+            )
+            _insert_finding(
+                udb,
+                repo_full_name="mixed/repo",
+                source_file="b.md",
+                dead_url="https://docs.example.com/old/index.html",
+                candidate_url="https://docs.example.com/new/index.html",
+            )
+
+        captured = []
+
+        def fake_n6(state):
+            captured.append([fix["source_file"] for fix in state["fixes"]])
+            state["pr_url"] = "https://github.com/mixed/repo/pull/1"
+            return state
+
+        result = mod.derive_and_submit(_make_args(db=db_path), n6_fn=fake_n6)
+        assert len(result["submitted"]) == 1
+        # Only the safe fix made it into the PR
+        assert captured == [["b.md"]]
 
 
 # ---------------------------------------------------------------------------
