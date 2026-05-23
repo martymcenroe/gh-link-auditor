@@ -3,20 +3,57 @@
 Queries the GitHub REST API to detect 301 redirects for renamed or
 transferred repositories, and reconstructs file URLs under the new location.
 
-See LLD #20 §2.4 for API specification.
+See LLD #20 §2.4 for API specification. LLD-257 routes all API calls through
+``GitHubRateLimitedClient`` so concurrent callers (bulk-scan Stage 3 with
+``--workers 32``) share quota accounting and respect 403/429 backoff.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
-import urllib.request
+import threading
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
+
+import httpx
 
 from src.logging_config import setup_logging
 
+if TYPE_CHECKING:
+    from gh_link_auditor.bulk_scan.gh_client import GitHubRateLimitedClient
+
 logger = setup_logging("github_resolver")
+
+
+# ---------------------------------------------------------------------------
+# Module-level lazy default client (#257)
+# ---------------------------------------------------------------------------
+
+_default_client: GitHubRateLimitedClient | None = None
+_default_client_lock = threading.Lock()
+
+
+def _get_default_client() -> GitHubRateLimitedClient:
+    """Return the module-level default client, constructing it on first call.
+
+    Double-checked locking: Stage 3 worker threads can race the first
+    ``resolve_repo_redirect``; we don't want two clients each holding their
+    own quota counters. Imports of ``bulk_scan.gh_client`` and ``auth`` are
+    deferred to inside this function to avoid module-load circularity
+    (``bulk_scan.runner`` transitively imports ``link_detective`` which
+    imports this module).
+    """
+    global _default_client
+    if _default_client is not None:
+        return _default_client
+    with _default_client_lock:
+        if _default_client is None:
+            from gh_link_auditor.auth import resolve_github_token
+            from gh_link_auditor.bulk_scan.gh_client import GitHubRateLimitedClient
+
+            token = resolve_github_token() or None
+            _default_client = GitHubRateLimitedClient(token=token)
+    return _default_client
 
 
 # ---------------------------------------------------------------------------
@@ -24,34 +61,39 @@ logger = setup_logging("github_resolver")
 # ---------------------------------------------------------------------------
 
 
-def _github_api_get(url: str, token: str | None = None) -> dict | None:
-    """Make a GET request to the GitHub API.
+def _github_api_get(
+    url: str,
+    token: str | None = None,  # noqa: ARG001 — retained for backwards compat; the client carries its own token
+    client: Any | None = None,
+) -> dict | None:
+    """Make a GET request to the GitHub API via the rate-limited client.
 
     Args:
         url: GitHub API endpoint URL.
-        token: Optional GitHub personal access token.
+        token: Retained for backwards compatibility. Ignored — the active
+               client carries its own token (default uses ``resolve_github_token``).
+        client: Optional rate-limited client. When None, the module-level
+               default is used (constructed lazily on first call).
 
     Returns:
-        Parsed JSON response dict, or None on error/404.
+        Parsed JSON response dict, or None on 404 / non-2xx / transport error /
+        non-JSON body.
     """
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "gh-link-auditor/1.0",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
+    active = client if client is not None else _get_default_client()
     try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        logger.warning("GitHub API error %d for %s", e.code, url)
+        r = active.get(url)
+    except httpx.HTTPError:
+        logger.warning("GitHub API request failed for %s", url)
         return None
-    except (urllib.error.URLError, OSError) as e:
-        logger.warning("GitHub API request failed for %s: %s", url, e)
+    if r.status_code == 404:
+        return None
+    if r.status_code >= 400:
+        logger.warning("GitHub API error %d for %s", r.status_code, url)
+        return None
+    try:
+        return r.json()
+    except ValueError:
+        logger.warning("GitHub API returned non-JSON for %s", url)
         return None
 
 
@@ -65,14 +107,21 @@ class GitHubResolver:
 
     GITHUB_DOMAINS: set[str] = {"github.com", "raw.githubusercontent.com"}
 
-    def __init__(self, token: str | None = None) -> None:
-        """Initialize with optional GitHub auth token.
+    def __init__(self, token: str | None = None, *, client: Any | None = None) -> None:
+        """Initialize with optional GitHub auth token and rate-limited client.
 
         Args:
             token: GitHub personal access token. If None, reads from
-                   ``GITHUB_TOKEN`` environment variable.
+                   ``GITHUB_TOKEN`` environment variable. Note: when ``client``
+                   is supplied, the client's own token is what's actually sent
+                   on the wire; this kwarg is kept for backwards compatibility
+                   with the previous urllib-based implementation.
+            client: Optional ``GitHubRateLimitedClient`` for unified quota
+                   accounting with another caller (e.g. the bulk-scan runner).
+                   When None, a process-wide default client is used.
         """
         self._token = token or os.environ.get("GITHUB_TOKEN")
+        self._client = client
 
     def is_github_url(self, url: str) -> bool:
         """Check if URL is a GitHub URL (exact domain match).
@@ -124,7 +173,7 @@ class GitHubResolver:
         """
         api_url = f"https://api.github.com/repos/{owner}/{repo}"
         try:
-            data = _github_api_get(api_url, self._token)
+            data = _github_api_get(api_url, self._token, client=self._client)
         except Exception:
             logger.warning("GitHub API error resolving %s/%s", owner, repo)
             return None
