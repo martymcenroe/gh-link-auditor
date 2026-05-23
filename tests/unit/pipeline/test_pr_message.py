@@ -126,21 +126,34 @@ class TestFindVerdictForFix:
 
 class TestGeneratePrBodyFromFixes:
     def test_single_fix_exact_format(self) -> None:
+        """Spec from feedback_pr_body_voice.md — building-skill motivation + simple ask."""
         fix = _make_fix()
         body = generate_pr_body_from_fixes([fix], [_make_verdict()])
         assert body == (
-            "https://old.example.com/page is dead\n\nthink this is the one you want: https://new.example.com/page"
+            "the docs url in README.md moved.\n"
+            "\n"
+            "  before:  https://old.example.com/page  (404)\n"
+            "  after:   https://new.example.com/page  (live)\n"
+            "\n"
+            "working on building skill at open-source contribution.\n"
+            "please merge if this helps."
         )
 
-    def test_single_fix_without_verdict(self) -> None:
+    def test_single_fix_includes_skill_motivation(self) -> None:
         body = generate_pr_body_from_fixes([_make_fix()])
-        assert "https://old.example.com/page is dead" in body
-        assert "think this is the one you want: https://new.example.com/page" in body
+        assert "working on building skill at open-source contribution." in body
 
-    def test_single_fix_no_status_code(self) -> None:
-        """HTTP status not in body — it's noise; maintainer can curl."""
-        body = generate_pr_body_from_fixes([_make_fix()], [_make_verdict(http_status=404)])
-        assert "404" not in body
+    def test_single_fix_includes_simple_ask(self) -> None:
+        body = generate_pr_body_from_fixes([_make_fix()])
+        assert "please merge if this helps." in body
+
+    def test_single_fix_no_closing_offer(self) -> None:
+        """Operator never closes their own PRs — body must not offer to."""
+        body = generate_pr_body_from_fixes([_make_fix()])
+        lowered = body.lower()
+        assert "happy to revise" not in lowered
+        assert "happy to close" not in lowered
+        assert "let me know if" not in lowered
 
     def test_single_fix_no_line_number(self) -> None:
         """Line number not in single-fix body — it's in the diff."""
@@ -154,16 +167,17 @@ class TestGeneratePrBodyFromFixes:
             _make_fix(source_file="b.md", original_url="https://b.com"),
         ]
         body = generate_pr_body_from_fixes(fixes)
-        assert body.startswith("found 2 dead links in the docs")
+        assert body.startswith("found 2 dead docs urls.")
 
-    def test_multiple_fixes_arrows_are_ascii(self) -> None:
+    def test_multiple_fixes_no_arrow_chars(self) -> None:
+        """New format uses before/after blocks, not arrows."""
         fixes = [
             _make_fix(source_file="a.md", original_url="https://a.com", replacement_url="https://a-new.com"),
             _make_fix(source_file="b.md", original_url="https://b.com", replacement_url="https://b-new.com"),
         ]
         body = generate_pr_body_from_fixes(fixes)
-        assert "->" in body
         assert "→" not in body
+        assert " -> " not in body
 
     def test_multiple_fixes_with_line_numbers(self) -> None:
         fixes = [
@@ -175,8 +189,8 @@ class TestGeneratePrBodyFromFixes:
             _make_verdict(source_file="docs/api.md", original_url="https://b.com", line_number=10),
         ]
         body = generate_pr_body_from_fixes(fixes, verdicts)
-        assert "docs/guide.md line 42:" in body
-        assert "docs/api.md line 10:" in body
+        assert "docs/guide.md line 42" in body
+        assert "docs/api.md line 10" in body
 
     def test_multiple_fixes_without_verdicts_omit_line_number(self) -> None:
         fixes = [
@@ -184,9 +198,20 @@ class TestGeneratePrBodyFromFixes:
             _make_fix(source_file="b.md", original_url="https://b.com"),
         ]
         body = generate_pr_body_from_fixes(fixes)
-        assert "a.md: https://a.com" in body
-        assert "b.md: https://b.com" in body
-        assert "line" not in body
+        assert "a.md" in body
+        assert "https://a.com" in body
+        assert "b.md" in body
+        assert "https://b.com" in body
+        assert "line " not in body
+
+    def test_multiple_fixes_includes_motivation_and_ask(self) -> None:
+        fixes = [
+            _make_fix(source_file="a.md", original_url="https://a.com"),
+            _make_fix(source_file="b.md", original_url="https://b.com"),
+        ]
+        body = generate_pr_body_from_fixes(fixes)
+        assert "working on building skill at open-source contribution." in body
+        assert "please merge if this helps." in body
 
     def test_empty_fixes(self) -> None:
         assert generate_pr_body_from_fixes([]) == "ran a check but found nothing worth fixing"
@@ -214,13 +239,19 @@ class TestGeneratePrBodyFromFixes:
         body = generate_pr_body_from_fixes([])
         assert tell not in body
 
-    def test_body_is_lowercase_apart_from_urls(self) -> None:
-        """Body prose is lowercase. URLs may contain mixed case."""
-        body = generate_pr_body_from_fixes([_make_fix(original_url="https://Example.com/Page")])
-        prose = body.replace("https://Example.com/Page", "").replace("https://new.example.com/page", "")
+    def test_body_is_lowercase_apart_from_urls_and_paths(self) -> None:
+        """Body prose is lowercase. URLs and file paths may contain mixed case."""
+        body = generate_pr_body_from_fixes(
+            [_make_fix(source_file="docs/foo.md", original_url="https://Example.com/Page")]
+        )
+        prose = (
+            body.replace("https://Example.com/Page", "")
+            .replace("https://new.example.com/page", "")
+            .replace("docs/foo.md", "")
+        )
         for ch in prose:
             if ch.isalpha():
-                assert ch.islower(), f"non-URL char {ch!r} not lowercase"
+                assert ch.islower(), f"non-URL non-path char {ch!r} not lowercase"
 
     def test_no_bold_markdown(self) -> None:
         body = generate_pr_body_from_fixes([_make_fix()], [_make_verdict()])

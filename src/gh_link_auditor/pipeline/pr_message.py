@@ -30,11 +30,21 @@ def _find_verdict_for_fix(fix: FixPatch, verdicts: list[Verdict]) -> Verdict | N
     return None
 
 
+_SKILL_MOTIVATION = "working on building skill at open-source contribution."
+_SIMPLE_ASK = "please merge if this helps."
+
+
 def generate_pr_body_from_fixes(
     fixes: list[FixPatch],
     verdicts: list[Verdict] | None = None,
 ) -> str:
-    """Generate a casual PR body. Lowercase, fragmented, no markdown formatting."""
+    """Generate the campaign PR body.
+
+    Voice (see memory ``feedback_pr_body_voice.md``):
+    - before/after URLs in a tight block
+    - building-skill motivation
+    - simple ask (no offer to revise or close — operator never closes)
+    """
     if verdicts is None:
         verdicts = []
 
@@ -43,9 +53,17 @@ def generate_pr_body_from_fixes(
 
     if len(fixes) == 1:
         fix = fixes[0]
-        return f"{fix['original_url']} is dead\n\nthink this is the one you want: {fix['replacement_url']}"
+        return (
+            f"the docs url in {fix['source_file']} moved.\n"
+            f"\n"
+            f"  before:  {fix['original_url']}  (404)\n"
+            f"  after:   {fix['replacement_url']}  (live)\n"
+            f"\n"
+            f"{_SKILL_MOTIVATION}\n"
+            f"{_SIMPLE_ASK}"
+        )
 
-    lines: list[str] = [f"found {len(fixes)} dead links in the docs", ""]
+    lines: list[str] = [f"found {len(fixes)} dead docs urls.", ""]
     for fix in fixes:
         verdict = _find_verdict_for_fix(fix, verdicts)
         dl = verdict.get("dead_link", {}) if verdict else {}
@@ -53,5 +71,10 @@ def generate_pr_body_from_fixes(
         loc = fix["source_file"]
         if line_number:
             loc = f"{loc} line {line_number}"
-        lines.append(f"{loc}: {fix['original_url']} -> {fix['replacement_url']}")
+        lines.append(f"  {loc}")
+        lines.append(f"    before:  {fix['original_url']}  (404)")
+        lines.append(f"    after:   {fix['replacement_url']}  (live)")
+        lines.append("")
+    lines.append(_SKILL_MOTIVATION)
+    lines.append(_SIMPLE_ASK)
     return "\n".join(lines)

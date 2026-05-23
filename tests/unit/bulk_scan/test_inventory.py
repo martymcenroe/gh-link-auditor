@@ -19,6 +19,28 @@ class TestCleanUrlTail:
     def test_unbalanced_trailing_paren_stripped(self) -> None:
         assert _clean_url_tail("https://example.com/foo)") == "https://example.com/foo"
 
+    def test_unbalanced_paren_with_trailing_apostrophe_s(self) -> None:
+        # The Okapi_BM25)'s case — extractor caught markdown punctuation
+        # followed by a word-char that blocked the simple trail-strip.
+        assert (
+            _clean_url_tail("https://en.wikipedia.org/wiki/Okapi_BM25)'s") == "https://en.wikipedia.org/wiki/Okapi_BM25"
+        )
+
+    def test_unbalanced_paren_with_trailing_letters(self) -> None:
+        # The Remote_procedure_call)is case
+        assert (
+            _clean_url_tail("https://en.wikipedia.org/wiki/Remote_procedure_call)is")
+            == "https://en.wikipedia.org/wiki/Remote_procedure_call"
+        )
+
+    def test_balanced_paren_with_trailing_word_preserved(self) -> None:
+        # Real Wikipedia paren must NOT be stripped just because letters follow.
+        # Foo_(bar) has balanced parens; we keep the URL intact through ")".
+        # Anything after the balanced ")" is part of the URL path (rare but valid).
+        assert (
+            _clean_url_tail("https://en.wikipedia.org/wiki/Foo_(bar)is") == "https://en.wikipedia.org/wiki/Foo_(bar)is"
+        )
+
 
 class TestExtractUrls:
     def test_simple(self) -> None:

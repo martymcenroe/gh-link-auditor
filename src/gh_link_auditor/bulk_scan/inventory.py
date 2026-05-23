@@ -36,16 +36,34 @@ _RAW_BASE = "https://raw.githubusercontent.com"
 
 
 def _clean_url_tail(raw: str) -> str:
-    """Strip trailing punctuation; preserve balanced parens (Wikipedia case)."""
+    """Strip trailing punctuation; cut at first unmatched closing paren.
+
+    Markdown like ``[name](url)'s text`` makes the URL regex capture
+    ``url)'s`` — the trailing ``s`` is a word-char so the trail-chars
+    strip can't reach the ``)``. We detect unbalanced parens and cut
+    at the first unmatched ``)``; anything after is markdown spillover.
+
+    Balanced parens are preserved (Wikipedia ``Foo_(bar)`` style).
+    """
     while raw and raw[-1] in _TRAIL_CHARS:
         raw = raw[:-1]
-    while raw and raw[-1] == ")":
-        opens = raw.count("(")
-        closes = raw.count(")")
-        if closes > opens:
-            raw = raw[:-1]
-        else:
-            break
+
+    closes = raw.count(")")
+    opens = raw.count("(")
+    if closes > opens:
+        depth = 0
+        cut_at: int | None = None
+        for i, ch in enumerate(raw):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                if depth == 0:
+                    cut_at = i
+                    break
+                depth -= 1
+        if cut_at is not None:
+            raw = raw[:cut_at]
+
     while raw and raw[-1] in _TRAIL_CHARS:
         raw = raw[:-1]
     return raw
