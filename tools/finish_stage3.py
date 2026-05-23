@@ -126,6 +126,15 @@ class Stats:
     last_url: str = ""
     last_outcome: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
+    # #270 — monotonic timestamp of the last `investigated_with_candidate`
+    # event. None until the first candidate surfaces. Used by render_line
+    # to show "time since last candidate" so the operator can tell whether
+    # the pipeline has gone quiet vs. is still producing.
+    last_cand_monotonic: float | None = None
+    # #269 — rolling (monotonic_ts, processed_count) samples for a 5-minute
+    # recent rate. status_emitter appends one entry per LOG_INTERVAL_S tick
+    # before rendering. maxlen=5 ⇒ up to ~5 minutes of history.
+    rate_window: deque = field(default_factory=lambda: deque(maxlen=5))
 
     def processed(self) -> int:
         return (
@@ -140,6 +149,21 @@ class Stats:
     def remaining(self) -> int:
         return max(0, self.total - self.processed())
 
+    def investigated(self) -> int:
+        """Real investigations (excludes skip paths)."""
+        return self.investigated_no_cand + self.investigated_with_cand
+
+    def skipped(self) -> int:
+        """All skip paths summed (alive + language + blocklist)."""
+        return self.skipped_alive + self.skipped_language + self.skipped_blocklist
+
+    def yield_pct(self) -> float:
+        """Tier-1 yield as a percentage. Undefined when no real investigations."""
+        n = self.investigated()
+        if n == 0:
+            return 0.0
+        return 100.0 * self.investigated_with_cand / n
+
     def elapsed_s(self) -> float:
         return time.monotonic() - self.started_monotonic
 
@@ -149,12 +173,38 @@ class Stats:
             return 0.0
         return self.processed() / (e / 60.0)
 
+    def recent_rate_per_min(self) -> float:
+        """#269 — per-minute rate over the rate_window (last ~5 min)."""
+        if len(self.rate_window) < 2:
+            return self.per_min()
+        ts0, p0 = self.rate_window[0]
+        ts1, p1 = self.rate_window[-1]
+        dt = ts1 - ts0
+        if dt <= 0:
+            return self.per_min()
+        return (p1 - p0) / (dt / 60.0)
+
+    def record_rate_sample(self) -> None:
+        """Called by status_emitter once per tick before rendering."""
+        self.rate_window.append((time.monotonic(), self.processed()))
+
     def eta_str(self) -> str:
         rate = self.per_min()
         if rate <= 0:
             return "?"
         m = self.remaining() / rate
         return f"{m:.0f}m" if m < 60 else f"{m / 60:.1f}h"
+
+    def time_since_last_cand_str(self) -> str:
+        """#270 — formatted '8m' / '12s' / '1.2h' or 'never' when never."""
+        if self.last_cand_monotonic is None:
+            return "never"
+        delta = time.monotonic() - self.last_cand_monotonic
+        if delta < 60:
+            return f"{delta:.0f}s"
+        if delta < 3600:
+            return f"{delta / 60:.0f}m"
+        return f"{delta / 3600:.1f}h"
 
     def no_cand_rate(self) -> float:
         """Fraction of recent REAL investigations that produced zero candidates."""
@@ -170,13 +220,15 @@ class Stats:
     def render_line(self) -> str:
         now = datetime.now().strftime("%H:%M:%S")
         pct = (100.0 * self.processed() / self.total) if self.total else 0.0
+        invs = self.investigated()
+        yield_str = f"yield={self.yield_pct():.1f}%" if invs else "yield=n/a"
         return (
             f"[{now}] stage3 {self.processed():,}/{self.total:,} ({pct:.1f}%) "
-            f"alive={self.skipped_alive:,} lang={self.skipped_language:,} "
-            f"block={self.skipped_blocklist:,} "
-            f"no_cand={self.investigated_no_cand:,} with_cand={self.investigated_with_cand:,} "
+            f"skipped={self.skipped():,} investigated={invs:,} {yield_str} "
             f"cands+={self.candidates_inserted:,} "
-            f"rate={self.per_min():.0f}/min ETA={self.eta_str()}{self.anomaly_flag()}"
+            f"rate={self.per_min():.0f}/min (5m: {self.recent_rate_per_min():.0f}/min) "
+            f"ETA={self.eta_str()} last_cand={self.time_since_last_cand_str()}"
+            f"{self.anomaly_flag()}"
         )
 
 
@@ -200,6 +252,10 @@ class GracefulShutdown:
 
 def write_status_file(stats: Stats, run_id: str, *, final: bool = False) -> None:
     STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if stats.last_cand_monotonic is None:
+        sec_since_cand = ""
+    else:
+        sec_since_cand = f"{time.monotonic() - stats.last_cand_monotonic:.0f}"
     body = [
         f"run_id: {run_id}",
         f"status: {'finished' if final else 'running'}",
@@ -210,15 +266,21 @@ def write_status_file(stats: Stats, run_id: str, *, final: bool = False) -> None
         f"processed: {stats.processed()}",
         f"remaining: {stats.remaining()}",
         f"rate_per_min: {stats.per_min():.1f}",
+        f"recent_rate_per_min: {stats.recent_rate_per_min():.1f}",
         f"eta: {stats.eta_str()}",
         f"skipped_alive: {stats.skipped_alive}",
         f"skipped_language: {stats.skipped_language}",
+        f"skipped_blocklist: {stats.skipped_blocklist}",
+        f"skipped_total: {stats.skipped()}",
         f"investigated_no_candidate: {stats.investigated_no_cand}",
         f"investigated_with_candidate: {stats.investigated_with_cand}",
+        f"investigated_total: {stats.investigated()}",
+        f"yield_pct: {stats.yield_pct():.2f}",
         f"candidates_inserted: {stats.candidates_inserted}",
         f"errors: {stats.errors}",
         f"recent_no_cand_rate: {100 * stats.no_cand_rate():.1f}%",
         f"anomaly: {bool(stats.anomaly_flag())}",
+        f"seconds_since_last_candidate: {sec_since_cand}",
         f"last_url: {stats.last_url}",
         f"last_outcome: {stats.last_outcome}",
     ]
@@ -230,6 +292,8 @@ def status_emitter(stats: Stats, run_id: str, shutdown: GracefulShutdown) -> Non
     while not shutdown.requested:
         now = time.monotonic()
         if now - last >= LOG_INTERVAL_S:
+            # #269 — sample BEFORE rendering so recent_rate uses the latest point.
+            stats.record_rate_sample()
             sys.stdout.write(stats.render_line() + "\n")
             sys.stdout.flush()
             write_status_file(stats, run_id)
@@ -404,6 +468,9 @@ def write_outcome(
             stats.investigated_with_cand += 1
             stats.candidates_inserted += inserted
             stats.recent_no_cand.append(False)
+            # #270 — stamp the time of this candidate so render_line can show
+            # "minutes since last candidate" for operator's pipeline-alive check.
+            stats.last_cand_monotonic = time.monotonic()
         stats.last_url = url
         stats.last_outcome = state
 
