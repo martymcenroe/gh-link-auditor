@@ -114,8 +114,14 @@ def _cmd_start(args: argparse.Namespace) -> int:
     print(f"target: {args.target} repos | db: {args.db_path}")
     print(f"heartbeat: see {Path('data/bulk-scan-heartbeat.txt').resolve()}")
     print(f"abort marker: touch {ABORT_FILE} to stop gracefully")
+    from gh_link_auditor.bulk_scan.process_lock import LockBusyError
+
     with UnifiedDatabase(args.db_path) as db:
-        result = runner.run_full(db, run_id, args.target, token=args.token)
+        try:
+            result = runner.run_full(db, run_id, args.target, token=args.token)
+        except LockBusyError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
         print(f"final status: {result.get('status')}")
         return 0 if result.get("status") == "done" else 2
 

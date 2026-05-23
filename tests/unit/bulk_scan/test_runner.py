@@ -231,11 +231,12 @@ class TestLanguageFilter:
             urls_investigated = {call.args[0] for call in p.call_args_list}
             assert "https://dead.test/en" in urls_investigated
             assert "https://dead.test/zh" not in urls_investigated
-            # The zh row was deleted (skipped at the language gate)
-            remaining_zh = db._conn.execute(
-                "SELECT COUNT(*) FROM bulk_scan_findings WHERE run_id='r1' AND repo_full_name='zh/repo'"
-            ).fetchone()[0]
-            assert remaining_zh == 0
+            # The zh row is preserved (#244 — non-destructive) but marked skipped_language
+            zh_row = db._conn.execute(
+                "SELECT investigation_state FROM bulk_scan_findings WHERE run_id='r1' AND repo_full_name='zh/repo'"
+            ).fetchone()
+            assert zh_row is not None
+            assert zh_row["investigation_state"] == "skipped_language"
 
     def test_run_investigation_passes_null_language(self, tmp_path) -> None:
         """A repo with detected_language=NULL still gets its findings investigated."""
@@ -263,3 +264,114 @@ class TestLanguageFilter:
             with patch("gh_link_auditor.bulk_scan.investigation.investigate_one", return_value=[]) as p:
                 runner.run_investigation(db, "r1", liveness_results)
             assert p.call_count == 1
+
+
+class TestNonDestructiveStage3:
+    """#244 — Stage 3 never DELETEs Stage 1 rows. Resumes are idempotent."""
+
+    def _seed(self, db, repo, url, dead=True, lang=None):
+        storage.upsert_repo(db, "r1", repo)
+        if lang is not None:
+            db._conn.execute(
+                "UPDATE bulk_scan_repos SET detected_language = ? WHERE repo_full_name = ?",
+                (lang, repo),
+            )
+            db._conn.commit()
+        storage.add_finding(
+            db,
+            "r1",
+            repo,
+            "README.md",
+            1,
+            url,
+            candidate_url="",
+            method="pending",
+            tier=0,
+            similarity_score=None,
+            verified_live=False,
+            confidence=0.0,
+        )
+
+    def test_alive_url_marks_skipped_not_deleted(self, tmp_path) -> None:
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 1, {})
+            self._seed(db, "a/b", "https://alive.test/")
+            liveness_results = {"https://alive.test/": {"status_code": 200, "status": "alive"}}
+            runner.run_investigation(db, "r1", liveness_results)
+            rows = db._conn.execute(
+                "SELECT id, investigation_state FROM bulk_scan_findings WHERE run_id='r1'"
+            ).fetchall()
+            assert len(rows) == 1
+            assert rows[0]["investigation_state"] == "skipped_alive"
+
+    def test_language_skip_marks_state(self, tmp_path) -> None:
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 1, {})
+            self._seed(db, "zh/repo", "https://dead.test/", lang="zh-cn")
+            liveness_results = {"https://dead.test/": {"status_code": 404, "status": "dead"}}
+            runner.run_investigation(db, "r1", liveness_results)
+            rows = db._conn.execute("SELECT investigation_state FROM bulk_scan_findings WHERE run_id='r1'").fetchall()
+            assert [r["investigation_state"] for r in rows] == ["skipped_language"]
+
+    def test_investigation_with_no_candidate_keeps_placeholder(self, tmp_path) -> None:
+        from unittest.mock import patch
+
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 1, {})
+            self._seed(db, "a/b", "https://dead.test/")
+            liveness_results = {"https://dead.test/": {"status_code": 404, "status": "dead"}}
+            with patch("gh_link_auditor.bulk_scan.investigation.investigate_one", return_value=[]):
+                runner.run_investigation(db, "r1", liveness_results)
+            rows = db._conn.execute("SELECT investigation_state FROM bulk_scan_findings WHERE run_id='r1'").fetchall()
+            assert [r["investigation_state"] for r in rows] == ["investigated_no_candidate"]
+
+    def test_investigation_with_candidate_inserts_derived_row(self, tmp_path) -> None:
+        from unittest.mock import patch
+
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 1, {})
+            self._seed(db, "a/b", "https://dead.test/")
+            liveness_results = {"https://dead.test/": {"status_code": 404, "status": "dead"}}
+            fake_candidate = {
+                "candidate_url": "https://new.test/",
+                "method": "url_mutation",
+                "tier": 1,
+                "similarity_score": 0.9,
+                "verified_live": True,
+            }
+            with (
+                patch("gh_link_auditor.bulk_scan.investigation.investigate_one", return_value=[fake_candidate]),
+                patch("gh_link_auditor.bulk_scan.investigation.filter_tier1", return_value=[fake_candidate]),
+                patch("gh_link_auditor.bulk_scan.investigation.compute_confidence", return_value=0.95),
+            ):
+                runner.run_investigation(db, "r1", liveness_results)
+            rows = db._conn.execute(
+                "SELECT investigation_state, method, candidate_url FROM bulk_scan_findings "
+                "WHERE run_id='r1' ORDER BY id"
+            ).fetchall()
+            # Original placeholder + one derived-candidate row
+            assert len(rows) == 2
+            assert rows[0]["investigation_state"] == "investigated_with_candidate"
+            assert rows[0]["method"] == "pending"  # unchanged on the placeholder
+            assert rows[1]["investigation_state"] == "derived_candidate"
+            assert rows[1]["method"] == "url_mutation"
+            assert rows[1]["candidate_url"] == "https://new.test/"
+
+    def test_resume_idempotent(self, tmp_path) -> None:
+        """Re-running Stage 3 against an already-investigated set does no new work."""
+        from unittest.mock import patch
+
+        with UnifiedDatabase(str(tmp_path / "x.db")) as db:
+            storage.create_run(db, "r1", 1, {})
+            self._seed(db, "a/b", "https://dead.test/")
+            liveness_results = {"https://dead.test/": {"status_code": 404, "status": "dead"}}
+            with patch("gh_link_auditor.bulk_scan.investigation.investigate_one", return_value=[]) as p1:
+                runner.run_investigation(db, "r1", liveness_results)
+            assert p1.call_count == 1
+            # Second invocation: state is already not 'pending', so the loop finds zero work
+            with patch("gh_link_auditor.bulk_scan.investigation.investigate_one", return_value=[]) as p2:
+                runner.run_investigation(db, "r1", liveness_results)
+            assert p2.call_count == 0
+            # The investigation_attempts counter only bumped once
+            row = db._conn.execute("SELECT investigation_attempts FROM bulk_scan_findings WHERE run_id='r1'").fetchone()
+            assert row["investigation_attempts"] == 1

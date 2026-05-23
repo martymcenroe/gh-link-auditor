@@ -6,9 +6,9 @@ from gh_link_auditor.bulk_scan import storage
 from gh_link_auditor.unified_db import SCHEMA_VERSION, UnifiedDatabase
 
 
-class TestSchemaV6:
+class TestSchemaV7:
     def test_schema_version(self) -> None:
-        assert SCHEMA_VERSION == 6
+        assert SCHEMA_VERSION == 7
 
     def test_fresh_db_has_bulk_scan_tables(self, tmp_path) -> None:
         with UnifiedDatabase(str(tmp_path / "x.db")) as db:
@@ -59,12 +59,12 @@ class TestSchemaV6:
         con.commit()
         con.close()
 
-        # Re-open via UnifiedDatabase → triggers v5→v6 migration
+        # Re-open via UnifiedDatabase → triggers v5→v6→v7 migration chain
         with UnifiedDatabase(db_path) as db:
             cols = {r[1] for r in db._conn.execute("PRAGMA table_info(bulk_scan_repos)")}
             assert "detected_language" in cols
             ver = db._conn.execute("SELECT version FROM schema_version").fetchone()[0]
-            assert ver == 6
+            assert ver == SCHEMA_VERSION
 
 
 class TestRunLifecycle:
