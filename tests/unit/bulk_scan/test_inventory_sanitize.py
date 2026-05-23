@@ -25,6 +25,8 @@ class _FakeTreeResp:
     """Minimal stand-in for the httpx Response from the trees API."""
 
     tree: list[dict[str, Any]]
+    status_code: int = 200
+    headers: dict[str, str] = field(default_factory=dict)
 
     def json(self) -> dict[str, Any]:
         return {"tree": self.tree}

@@ -112,6 +112,46 @@ def _is_safe_doc_path(path: str) -> bool:
     return bool(path) and all(ord(c) >= 0x20 for c in path)
 
 
+class RepoRenamed(Exception):
+    """Signal from Stage 1 inventory that the repo was renamed on GitHub (#250).
+
+    Carries the new ``full_name`` so callers can update DB state and retry
+    inventory under the new name in a single bounded retry.
+    """
+
+    def __init__(self, new_full_name: str) -> None:
+        self.new_full_name = new_full_name
+        super().__init__(f"repo renamed to {new_full_name}")
+
+
+def _resolve_renamed_repo(client: Any, redirect_location: str) -> str | None:
+    """Given a 301 ``Location`` URL of the form ``.../repositories/{id}/...``,
+    return the repo's current ``full_name`` or ``None`` if it can't be resolved.
+
+    Failure modes (all return ``None``):
+
+    * No ``/repositories/{id}`` pattern in the URL.
+    * Lookup ``/repositories/{id}`` returns non-2xx.
+    * Response body lacks ``full_name``.
+    * Network / transport error.
+
+    The function is deliberately permissive — any failure here should fall
+    through to the normal ``raise_for_status`` error path so we don't make
+    things worse than the pre-existing failure mode.
+    """
+    m = re.search(r"/repositories/(\d+)", redirect_location)
+    if not m:
+        return None
+    repo_id = m.group(1)
+    try:
+        r = client.get(f"{_GH_API}/repositories/{repo_id}")
+        r.raise_for_status()
+        full_name = r.json().get("full_name")
+        return full_name if isinstance(full_name, str) and full_name else None
+    except Exception:
+        return None
+
+
 def _list_doc_files(client: Any, full_name: str) -> list[str]:
     """One Git Trees API call → all doc files in the repo.
 
@@ -121,8 +161,20 @@ def _list_doc_files(client: Any, full_name: str) -> list[str]:
     Per #251, paths containing C0 control characters are dropped silently —
     they cannot survive in URLs and dropping them keeps the rest of the
     repo's docs reachable.
+
+    Per #250, a 301 redirect with a resolvable ``Location`` header signals
+    that the repo was renamed: ``RepoRenamed`` is raised carrying the new
+    ``full_name``. The caller is expected to update its state and retry
+    once with the new name. Unresolvable 301s and all other non-2xx
+    statuses propagate via ``raise_for_status`` as before.
     """
     r = client.get(f"{_GH_API}/repos/{full_name}/git/trees/HEAD", params={"recursive": "1"})
+    if r.status_code == 301:
+        location = r.headers.get("Location") or r.headers.get("location")
+        if location:
+            new_name = _resolve_renamed_repo(client, location)
+            if new_name and new_name != full_name:
+                raise RepoRenamed(new_name)
     r.raise_for_status()
     tree = r.json().get("tree", [])
     docs: list[str] = []
@@ -162,12 +214,34 @@ def inventory_repo(
     api_client: Any,  # GitHubRateLimitedClient or httpx.Client (tests)
     raw_client: httpx.Client,
 ) -> dict[str, Any]:
-    """Walk one repo. Returns ``{"doc_files": [...], "urls": [(url, file, line), ...]}``.
+    """Walk one repo. Returns ``{"doc_files": [...], "urls": [...], "renamed_from": ..., "current_full_name": ...}``.
 
     Raises on tree-list failure (so the caller can mark the repo errored).
     Per-file fetch failures are silently skipped (logged at debug).
+
+    Per #250, if the trees API responds with a 301 redirect pointing at a
+    new repo location, ``_list_doc_files`` raises ``RepoRenamed``. We
+    perform exactly one retry under the new name. If the retry also
+    redirects, the exception propagates — multi-rename chains are out of
+    scope and not worth a loop.
+
+    Result keys:
+
+    * ``doc_files`` — list of doc-file paths under the (possibly renamed) repo
+    * ``urls`` — extracted URLs as ``(url, source_file, line_number)`` tuples
+    * ``renamed_from`` — the original ``full_name`` argument iff a rename was
+      followed; otherwise ``None``
+    * ``current_full_name`` — the name under which inventory actually
+      succeeded (= the original name when no rename happened)
     """
-    docs = _list_doc_files(api_client, full_name)
+    renamed_from: str | None = None
+    try:
+        docs = _list_doc_files(api_client, full_name)
+    except RepoRenamed as e:
+        renamed_from = full_name
+        full_name = e.new_full_name
+        # One-shot retry under the new name.
+        docs = _list_doc_files(api_client, full_name)
     urls: list[tuple[str, str, int]] = []
     seen: set[str] = set()
     for path in docs:
@@ -186,7 +260,12 @@ def inventory_repo(
                 break
         if len(urls) >= MAX_URLS_PER_REPO:
             break
-    return {"doc_files": docs, "urls": urls}
+    return {
+        "doc_files": docs,
+        "urls": urls,
+        "renamed_from": renamed_from,
+        "current_full_name": full_name,
+    }
 
 
 def build_api_client(token: str | None = None) -> Any:
