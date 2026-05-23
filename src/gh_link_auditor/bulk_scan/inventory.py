@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -99,11 +99,28 @@ def filter_url(url: str) -> bool:
     return True
 
 
+def _is_safe_doc_path(path: str) -> bool:
+    """True if path can be safely composed into a URL (#251).
+
+    Git permits almost any byte in a filename except ``/`` and ``\\0``,
+    including C0 control chars (``\\n``, ``\\r``, ``\\t``, ``\\x00`` …).
+    RFC 3986 forbids these in URLs, and ``httpx.URL`` rejects them with
+    ``InvalidURL`` — which previously aborted the entire repo's inventory.
+    Real doc files do not have these in their names; dropping the path
+    is the correct behavior.
+    """
+    return bool(path) and all(ord(c) >= 0x20 for c in path)
+
+
 def _list_doc_files(client: Any, full_name: str) -> list[str]:
     """One Git Trees API call → all doc files in the repo.
 
     ``client`` may be either an ``httpx.Client`` or a
     :class:`GitHubRateLimitedClient` — both expose ``.get(url, params=...)``.
+
+    Per #251, paths containing C0 control characters are dropped silently —
+    they cannot survive in URLs and dropping them keeps the rest of the
+    repo's docs reachable.
     """
     r = client.get(f"{_GH_API}/repos/{full_name}/git/trees/HEAD", params={"recursive": "1"})
     r.raise_for_status()
@@ -113,6 +130,9 @@ def _list_doc_files(client: Any, full_name: str) -> list[str]:
         if entry.get("type") != "blob":
             continue
         path = entry.get("path", "")
+        if not _is_safe_doc_path(path):
+            logger.debug("dropping pathological doc path: %s :: %r", full_name, path)
+            continue
         if any(path.lower().endswith(ext) for ext in DOC_FILE_EXTENSIONS):
             docs.append(path)
         if len(docs) >= MAX_DOC_FILES_PER_REPO:
@@ -121,8 +141,13 @@ def _list_doc_files(client: Any, full_name: str) -> list[str]:
 
 
 def _fetch_raw(client: httpx.Client, full_name: str, path: str) -> str | None:
-    """Fetch via raw CDN — does NOT count against the REST API rate limit."""
-    url = f"{_RAW_BASE}/{full_name}/HEAD/{path}"
+    """Fetch via raw CDN — does NOT count against the REST API rate limit.
+
+    Per #251, the path component is URL-encoded so spaces, ``#``, ``?`` and
+    other reserved characters don't crash URL parsing. ``safe='/'`` keeps
+    directory separators literal so the path structure survives encoding.
+    """
+    url = f"{_RAW_BASE}/{full_name}/HEAD/{quote(path, safe='/')}"
     try:
         r = client.get(url, follow_redirects=True, timeout=20)
         if r.status_code == 200:
