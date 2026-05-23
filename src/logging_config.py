@@ -40,6 +40,12 @@ def setup_logging(
     if logger.handlers:
         logger.handlers.clear()
 
+    # #256: prevent records from propagating up to the root logger. Without
+    # this, any consumer that runs `logging.basicConfig(...)` (e.g., the
+    # bulk-scan stage tools) sees every record from these modules printed
+    # twice — once by this logger's own handler, once by the root's.
+    logger.propagate = False
+
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     logger.setLevel(numeric_level)
 

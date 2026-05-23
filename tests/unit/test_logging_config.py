@@ -60,6 +60,46 @@ class TestSetupLogging:
         assert len(logger.handlers) == 1
         assert isinstance(logger.handlers[0], RotatingFileHandler)
 
+    def test_disables_propagation_to_root(self, log_dir):
+        """#256: setup_logging must set propagate=False so module loggers
+        don't double-emit through a root handler configured via
+        logging.basicConfig (or any other root setup).
+        """
+        logger = setup_logging(name="test_propagate", log_dir=log_dir)
+        assert logger.propagate is False
+
+    def test_no_duplicate_output_when_root_has_basicconfig_handler(self, log_dir, capsys):
+        """End-to-end: a record logged through a setup_logging-configured
+        module logger fires its own handler exactly once, regardless of
+        whether the root logger has another handler attached. This is the
+        anti-regression test for the observed duplicate-output behavior
+        from the bulk-scan tools (#256).
+        """
+        # Set up a root handler the way finish_stage3.py does.
+        root = logging.getLogger()
+        prev_handlers = list(root.handlers)
+        prev_level = root.level
+        try:
+            root.handlers.clear()
+            logging.basicConfig(
+                level=logging.WARNING,
+                format="ROOT:%(message)s",
+                force=True,
+            )
+            module_logger = setup_logging(name="test_no_dup", log_dir=log_dir, console=True, file=False)
+            module_logger.warning("hello")
+            out = capsys.readouterr()
+            combined = out.err + out.out
+            # The setup_logging handler's format includes the level name;
+            # the root's "ROOT:" prefix should NOT also appear.
+            assert combined.count("hello") == 1, f"expected exactly one 'hello'; saw: {combined!r}"
+            assert "ROOT:hello" not in combined, f"root handler fired via propagation: {combined!r}"
+        finally:
+            root.handlers.clear()
+            for h in prev_handlers:
+                root.addHandler(h)
+            root.setLevel(prev_level)
+
 
 # ---------------------------------------------------------------------------
 # T020 – Log directory created with rotation (REQ-2)

@@ -120,7 +120,15 @@ class TestFallbackLogging:
     """Test T090: fallback attempts are logged."""
 
     # T090 — Fallback is logged
-    def test_fallback_is_logged(self, caplog):
+    def test_fallback_is_logged(self, caplog, monkeypatch):
+        # #256: setup_logging sets propagate=False on the check_links logger
+        # so consumers don't see double-printed records (root handler +
+        # module handler). caplog observes records via root-logger
+        # propagation, so for this test we restore propagation just long
+        # enough to verify the log message fired. The user-visible
+        # behavior (message in stderr) is unaffected either way.
+        check_links_logger = logging.getLogger("check_links")
+        monkeypatch.setattr(check_links_logger, "propagate", True)
         result_from_network = _make_result(status="ok", status_code=200, method="GET")
         with (
             patch("check_links.network_check_url", return_value=result_from_network),
