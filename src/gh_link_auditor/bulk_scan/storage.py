@@ -133,6 +133,50 @@ def update_repo_status(
         )
 
 
+def apply_repo_rename(
+    db: UnifiedDatabase,
+    run_id: str,
+    old_full_name: str,
+    new_full_name: str,
+) -> bool:
+    """Move a repo row from ``old_full_name`` to ``new_full_name`` (#250).
+
+    Updates ``bulk_scan_repos`` primary key in place and records the old name
+    in ``previous_full_name``. Also propagates the rename to any existing
+    ``bulk_scan_findings`` rows so they stay linked to the repo row.
+
+    Returns ``True`` when the rename was applied. Returns ``False`` if a row
+    already exists for ``(run_id, new_full_name)`` — a rare PK-collision case
+    that we don't try to merge automatically; the caller should continue
+    operating under ``old_full_name`` rather than corrupt either row.
+    """
+    if old_full_name == new_full_name:
+        return False
+    with db._conn:
+        existing = db._conn.execute(
+            "SELECT 1 FROM bulk_scan_repos WHERE run_id = ? AND repo_full_name = ?",
+            (run_id, new_full_name),
+        ).fetchone()
+        if existing is not None:
+            logger.warning(
+                "apply_repo_rename: PK collision; both %r and %r exist in run %s — not renaming",
+                old_full_name,
+                new_full_name,
+                run_id,
+            )
+            return False
+        db._conn.execute(
+            "UPDATE bulk_scan_repos SET repo_full_name = ?, previous_full_name = ?, updated_at = ? "
+            "WHERE run_id = ? AND repo_full_name = ?",
+            (new_full_name, old_full_name, _now_iso(), run_id, old_full_name),
+        )
+        db._conn.execute(
+            "UPDATE bulk_scan_findings SET repo_full_name = ? WHERE run_id = ? AND repo_full_name = ?",
+            (new_full_name, run_id, old_full_name),
+        )
+    return True
+
+
 def get_repos_by_status(
     db: UnifiedDatabase,
     run_id: str,

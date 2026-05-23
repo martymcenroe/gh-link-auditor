@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class UnifiedDatabase:
@@ -329,6 +329,7 @@ class UnifiedDatabase:
                 surface_candidate_count INTEGER DEFAULT 0,
                 error TEXT,
                 detected_language TEXT,
+                previous_full_name TEXT,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (run_id, repo_full_name)
             )
@@ -395,6 +396,8 @@ class UnifiedDatabase:
             self._migrate_v5_to_v6()
         if from_version <= 6:
             self._migrate_v6_to_v7()
+        if from_version <= 7:
+            self._migrate_v7_to_v8()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -578,8 +581,21 @@ class UnifiedDatabase:
                 PRIMARY KEY (run_id, host)
             )
         """)
-        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        c.execute("UPDATE schema_version SET version = ?", (7,))
         logger.info("Migration to v7 complete")
+
+    # ------------------------------------------------------------------
+    # Migration v7 -> v8: bulk_scan_repos.previous_full_name column (#250)
+    # ------------------------------------------------------------------
+
+    def _migrate_v7_to_v8(self) -> None:
+        logger.info("Migrating schema v7 → v8")
+        c = self._conn
+        cols = {row[1] for row in c.execute("PRAGMA table_info(bulk_scan_repos)").fetchall()}
+        if "previous_full_name" not in cols:
+            c.execute("ALTER TABLE bulk_scan_repos ADD COLUMN previous_full_name TEXT")
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        logger.info("Migration to v8 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db

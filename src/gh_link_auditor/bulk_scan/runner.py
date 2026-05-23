@@ -144,6 +144,13 @@ def run_inventory(db: UnifiedDatabase, run_id: str, token: str | None = None) ->
                 full_name = repo["repo_full_name"]
                 try:
                     result = inventory.inventory_repo(full_name, api, raw)
+                    # #250: if the repo was renamed on GitHub, follow it and
+                    # update DB state before recording the inventory results.
+                    renamed_from = result.get("renamed_from")
+                    if renamed_from:
+                        current_name = result.get("current_full_name") or full_name
+                        if storage.apply_repo_rename(db, run_id, renamed_from, current_name):
+                            full_name = current_name
                     storage.update_repo_inventory(db, run_id, full_name, result["doc_files"], len(result["urls"]))
                     # Cache the (url, file, line) trios on the repo row via finding rows
                     # (lightweight: we just need to scan them in Stage 2/3; store them in findings
