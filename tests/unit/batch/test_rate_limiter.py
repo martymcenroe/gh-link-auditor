@@ -17,8 +17,16 @@ from gh_link_auditor.batch.rate_limiter import AdaptiveRateLimiter
 class TestBackpressure:
     """T070: Backpressure at low watermark (REQ-4)."""
 
-    def test_low_watermark_sleeps(self) -> None:
-        """acquire() sleeps when remaining < low_watermark."""
+    def test_low_watermark_sleeps(self, monkeypatch) -> None:
+        """acquire() sleeps when remaining < low_watermark.
+
+        #246 — Previously this test awaited a real ``asyncio.sleep(60)`` to
+        observe a positive elapsed wall-clock. That raced the pytest-timeout
+        of 60s on slow CI runners. We now stub ``asyncio.sleep`` to record
+        its argument and return immediately; the contract being verified is
+        unchanged: backpressure was activated, and acquire() asked to sleep
+        for a positive duration.
+        """
         rl = AdaptiveRateLimiter(low_watermark=100, high_watermark=1000)
         rl.update_from_headers(
             {
@@ -27,12 +35,23 @@ class TestBackpressure:
             }
         )
 
-        start = time.monotonic()
-        asyncio.run(rl.acquire())
-        elapsed = time.monotonic() - start
+        sleeps: list[float] = []
 
-        # Should have slept some positive amount
-        assert elapsed > 0.0
+        async def _fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        monkeypatch.setattr(
+            "gh_link_auditor.batch.rate_limiter.asyncio.sleep",
+            _fake_sleep,
+        )
+
+        asyncio.run(rl.acquire())
+
+        # acquire() asked for a positive sleep (because remaining < low_watermark
+        # and reset is ~60s out) — exact value depends on monotonic clock drift
+        # between header parsing and acquire(), but must be > 0.
+        assert sleeps, "expected at least one asyncio.sleep call"
+        assert sleeps[0] > 0
         snapshot = rl.snapshot()
         assert snapshot["backpressure_active"] is True
 
