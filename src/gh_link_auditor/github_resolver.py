@@ -81,7 +81,12 @@ def _github_api_get(
     """
     active = client if client is not None else _get_default_client()
     try:
-        r = active.get(url)
+        # #264 — must follow 301s. urllib (pre-#257) did so by default;
+        # httpx.Client does NOT, which silently broke GitHub's
+        # repo-renamed-to-new-owner detection by returning the 301
+        # response body (which has no full_name) instead of the followed
+        # target.
+        r = active.get(url, follow_redirects=True)
     except httpx.HTTPError:
         logger.warning("GitHub API request failed for %s", url)
         return None

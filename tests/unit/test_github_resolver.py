@@ -63,9 +63,11 @@ class _FakeRateLimitedClient:
         self._responses = list(responses or [])
         self._side_effect = side_effect
         self.calls: list[str] = []
+        self.call_kwargs: list[dict[str, Any]] = []
 
     def get(self, url: str, **kwargs: Any) -> _FakeHttpxResponse:
         self.calls.append(url)
+        self.call_kwargs.append(kwargs)
         if self._side_effect is not None:
             raise self._side_effect
         if self._responses:
@@ -262,6 +264,21 @@ class TestGitHubApiGet:
         )
         result = _github_api_get("https://api.github.com/repos/owner/repo", client=fake)
         assert result is None
+
+    def test_api_get_passes_follow_redirects_true(self):
+        """#264 — must pass follow_redirects=True so GitHub's 301-for-renamed-repos works.
+
+        Without this flag, httpx returns the 301 response itself (body is
+        ``{"message": "Moved Permanently", ...}``), which has no ``full_name``
+        field. ``resolve_repo_redirect`` then logs an empty-target redirect
+        and returns a garbage URL. urllib followed redirects implicitly; the
+        rate-limited httpx client does not.
+        """
+        fake = _FakeRateLimitedClient(
+            response=_FakeHttpxResponse(status_code=200, json_data={"full_name": "owner/repo"}),
+        )
+        _github_api_get("https://api.github.com/repos/owner/repo", client=fake)
+        assert fake.call_kwargs == [{"follow_redirects": True}]
 
 
 # ---------------------------------------------------------------------------
