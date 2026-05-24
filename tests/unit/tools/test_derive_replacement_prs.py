@@ -408,15 +408,20 @@ class TestPromptYesNoStop:
 class TestDeriveAndSubmit:
     @pytest.fixture(autouse=True)
     def _bypass_hard_gates(self, monkeypatch):
-        # PR-δ wired real HARD_GATES into run_preflight; without bypassing
-        # them, every TestDeriveAndSubmit case would hit real gh + network
-        # collaborators. The TestPreflightIntegration class (above) exercises
-        # the integration's verdict dispatch via direct run_preflight stubs.
+        # PR-δ wired real HARD_GATES into run_preflight; PR-η wired
+        # CORRECTNESS_SCORES. Both registries are bypassed here so tests
+        # don't hit real GitHub / network collaborators. The
+        # TestPreflightIntegration class (above) exercises the verdict
+        # dispatch via direct run_preflight stubs.
+        import tools.derive_replacement_prs as derive_mod
         import tools.preflight_check as tpc
         from gh_link_auditor.preflight import gates as gates_mod
+        from gh_link_auditor.preflight import scores as scores_mod
 
         monkeypatch.setattr(gates_mod, "HARD_GATES", [])
         monkeypatch.setattr(tpc, "HARD_GATES", [])
+        monkeypatch.setattr(scores_mod, "CORRECTNESS_SCORES", [])
+        monkeypatch.setattr(derive_mod, "CORRECTNESS_SCORES", [])
 
     def test_submits_basic(self, db_path):
         with UnifiedDatabase(db_path) as udb:
@@ -653,7 +658,7 @@ class TestPreflightIntegration:
 
         verdict_enum = PreflightVerdict[verdict] if isinstance(verdict, str) else verdict
 
-        def _fake(repo_full_name, candidate, db=None, threshold=90, skip_preflight_banner=False, run_id=None):
+        def _fake(repo_full_name, candidate, db=None, threshold=90, skip_preflight_banner=False, run_id=None, **kwargs):
             return PreflightReport(
                 repo_full_name=repo_full_name,
                 candidate=dict(candidate),
@@ -889,12 +894,16 @@ class TestBuildParser:
 class TestMain:
     @pytest.fixture(autouse=True)
     def _bypass_hard_gates(self, monkeypatch):
-        # Same rationale as TestDeriveAndSubmit._bypass_hard_gates (#289).
+        # Same rationale as TestDeriveAndSubmit._bypass_hard_gates (#289, #298).
+        import tools.derive_replacement_prs as derive_mod
         import tools.preflight_check as tpc
         from gh_link_auditor.preflight import gates as gates_mod
+        from gh_link_auditor.preflight import scores as scores_mod
 
         monkeypatch.setattr(gates_mod, "HARD_GATES", [])
         monkeypatch.setattr(tpc, "HARD_GATES", [])
+        monkeypatch.setattr(scores_mod, "CORRECTNESS_SCORES", [])
+        monkeypatch.setattr(derive_mod, "CORRECTNESS_SCORES", [])
 
     def test_main_dry_run_exit_zero(self, db_path, monkeypatch):
         with UnifiedDatabase(db_path) as udb:

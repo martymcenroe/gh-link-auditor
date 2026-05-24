@@ -41,6 +41,7 @@ from gh_link_auditor import (  # noqa: E402
 from gh_link_auditor.metrics.models import PROutcome  # noqa: E402
 from gh_link_auditor.pipeline.nodes.n6_submit_pr import n6_submit_pr  # noqa: E402
 from gh_link_auditor.preflight import PreflightVerdict, save_report  # noqa: E402
+from gh_link_auditor.preflight.scores import CORRECTNESS_SCORES  # noqa: E402
 from gh_link_auditor.unified_db import DEFAULT_DB_PATH, UnifiedDatabase  # noqa: E402
 from tools.preflight_check import DEFAULT_REPORT_DIR, DEFAULT_THRESHOLD, run_preflight  # noqa: E402
 
@@ -350,6 +351,7 @@ def derive_and_submit(
                 db=udb,
                 threshold=args.preflight_threshold,
                 skip_preflight_banner=args.skip_preflight,
+                score_components=CORRECTNESS_SCORES,
             )
             save_report(report, args.preflight_log_dir)
 
