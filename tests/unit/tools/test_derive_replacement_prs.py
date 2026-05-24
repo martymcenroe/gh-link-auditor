@@ -406,6 +406,18 @@ class TestPromptYesNoStop:
 
 
 class TestDeriveAndSubmit:
+    @pytest.fixture(autouse=True)
+    def _bypass_hard_gates(self, monkeypatch):
+        # PR-δ wired real HARD_GATES into run_preflight; without bypassing
+        # them, every TestDeriveAndSubmit case would hit real gh + network
+        # collaborators. The TestPreflightIntegration class (above) exercises
+        # the integration's verdict dispatch via direct run_preflight stubs.
+        import tools.preflight_check as tpc
+        from gh_link_auditor.preflight import gates as gates_mod
+
+        monkeypatch.setattr(gates_mod, "HARD_GATES", [])
+        monkeypatch.setattr(tpc, "HARD_GATES", [])
+
     def test_submits_basic(self, db_path):
         with UnifiedDatabase(db_path) as udb:
             _insert_finding(udb, repo_full_name="alpha/beta", source_file="a.md")
@@ -875,6 +887,15 @@ class TestBuildParser:
 
 
 class TestMain:
+    @pytest.fixture(autouse=True)
+    def _bypass_hard_gates(self, monkeypatch):
+        # Same rationale as TestDeriveAndSubmit._bypass_hard_gates (#289).
+        import tools.preflight_check as tpc
+        from gh_link_auditor.preflight import gates as gates_mod
+
+        monkeypatch.setattr(gates_mod, "HARD_GATES", [])
+        monkeypatch.setattr(tpc, "HARD_GATES", [])
+
     def test_main_dry_run_exit_zero(self, db_path, monkeypatch):
         with UnifiedDatabase(db_path) as udb:
             _insert_finding(udb, repo_full_name="m/m")
