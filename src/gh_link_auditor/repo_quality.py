@@ -25,6 +25,11 @@ class RepoQuality:
     contributors: int = 0
     contributing_text: str = ""
     warnings: list[str] | None = None
+    # Preflight-required fields (#316): used by hard gate #2 (archived/disabled),
+    # hard gate #10 (stars floor — already surfaced above), and score R5 (license).
+    archived: bool = False
+    disabled: bool = False
+    license: str | None = None
 
     def __post_init__(self) -> None:
         if self.warnings is None:
@@ -39,7 +44,8 @@ def fetch_repo_metadata(owner: str, repo: str) -> RepoQuality:
         repo: Repository name.
 
     Returns:
-        RepoQuality with stars, pushed_at, and contributor count.
+        RepoQuality with stars, pushed_at, contributor count, archived/disabled
+        flags, and SPDX license id (#316).
     """
     quality = RepoQuality()
 
@@ -51,7 +57,11 @@ def fetch_repo_metadata(owner: str, repo: str) -> RepoQuality:
                 "api",
                 f"repos/{owner}/{repo}",
                 "--jq",
-                "{stars: .stargazers_count, pushed_at: .pushed_at}",
+                (
+                    "{stars: .stargazers_count, pushed_at: .pushed_at, "
+                    "archived: .archived, disabled: .disabled, "
+                    "license: (.license.spdx_id // null)}"
+                ),
             ],
             capture_output=True,
             text=True,
@@ -64,6 +74,10 @@ def fetch_repo_metadata(owner: str, repo: str) -> RepoQuality:
             data = json.loads(result.stdout)
             quality.stars = data.get("stars", 0)
             quality.pushed_at = data.get("pushed_at", "")
+            quality.archived = bool(data.get("archived", False))
+            quality.disabled = bool(data.get("disabled", False))
+            license_value = data.get("license")
+            quality.license = license_value if isinstance(license_value, str) else None
     except (FileNotFoundError, subprocess.TimeoutExpired):
         logger.warning("Failed to fetch repo metadata for %s/%s", owner, repo)
 

@@ -47,10 +47,14 @@ class FakeURLResponse:
         data: bytes,
         status: int = 200,
         headers: dict[str, str] | None = None,
+        url: str | None = None,
     ) -> None:
         self._data = data
         self.status = status
         self.headers = headers or {}
+        # Final URL after any redirects — matches urllib.request.urlopen()
+        # response.url. Used by preflight gate #7 + score C4 (#315).
+        self.url = url
 
     def read(self) -> bytes:
         """Return response body as bytes."""

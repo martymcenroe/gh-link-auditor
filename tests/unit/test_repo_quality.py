@@ -27,7 +27,13 @@ class TestFetchRepoMetadata:
     """Tests for fetch_repo_metadata()."""
 
     def test_fetches_stars_and_pushed_at(self) -> None:
-        repo_data = _MockCompleted('{"stars": 15000, "pushed_at": "2026-03-01T12:00:00Z"}')
+        # #316: jq now also surfaces archived / disabled / license. The legacy
+        # stars + pushed_at fields still populate the same way; pre-existing
+        # keys are unchanged.
+        repo_data = _MockCompleted(
+            '{"stars": 15000, "pushed_at": "2026-03-01T12:00:00Z", '
+            '"archived": false, "disabled": false, "license": "BSD-3-Clause"}'
+        )
         contrib_data = _MockCompleted("30")
 
         with patch("subprocess.run", side_effect=[repo_data, contrib_data]):
@@ -51,6 +57,71 @@ class TestFetchRepoMetadata:
             quality = fetch_repo_metadata("org", "repo")
 
         assert quality.stars == 0
+
+
+class TestFetchRepoMetadataExtended:
+    """#316: archived / disabled / license fields surfaced by the extended jq query."""
+
+    def test_archived_repo_surfaces_true(self) -> None:
+        repo_data = _MockCompleted(
+            '{"stars": 100, "pushed_at": "2024-01-01T00:00:00Z", "archived": true, "disabled": false, "license": "MIT"}'
+        )
+        contrib_data = _MockCompleted("3")
+
+        with patch("subprocess.run", side_effect=[repo_data, contrib_data]):
+            quality = fetch_repo_metadata("org", "repo")
+
+        assert quality.archived is True
+        assert quality.disabled is False
+
+    def test_disabled_repo_surfaces_true(self) -> None:
+        repo_data = _MockCompleted(
+            '{"stars": 5, "pushed_at": "2024-01-01T00:00:00Z", "archived": false, "disabled": true, "license": null}'
+        )
+        contrib_data = _MockCompleted("1")
+
+        with patch("subprocess.run", side_effect=[repo_data, contrib_data]):
+            quality = fetch_repo_metadata("org", "repo")
+
+        assert quality.disabled is True
+        assert quality.archived is False
+        assert quality.license is None
+
+    def test_license_spdx_is_captured(self) -> None:
+        repo_data = _MockCompleted(
+            '{"stars": 200, "pushed_at": "2026-04-01T00:00:00Z", '
+            '"archived": false, "disabled": false, "license": "Apache-2.0"}'
+        )
+        contrib_data = _MockCompleted("10")
+
+        with patch("subprocess.run", side_effect=[repo_data, contrib_data]):
+            quality = fetch_repo_metadata("org", "repo")
+
+        assert quality.license == "Apache-2.0"
+
+    def test_missing_license_returns_none(self) -> None:
+        repo_data = _MockCompleted(
+            '{"stars": 3, "pushed_at": "2026-01-01T00:00:00Z", "archived": false, "disabled": false, "license": null}'
+        )
+        contrib_data = _MockCompleted("1")
+
+        with patch("subprocess.run", side_effect=[repo_data, contrib_data]):
+            quality = fetch_repo_metadata("org", "repo")
+
+        assert quality.license is None
+
+    def test_default_archived_disabled_when_keys_missing(self) -> None:
+        # Backward compat: if older jq output (or a partial response) omits the
+        # new fields, defaults are False / None — never raises.
+        repo_data = _MockCompleted('{"stars": 50, "pushed_at": "2025-12-01T00:00:00Z"}')
+        contrib_data = _MockCompleted("5")
+
+        with patch("subprocess.run", side_effect=[repo_data, contrib_data]):
+            quality = fetch_repo_metadata("org", "repo")
+
+        assert quality.archived is False
+        assert quality.disabled is False
+        assert quality.license is None
 
 
 class TestFetchContributingGuidelines:
