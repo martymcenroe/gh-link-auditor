@@ -923,3 +923,144 @@ class TestContextManager:
         with UnifiedDatabase(db_file) as db:
             row = db._conn.execute("SELECT version FROM schema_version").fetchone()
             assert row["version"] == SCHEMA_VERSION
+
+
+# ---------------------------------------------------------------------------
+# Preflight caches (#285)
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightCaches:
+    """3 new tables shipped with schema v9 for Phase B preflight."""
+
+    def test_all_preflight_tables_exist(self, db):
+        tables = {row[0] for row in db._conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        assert "preflight_pr_stats_cache" in tables
+        assert "preflight_repo_meta_cache" in tables
+        assert "preflight_ai_scan_cache" in tables
+
+    # --- preflight_pr_stats_cache ---
+
+    def test_pr_stats_write_read_roundtrip(self, db):
+        db.cache_pr_stats("owner/r", merge_rate=0.42, sample_size=12)
+        cached = db.get_cached_pr_stats("owner/r")
+        assert cached is not None
+        assert cached["repo_full_name"] == "owner/r"
+        assert cached["merge_rate"] == 0.42
+        assert cached["sample_size"] == 12
+        assert cached["computed_at"]
+        assert cached["expires_at"]
+
+    def test_pr_stats_miss_returns_none(self, db):
+        assert db.get_cached_pr_stats("owner/nonexistent") is None
+
+    def test_pr_stats_expired_returns_none(self, db):
+        # ttl_days=0 -> expires_at == now -> immediately expired
+        db.cache_pr_stats("owner/r", merge_rate=0.5, sample_size=10, ttl_days=0)
+        assert db.get_cached_pr_stats("owner/r") is None
+
+    def test_pr_stats_replace_on_recompute(self, db):
+        db.cache_pr_stats("owner/r", merge_rate=0.2, sample_size=5)
+        db.cache_pr_stats("owner/r", merge_rate=0.7, sample_size=20)
+        cached = db.get_cached_pr_stats("owner/r")
+        assert cached["merge_rate"] == 0.7
+        assert cached["sample_size"] == 20
+
+    # --- preflight_repo_meta_cache ---
+
+    def test_repo_meta_write_read_roundtrip(self, db):
+        db.cache_repo_meta(
+            "owner/r",
+            stars=1234,
+            pushed_at="2026-05-20T10:00:00Z",
+            license="Apache-2.0",
+            archived=False,
+            disabled=False,
+        )
+        cached = db.get_cached_repo_meta("owner/r")
+        assert cached is not None
+        assert cached["stars"] == 1234
+        assert cached["pushed_at"] == "2026-05-20T10:00:00Z"
+        assert cached["license"] == "Apache-2.0"
+        assert cached["archived"] is False
+        assert cached["disabled"] is False
+
+    def test_repo_meta_archived_disabled_preserved(self, db):
+        db.cache_repo_meta(
+            "owner/r",
+            stars=10,
+            pushed_at="2024-01-01T00:00:00Z",
+            license=None,
+            archived=True,
+            disabled=True,
+        )
+        cached = db.get_cached_repo_meta("owner/r")
+        assert cached["archived"] is True
+        assert cached["disabled"] is True
+        assert cached["license"] is None
+
+    def test_repo_meta_miss_returns_none(self, db):
+        assert db.get_cached_repo_meta("owner/nonexistent") is None
+
+    def test_repo_meta_expired_returns_none(self, db):
+        db.cache_repo_meta(
+            "owner/r", stars=10, pushed_at=None, license=None, archived=False, disabled=False, ttl_hours=0
+        )
+        assert db.get_cached_repo_meta("owner/r") is None
+
+    # --- preflight_ai_scan_cache ---
+
+    def test_ai_scan_write_read_roundtrip(self, db):
+        db.cache_ai_scan("owner/r", "README.md", "abc123", "clean")
+        assert db.get_cached_ai_scan("owner/r", "README.md", "abc123") == "clean"
+
+    def test_ai_scan_miss_on_different_sha(self, db):
+        db.cache_ai_scan("owner/r", "README.md", "abc123", "hostile")
+        # Different SHA -> miss (implicit invalidation when file content changes)
+        assert db.get_cached_ai_scan("owner/r", "README.md", "different") is None
+
+    def test_ai_scan_miss_on_different_file(self, db):
+        db.cache_ai_scan("owner/r", "README.md", "abc123", "clean")
+        assert db.get_cached_ai_scan("owner/r", "CONTRIBUTING.md", "abc123") is None
+
+    def test_ai_scan_replace_for_same_key(self, db):
+        db.cache_ai_scan("owner/r", "README.md", "abc123", "clean")
+        db.cache_ai_scan("owner/r", "README.md", "abc123", "hostile")
+        assert db.get_cached_ai_scan("owner/r", "README.md", "abc123") == "hostile"
+
+
+# ---------------------------------------------------------------------------
+# v8 -> v9 migration (#285)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrationV8ToV9:
+    def test_migrate_creates_preflight_tables(self, tmp_path):
+        db_file = str(tmp_path / "v8.db")
+        # Build a v8 database from scratch: open + close, then manually downgrade
+        # the schema_version row so the next open triggers the migration.
+        with UnifiedDatabase(db_file) as db:
+            db._conn.execute("UPDATE schema_version SET version = 8")
+            db._conn.execute("DROP TABLE IF EXISTS preflight_pr_stats_cache")
+            db._conn.execute("DROP TABLE IF EXISTS preflight_repo_meta_cache")
+            db._conn.execute("DROP TABLE IF EXISTS preflight_ai_scan_cache")
+            db._conn.commit()
+
+        # Re-open: should run v8 -> v9 migration
+        with UnifiedDatabase(db_file) as db:
+            row = db._conn.execute("SELECT version FROM schema_version").fetchone()
+            assert row["version"] == SCHEMA_VERSION
+            tables = {r[0] for r in db._conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            assert "preflight_pr_stats_cache" in tables
+            assert "preflight_repo_meta_cache" in tables
+            assert "preflight_ai_scan_cache" in tables
+
+    def test_migrate_is_idempotent_on_re_open(self, tmp_path):
+        db_file = str(tmp_path / "v8.db")
+        # First open creates everything at current SCHEMA_VERSION
+        with UnifiedDatabase(db_file):
+            pass
+        # Second open should be a no-op (no migration runs)
+        with UnifiedDatabase(db_file) as db:
+            row = db._conn.execute("SELECT version FROM schema_version").fetchone()
+            assert row["version"] == SCHEMA_VERSION

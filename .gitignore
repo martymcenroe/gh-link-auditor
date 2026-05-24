@@ -63,3 +63,6 @@ docs/session-logs/
 docs/dom-dumps/
 # Operator-private strategy/motivation notes — NEVER publish (#278)
 docs/private/
+# Preflight reports — machine-generated per candidate, not for git (#286)
+data/preflight-reports/*
+!data/preflight-reports/.gitkeep
