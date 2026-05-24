@@ -2,6 +2,42 @@
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# Phase B preflight test infrastructure (#311 live; #312 goldens)
+# ---------------------------------------------------------------------------
+
+
+def pytest_addoption(parser):
+    """Wire ``--live`` and ``--update-goldens`` CLI flags."""
+    parser.addoption(
+        "--live",
+        action="store_true",
+        default=False,
+        help="run @pytest.mark.live tests (real network + real subagent; opt-in)",
+    )
+    parser.addoption(
+        "--update-goldens",
+        action="store_true",
+        default=False,
+        help="regenerate golden files instead of comparing (tests/integration/test_preflight_prompts.py)",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip live-marked tests unless --live is passed."""
+    if config.getoption("--live"):
+        return
+    skip_live = pytest.mark.skip(reason="live tests are opt-in; pass --live to run")
+    for item in items:
+        if "live" in item.keywords:
+            item.add_marker(skip_live)
+
+
+@pytest.fixture
+def update_goldens(request) -> bool:
+    """True when --update-goldens was passed; consumed by golden-file tests."""
+    return bool(request.config.getoption("--update-goldens"))
+
 
 @pytest.fixture
 def sample_markdown(tmp_path):

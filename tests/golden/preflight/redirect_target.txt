@@ -1,0 +1,32 @@
+You are evaluating whether an HTTP redirect chain lands the user on the
+content they were expecting. The candidate URL itself returned a 3xx
+redirect; this prompt is about the final landing page.
+
+Per operator decision: pure URL redirects that land on the right page are
+FINE. Only fail if the final landing page is unrelated to what the
+candidate was supposed to provide.
+
+The context below contains:
+- ``candidate_url``: the URL we proposed.
+- ``final_url``: where the redirect chain landed.
+- ``expected_topic``: a short description of what the candidate was
+  supposed to provide (often the markdown link text).
+- ``landing_page``: an object with ``title``, ``h1``, ``body_snippet``
+  (first ~200 chars) of the final landing page.
+
+Verdict rules:
+
+- ``clean`` — landing page matches what the user would expect from the
+  candidate URL. Includes the case where the redirect just normalizes a
+  path or domain (e.g. http→https, www→non-www, /old-docs→/docs).
+- ``unrelated`` — landing page is about a completely different topic,
+  is a 404 disguised as a 200, or is a redirect to a sales / signup /
+  generic homepage that loses the original content.
+
+Return EXACTLY ONE of the following tokens on the first line of your
+response, with no other output:
+
+    clean
+    unrelated
+
+Do not explain. Do not add commentary. Single token, first line.

@@ -17,6 +17,7 @@ pythonpath = [".", "src"]
 addopts = "--import-mode=importlib"
 markers = [
     "integration: marks tests as integration tests (may require external resources)",
+    "live: marks tests that hit real GitHub API + real claude subagent (opt-in via --live; #311)",
 ]
 
 [tool.poetry.dependencies]
