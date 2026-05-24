@@ -80,7 +80,8 @@ class TestRunPreflightScaffold:
         assert isinstance(report, PreflightReport)
         assert report.repo_full_name == "owner/r"
         assert report.verdict == PreflightVerdict.PASS
-        assert report.score == 0
+        # Scaffold returns score == threshold so tool A's gate logic passes (#284).
+        assert report.score == DEFAULT_THRESHOLD
         assert report.threshold == DEFAULT_THRESHOLD
         assert report.gate_results == []
         assert report.score_breakdown == []
@@ -89,6 +90,8 @@ class TestRunPreflightScaffold:
     def test_custom_threshold_passed_through(self):
         report = run_preflight("owner/r", {"dead_url": "https://a", "candidate_url": "https://b"}, threshold=85)
         assert report.threshold == 85
+        # Scaffold mirrors score to threshold so tool A's gate logic passes (#284).
+        assert report.score == 85
 
     def test_explicit_run_id_used(self):
         report = run_preflight(
@@ -121,7 +124,8 @@ class TestMain:
         rc = main(["--repo", "owner/r", "--score-only"])
         out = capsys.readouterr().out.strip()
         assert rc == 0
-        assert out == "0"
+        # Scaffold score mirrors threshold so the integration's gate passes (#284).
+        assert out == str(DEFAULT_THRESHOLD)
 
     def test_report_writes_files(self, tmp_path, capsys):
         rc = main(["--repo", "owner/r", "--report", "--preflight-log-dir", str(tmp_path)])
