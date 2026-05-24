@@ -38,7 +38,7 @@ def _prompt_replacement_url() -> str | None:
         print("  Invalid — must start with http:// or https://")
 
 
-def generate_google_searches(dead_url: str) -> list[str]:
+def generate_google_searches(dead_url: str, *, dead_domain: bool = False) -> list[str]:
     """Construct 3-5 diagnostic Google search URLs for a dead URL (#196).
 
     Pure function; no network. Returned URLs are clickable in standard terminals.
@@ -48,6 +48,15 @@ def generate_google_searches(dead_url: str) -> list[str]:
         - ``"{humanized_name}" replacement`` — did it get renamed?
         - ``"{humanized_name}" successor OR deprecated`` — is it dead?
         - ``"{full_dead_url}"`` — triangulation: who else links to this?
+
+    Args:
+        dead_url: the broken URL we're trying to find a replacement for.
+        dead_domain: when True, skip the ``site:{domain}`` queries (#213).
+            The caller signals this when the domain itself is gone (DNS
+            failure, certificate expired beyond rescue, whole-domain
+            rebrand to a new host). Google's ``site:`` operator returns
+            zero results for dead domains — emitting those queries
+            wastes an operator click and gives no signal.
     """
     parsed = urlparse(dead_url)
     domain = (parsed.hostname or "").strip()
@@ -60,10 +69,13 @@ def generate_google_searches(dead_url: str) -> list[str]:
 
     base = "https://www.google.com/search?q="
     searches: list[str] = []
-    if domain and name:
-        searches.append(base + quote_plus(f"site:{domain} {name}"))
-    elif domain:
-        searches.append(base + quote_plus(f"site:{domain}"))
+    # Site: queries are only useful when the domain itself is still alive.
+    # When dead_domain=True, skip them and rely on name + triangulation only (#213).
+    if not dead_domain:
+        if domain and name:
+            searches.append(base + quote_plus(f"site:{domain} {name}"))
+        elif domain:
+            searches.append(base + quote_plus(f"site:{domain}"))
     if name:
         searches.append(base + quote_plus(f'"{name}" replacement'))
         searches.append(base + quote_plus(f'"{name}" successor OR deprecated OR shutdown'))

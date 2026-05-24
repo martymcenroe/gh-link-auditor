@@ -366,6 +366,32 @@ class TestGenerateGoogleSearches:
         searches = generate_google_searches("https://www.enthought.com/")
         assert len(searches) >= 1
 
+    # ------------------------------------------------------------------
+    # #213: dead_domain=True skips site: queries
+    # ------------------------------------------------------------------
+
+    def test_dead_domain_skips_site_queries(self) -> None:
+        searches = generate_google_searches(
+            "https://dead-domain.example/product/canopy/",
+            dead_domain=True,
+        )
+        # No search should contain site:
+        assert not any("site%3A" in s for s in searches)
+        # Should still have the topic + URL-triangulation searches
+        assert len(searches) >= 2
+
+    def test_dead_domain_false_keeps_site_queries(self) -> None:
+        # Default behavior is unchanged
+        searches = generate_google_searches("https://www.enthought.com/product/canopy/")
+        assert any("site%3A" in s for s in searches)
+
+    def test_dead_domain_with_no_name_still_emits_url_triangulation(self) -> None:
+        # Bare domain + dead_domain=True → only the URL triangulation query remains
+        searches = generate_google_searches("https://dead-domain.example/", dead_domain=True)
+        assert any("dead-domain.example" in s.lower() for s in searches)
+        # No site: query
+        assert not any("site%3A" in s for s in searches)
+
 
 class TestBuildGithubSourceUrl:
     """Tests for build_github_source_url() (#194)."""
