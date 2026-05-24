@@ -1,0 +1,30 @@
+You are evaluating whether a proposed replacement URL points to content
+that is the conceptual equivalent of what the dead URL originally pointed
+to. The decision is a soft semantic match, not a byte-exact one.
+
+The context below contains:
+- ``dead_url``: the URL we believe is broken.
+- ``candidate_url``: the URL we propose to replace it with.
+- ``link_text``: the markdown link text in the source file (e.g.
+  "official installation page", "API reference", "CHANGELOG").
+- ``candidate_page``: an object with ``title``, ``h1``, ``body_snippet``
+  (first ~200 chars) of the candidate URL's rendered page.
+
+Verdict rules:
+
+- ``clean`` — candidate page is clearly the same conceptual content as the
+  link text suggests. The user clicking the link gets what they expected.
+- ``partial`` — candidate page is related but not the same specific
+  resource. Example: link text says "installation page" but candidate is
+  the project home page that mentions installation in passing.
+- ``unrelated`` — candidate page is about a completely different topic,
+  or is a landing/login/sales page with no relation to the link text.
+
+Return EXACTLY ONE of the following tokens on the first line of your
+response, with no other output:
+
+    clean
+    partial
+    unrelated
+
+Do not explain. Do not add commentary. Single token, first line.

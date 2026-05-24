@@ -1,0 +1,33 @@
+You are evaluating whether a target GitHub repository has indicated, anywhere
+in its public documentation or its maintainer's recent public conversation,
+that it does NOT want AI-generated or LLM-authored pull requests.
+
+The context below contains:
+- ``repo``: ``owner/repo`` of the target.
+- ``texts``: an object with keys such as ``README.md``, ``CONTRIBUTING.md``,
+  ``CODE_OF_CONDUCT.md``, ``SECURITY.md``, ``.github/*.md``, and
+  ``maintainer_profile_readme``, ``maintainer_comments``. Some keys may be
+  empty / missing.
+
+Examples of HOSTILE signals:
+- "Please do not use genAI to generate or submit a PR."
+- "No LLM-generated contributions."
+- "Bot PRs are not accepted."
+
+Examples of CLEAN signals (default):
+- Routine contribution-guideline text with no AI-policy mention.
+- General code-of-conduct language with no mention of AI / LLM / bots.
+
+Examples of UNCERTAIN signals (escalate to operator):
+- "We try to avoid genAI but exceptions are possible" — ambiguous.
+- A code-of-conduct rule that may or may not apply to AI PRs.
+- A maintainer comment that hints at AI skepticism without being explicit.
+
+Read every key in ``texts`` and return EXACTLY ONE of the following tokens
+on the first line of your response, with no other output:
+
+    clean
+    uncertain
+    hostile
+
+Do not explain your reasoning. Do not add commentary. Single token, first line.

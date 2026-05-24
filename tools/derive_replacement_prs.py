@@ -421,8 +421,19 @@ def _print_summary(result: dict) -> None:
     print(f"  submitted: {len(result['submitted'])}")
     for name, url in result["submitted"]:
         print(f"    {name}  {url}")
-    print(f"  skipped:   {len(result['skipped'])}")
-    for name, reason in result["skipped"]:
+
+    # Group preflight skips so OPERATOR REVIEW NEEDED items don't get
+    # buried in noise from gate-fails / score-too-low / dry-run skips (#313).
+    review_needed = [(n, r) for n, r in result["skipped"] if r == "preflight_needs_review"]
+    other_skipped = [(n, r) for n, r in result["skipped"] if r != "preflight_needs_review"]
+
+    if review_needed:
+        print(f"  >>> OPERATOR REVIEW NEEDED: {len(review_needed)} candidate(s) <<<")
+        for name, reason in review_needed:
+            print(f"    {name}  ({reason})  ← read the report in data/preflight-reports/")
+
+    print(f"  skipped:   {len(other_skipped)}")
+    for name, reason in other_skipped:
         print(f"    {name}  ({reason})")
     if result["errors"]:
         print(f"  errors:    {len(result['errors'])}")
