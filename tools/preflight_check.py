@@ -66,11 +66,15 @@ def run_preflight(
         per-score evidence.
     """
     now = datetime.now(timezone.utc).isoformat()
+    # Scaffold returns ``score=threshold`` so a PASS verdict actually passes
+    # the integration's ``report.score < args.preflight_threshold`` check
+    # (#284). When per-gate / per-score issues land they'll set the real
+    # score from the score_breakdown sum.
     return PreflightReport(
         repo_full_name=repo_full_name,
         candidate=dict(candidate),
         verdict=PreflightVerdict.PASS,
-        score=0,
+        score=threshold,
         threshold=threshold,
         gate_results=[],
         score_breakdown=[],

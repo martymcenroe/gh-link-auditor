@@ -72,6 +72,12 @@ def _insert_finding(udb: UnifiedDatabase, **overrides) -> int:
 
 
 def _make_args(**overrides) -> argparse.Namespace:
+    # Mirrors _build_parser defaults plus the Phase B preflight flags (#284).
+    # Tests get a tempdir for preflight reports so save_report doesn't write
+    # into the operator's real data/preflight-reports/ at test time.
+    import tempfile
+    from pathlib import Path
+
     defaults = {
         "db": "/tmp/x",
         "run_id": None,
@@ -81,6 +87,11 @@ def _make_args(**overrides) -> argparse.Namespace:
         "max_prs": 10,
         "auto_approve": True,
         "dry_run": False,
+        "campaign_allowed": True,  # tests of derive_and_submit don't gate on this
+        "preflight_threshold": 90,
+        "preflight_log_dir": Path(tempfile.gettempdir()) / "preflight-test-reports",
+        "preflight_report_only": False,
+        "skip_preflight": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -617,6 +628,132 @@ class TestDeriveAndSubmit:
 
 
 # ---------------------------------------------------------------------------
+# Phase B preflight integration (#284)
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightIntegration:
+    """Verify each preflight verdict path is routed to the correct skip reason."""
+
+    def _make_fake_run_preflight(self, verdict, score=90, gate_failure_name=None):
+        """Build a stub run_preflight that returns the given verdict / score."""
+        from gh_link_auditor.preflight.report import PreflightReport, PreflightVerdict
+
+        verdict_enum = PreflightVerdict[verdict] if isinstance(verdict, str) else verdict
+
+        def _fake(repo_full_name, candidate, db=None, threshold=90, skip_preflight_banner=False, run_id=None):
+            return PreflightReport(
+                repo_full_name=repo_full_name,
+                candidate=dict(candidate),
+                verdict=verdict_enum,
+                score=score,
+                threshold=threshold,
+                gate_results=[],
+                score_breakdown=[],
+                gate_failure_name=gate_failure_name,
+                started_at="2026-05-24T15:00:00+00:00",
+                completed_at="2026-05-24T15:00:01+00:00",
+                run_id="preflight-test",
+                skip_preflight_banner=skip_preflight_banner,
+            )
+
+        return _fake
+
+    def test_hard_gate_failed_skips_with_gate_name(self, db_path, tmp_path):
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(udb, repo_full_name="o/r")
+
+        from unittest.mock import patch
+
+        fake = self._make_fake_run_preflight("HARD_GATE_FAILED", score=0, gate_failure_name="anti_ai")
+
+        with patch("tools.derive_replacement_prs.run_preflight", side_effect=fake):
+            result = mod.derive_and_submit(
+                _make_args(db=db_path, preflight_log_dir=tmp_path),
+                n6_fn=lambda s: {**s, "pr_url": "should-not-fire"},
+            )
+
+        assert result["submitted"] == []
+        assert any(reason == "preflight_gate_anti_ai" for _, reason in result["skipped"])
+
+    def test_needs_operator_review_skips(self, db_path, tmp_path):
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(udb, repo_full_name="o/r")
+
+        from unittest.mock import patch
+
+        fake = self._make_fake_run_preflight("NEEDS_OPERATOR_REVIEW")
+
+        with patch("tools.derive_replacement_prs.run_preflight", side_effect=fake):
+            result = mod.derive_and_submit(
+                _make_args(db=db_path, preflight_log_dir=tmp_path),
+                n6_fn=lambda s: {**s, "pr_url": "should-not-fire"},
+            )
+
+        assert result["submitted"] == []
+        assert any(reason == "preflight_needs_review" for _, reason in result["skipped"])
+
+    def test_score_too_low_skips_with_score(self, db_path, tmp_path):
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(udb, repo_full_name="o/r")
+
+        from unittest.mock import patch
+
+        # PASS verdict but score below threshold
+        fake = self._make_fake_run_preflight("PASS", score=42)
+
+        with patch("tools.derive_replacement_prs.run_preflight", side_effect=fake):
+            result = mod.derive_and_submit(
+                _make_args(db=db_path, preflight_log_dir=tmp_path),
+                n6_fn=lambda s: {**s, "pr_url": "should-not-fire"},
+            )
+
+        assert result["submitted"] == []
+        assert any(reason == "preflight_score_42" for _, reason in result["skipped"])
+
+    def test_preflight_report_only_skips_all_without_filing(self, db_path, tmp_path):
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(udb, repo_full_name="o/r")
+
+        from unittest.mock import patch
+
+        # Even with a PASS verdict, --preflight-report-only must skip filing
+        fake = self._make_fake_run_preflight("PASS", score=95)
+
+        with patch("tools.derive_replacement_prs.run_preflight", side_effect=fake):
+            result = mod.derive_and_submit(
+                _make_args(db=db_path, preflight_log_dir=tmp_path, preflight_report_only=True),
+                n6_fn=lambda s: {**s, "pr_url": "should-not-fire"},
+            )
+
+        assert result["submitted"] == []
+        assert any(reason == "preflight_report_only" for _, reason in result["skipped"])
+        # Report files should still have been written
+        assert any(tmp_path.iterdir())
+
+    def test_skip_preflight_bypasses_gate(self, db_path, tmp_path):
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(udb, repo_full_name="o/r")
+
+        from unittest.mock import patch
+
+        # Hard-gate failure that would normally skip — but --skip-preflight bypasses it
+        fake = self._make_fake_run_preflight("HARD_GATE_FAILED", score=0, gate_failure_name="anti_ai")
+
+        def fake_n6(state):
+            return {**state, "pr_url": "https://github.com/o/r/pull/1"}
+
+        with patch("tools.derive_replacement_prs.run_preflight", side_effect=fake):
+            result = mod.derive_and_submit(
+                _make_args(db=db_path, preflight_log_dir=tmp_path, skip_preflight=True),
+                n6_fn=fake_n6,
+            )
+
+        # Despite the failed gate, the PR was submitted because --skip-preflight bypassed the check
+        assert len(result["submitted"]) == 1
+
+
+# ---------------------------------------------------------------------------
 # Output rendering + CLI surface
 # ---------------------------------------------------------------------------
 
@@ -687,6 +824,11 @@ class TestBuildParser:
         assert args.auto_approve is False
         assert args.dry_run is False
         assert args.campaign_allowed is False
+        # Phase B preflight flags (#284)
+        assert args.preflight_threshold == 90
+        assert args.preflight_report_only is False
+        assert args.skip_preflight is False
+        assert args.preflight_log_dir is not None  # defaults to data/preflight-reports
 
     def test_explicit_flags(self):
         args = mod._build_parser().parse_args(
@@ -706,6 +848,12 @@ class TestBuildParser:
                 "--auto-approve",
                 "--dry-run",
                 "--campaign-allowed",
+                "--preflight-threshold",
+                "85",
+                "--preflight-log-dir",
+                "/tmp/reports",
+                "--preflight-report-only",
+                "--skip-preflight",
             ]
         )
         assert args.db == "/tmp/x.db"
@@ -717,6 +865,13 @@ class TestBuildParser:
         assert args.auto_approve is True
         assert args.dry_run is True
         assert args.campaign_allowed is True
+        # Phase B preflight flags (#284) — Path constructor normalizes separators per platform
+        from pathlib import Path
+
+        assert args.preflight_threshold == 85
+        assert args.preflight_log_dir == Path("/tmp/reports")
+        assert args.preflight_report_only is True
+        assert args.skip_preflight is True
 
 
 class TestMain:

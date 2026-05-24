@@ -40,7 +40,9 @@ from gh_link_auditor import (  # noqa: E402
 )
 from gh_link_auditor.metrics.models import PROutcome  # noqa: E402
 from gh_link_auditor.pipeline.nodes.n6_submit_pr import n6_submit_pr  # noqa: E402
+from gh_link_auditor.preflight import PreflightVerdict, save_report  # noqa: E402
 from gh_link_auditor.unified_db import DEFAULT_DB_PATH, UnifiedDatabase  # noqa: E402
+from tools.preflight_check import DEFAULT_REPORT_DIR, DEFAULT_THRESHOLD, run_preflight  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pure-compute helpers (unit-testable, no I/O)
@@ -331,6 +333,41 @@ def derive_and_submit(
                 continue
             repo_rows = safe_rows
 
+            # Phase B preflight (#284): run per-repo PRIOR TO FORK. No fork,
+            # no push, no PR until preflight passes. The representative
+            # candidate is the first safe row; gate / score implementations
+            # under #281 may refine to per-candidate evaluation later.
+            representative = {
+                "dead_url": safe_rows[0]["dead_url"],
+                "candidate_url": safe_rows[0]["candidate_url"],
+                "source_file": safe_rows[0].get("source_file", ""),
+                "line_number": safe_rows[0].get("line_number"),
+                "method": safe_rows[0].get("method", ""),
+            }
+            report = run_preflight(
+                repo_full_name=repo_full_name,
+                candidate=representative,
+                db=udb,
+                threshold=args.preflight_threshold,
+                skip_preflight_banner=args.skip_preflight,
+            )
+            save_report(report, args.preflight_log_dir)
+
+            if args.preflight_report_only:
+                skipped.append((repo_full_name, "preflight_report_only"))
+                continue
+
+            if not args.skip_preflight:
+                if report.verdict == PreflightVerdict.HARD_GATE_FAILED:
+                    skipped.append((repo_full_name, f"preflight_gate_{report.gate_failure_name}"))
+                    continue
+                if report.verdict == PreflightVerdict.NEEDS_OPERATOR_REVIEW:
+                    skipped.append((repo_full_name, "preflight_needs_review"))
+                    continue
+                if report.score < args.preflight_threshold:
+                    skipped.append((repo_full_name, f"preflight_score_{report.score}"))
+                    continue
+
             fixes = _rows_to_fixes(repo_rows)
             verdicts = _rows_to_verdicts(repo_rows)
 
@@ -410,6 +447,34 @@ def _build_parser() -> argparse.ArgumentParser:
             "acknowledge that the public-surface scrub (issue #278) is merged "
             "and the operator has manually reviewed the surface. Required to "
             "submit any PRs; omit to keep the pipeline paused."
+        ),
+    )
+    # Phase B preflight integration (#284). When --skip-preflight is set,
+    # a report is still written but the gate / score verdict does not
+    # block submission; the report carries a BAD ESCAPE banner.
+    p.add_argument(
+        "--preflight-threshold",
+        type=int,
+        default=DEFAULT_THRESHOLD,
+        help=f"minimum preflight score to submit (default: {DEFAULT_THRESHOLD})",
+    )
+    p.add_argument(
+        "--preflight-log-dir",
+        type=Path,
+        default=DEFAULT_REPORT_DIR,
+        help=f"directory for preflight reports (default: {DEFAULT_REPORT_DIR})",
+    )
+    p.add_argument(
+        "--preflight-report-only",
+        action="store_true",
+        help="run preflight on every candidate, write reports, exit without filing PRs",
+    )
+    p.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help=(
+            "BAD ESCAPE — write the preflight report with a warning banner but "
+            "do not gate submission on it. Default off. Use only for debugging."
         ),
     )
     return p
