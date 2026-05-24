@@ -292,6 +292,77 @@ class TestIsFalsePositive:
         # status code to be flagged — they aren't always-alive, just bot-blocked.
         assert is_false_positive("https://medium.com/something") is False
 
+    # ------------------------------------------------------------------
+    # #243: donation / sponsorship URL categorical skip
+    # ------------------------------------------------------------------
+
+    def test_patreon_donation_url_is_false_positive(self) -> None:
+        assert is_false_positive("https://www.patreon.com/bePatron?u=51974655") is True
+
+    def test_github_sponsors_path_is_false_positive(self) -> None:
+        assert is_false_positive("https://github.com/sponsors/martymcenroe") is True
+
+    def test_ko_fi_is_false_positive(self) -> None:
+        assert is_false_positive("https://ko-fi.com/someuser") is True
+
+    def test_buymeacoffee_is_false_positive(self) -> None:
+        assert is_false_positive("https://www.buymeacoffee.com/someuser") is True
+
+    def test_github_non_sponsors_path_not_filtered_as_donation(self) -> None:
+        # github.com/<user>/<repo> isn't a donation link
+        # (Use a real-ish path that doesn't trip placeholder regex from #97)
+        assert is_false_positive("https://github.com/martymcenroe/gh-link-auditor") is False
+
+
+class TestIsDonationUrl:
+    """Tests for is_donation_url() (#243)."""
+
+    def test_patreon(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://www.patreon.com/bePatron?u=51974655") is True
+
+    def test_patreon_no_www(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://patreon.com/someuser") is True
+
+    def test_opencollective(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://opencollective.com/django") is True
+
+    def test_github_sponsors_path(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://github.com/sponsors/martymcenroe") is True
+
+    def test_github_regular_repo_path_not_donation(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://github.com/martymcenroe/gh-link-auditor") is False
+
+    def test_paypal_donate_path(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://www.paypal.com/donate?hosted_button_id=xxx") is True
+
+    def test_paypal_regular_url_not_donation(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://www.paypal.com/signin") is False
+
+    def test_subdomain_of_donation_platform(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        # subdomain.patreon.com should still be flagged
+        assert is_donation_url("https://shop.patreon.com/x") is True
+
+    def test_unknown_domain_not_donation(self) -> None:
+        from gh_link_auditor.false_positives import is_donation_url
+
+        assert is_donation_url("https://random-blog.com/post") is False
+
     def test_github_auth_required(self) -> None:
         assert is_false_positive("https://github.com/org/repo/issues/new", http_status=404) is True
 

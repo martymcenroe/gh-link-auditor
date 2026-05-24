@@ -75,6 +75,36 @@ API_TEST_DOMAINS: set[str] = {
     "httpbin.com",
 }
 
+# Donation / sponsorship platforms (#243). These are intentional support
+# links — maintainers don't want them "fixed" if they go 4xx (auth-required,
+# campaign paused, account closed, etc.). Replacing them would break the
+# maintainer's revenue link.
+DONATION_DOMAINS: set[str] = {
+    "patreon.com",
+    "opencollective.com",
+    "buymeacoffee.com",
+    "ko-fi.com",
+    "liberapay.com",
+    "paypal.me",
+    "gofundme.com",
+    "kickstarter.com",
+    "indiegogo.com",
+    "donate.mozilla.org",
+    "donorbox.org",
+    "givebutter.com",
+    "venmo.com",
+    "cash.app",
+    "tippin.me",
+}
+
+# Path-prefix matches for donation routes hosted on multi-purpose domains.
+# E.g. ``github.com/sponsors/<user>`` is donation; ``github.com/<user>/<repo>`` is not.
+_DONATION_PATH_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("github.com", "/sponsors/"),
+    ("paypal.com", "/donate"),
+    ("stripe.com", "/donate"),
+)
+
 # Placeholder path segments that indicate template/example URLs.
 _PLACEHOLDER_PATH_RE = re.compile(
     r"(YOUR[_-]USERNAME|YOUR[_-]ORG|YOUR[_-]REPO|YOUR[_-]TOKEN"
@@ -266,6 +296,37 @@ def is_auth_wall(http_status: int | None) -> bool:
     return http_status in (401, 402)
 
 
+def is_donation_url(url: str) -> bool:
+    """True if the URL is a donation / sponsorship link (#243).
+
+    Matches both straight-domain matches (e.g. ``patreon.com``) and
+    path-prefix matches for donation routes on multi-purpose domains
+    (e.g. ``github.com/sponsors/<user>``).
+    """
+    hostname = _safe_hostname(url)
+    if not hostname:
+        return False
+    # Strip leading "www." for normalization
+    bare = hostname.removeprefix("www.")
+    if bare in DONATION_DOMAINS:
+        return True
+    # Subdomain-suffix match (e.g. "shop.patreon.com" → "patreon.com")
+    for domain in DONATION_DOMAINS:
+        if bare.endswith("." + domain):
+            return True
+    # Path-prefix match for multi-purpose domains
+    try:
+        from urllib.parse import urlparse
+
+        path = urlparse(url).path or ""
+    except ValueError:
+        return False
+    for domain, prefix in _DONATION_PATH_PREFIXES:
+        if bare == domain and path.startswith(prefix):
+            return True
+    return False
+
+
 def is_false_positive(url: str, http_status: int | None = None) -> bool:
     """Master check: is this URL a known false positive?
 
@@ -286,6 +347,11 @@ def is_false_positive(url: str, http_status: int | None = None) -> bool:
         return True
 
     if is_always_alive_domain(url):
+        return True
+
+    # Donation / sponsorship URLs are intentional support links — never
+    # candidates for "fixing" (#243).
+    if is_donation_url(url):
         return True
 
     if http_status is not None:
