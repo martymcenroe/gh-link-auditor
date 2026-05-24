@@ -331,15 +331,193 @@ class TestGateStarsFloor:
 
 
 class TestHardGatesRegistry:
-    def test_registry_contains_all_seven_pr_delta_gates(self):
-        assert len(HARD_GATES) == 7
+    def test_registry_contains_all_ten_gates_after_pr_epsilon(self):
+        assert len(HARD_GATES) == 10
         gate_names = {fn.__name__ for fn in HARD_GATES}
         assert gate_names == {
+            "gate_anti_ai",
             "gate_repo_active",
+            "gate_blacklist",
             "gate_dead_url_still_present",
             "gate_dead_url_still_dead",
             "gate_candidate_url_alive",
+            "gate_redirect_target_related",
             "gate_no_duplicate_pr",
             "gate_no_markdown_corruption",
             "gate_stars_floor",
         }
+
+
+# ---------------------------------------------------------------------------
+# #288: anti-AI text scan (subagent)
+# ---------------------------------------------------------------------------
+
+
+from gh_link_auditor.preflight.gates import (  # noqa: E402
+    gate_anti_ai,
+    gate_blacklist,
+    gate_redirect_target_related,
+)
+from gh_link_auditor.preflight.subagent import SubagentVerdict  # noqa: E402
+from tests.fakes.subagent import FakeSubagent  # noqa: E402
+
+
+class TestGateAntiAi:
+    def test_passes_when_no_policy_files_exist(self, db):
+        result = gate_anti_ai(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.CLEAN),
+            content_fetch=lambda repo, path: None,
+        )
+        assert result.passed is True
+        assert "no policy files" in result.reason
+
+    def test_passes_when_subagent_clean(self, db):
+        result = gate_anti_ai(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.CLEAN),
+            content_fetch=lambda repo, path: "We welcome contributions." if path == "README.md" else None,
+            prompt_path="ignored.txt",
+        )
+        assert result.passed is True
+        assert "clean" in result.reason
+
+    def test_fails_when_subagent_hostile(self, db):
+        result = gate_anti_ai(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.HOSTILE),
+            content_fetch=lambda repo, path: "Please do not use AI to generate PRs." if path == "README.md" else None,
+            prompt_path="ignored.txt",
+        )
+        assert result.passed is False
+        assert "hostile" in result.reason
+
+    def test_uncertain_returns_needs_operator_review_reason(self, db):
+        result = gate_anti_ai(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.UNCERTAIN),
+            content_fetch=lambda repo, path: "Ambiguous policy text" if path == "README.md" else None,
+            prompt_path="ignored.txt",
+        )
+        assert result.passed is False
+        assert result.reason == "needs_operator_review"
+
+
+# ---------------------------------------------------------------------------
+# #290: blacklist
+# ---------------------------------------------------------------------------
+
+
+class TestGateBlacklist:
+    def test_passes_when_not_blacklisted(self, db):
+        result = gate_blacklist("owner/r", _candidate(), db)
+        assert result.passed is True
+
+    def test_fails_when_repo_blacklisted(self, db):
+        db.add_to_blacklist(
+            repo_url="https://github.com/owner/r",
+            reason="test",
+            source="manual",
+        )
+        result = gate_blacklist("owner/r", _candidate(), db)
+        assert result.passed is False
+        assert "blacklisted" in result.reason
+
+    def test_fails_when_maintainer_blacklisted(self, db):
+        db.add_to_blacklist(
+            maintainer="owner",
+            reason="hostile_repeat_offender",
+            source="auto",
+        )
+        result = gate_blacklist("owner/r", _candidate(), db)
+        assert result.passed is False
+
+    def test_defensive_pass_when_db_missing(self):
+        result = gate_blacklist("owner/r", _candidate(), db=None)
+        assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# #294: redirect target (subagent semantic)
+# ---------------------------------------------------------------------------
+
+
+class TestGateRedirectTargetRelated:
+    def test_passes_when_no_redirect(self, db):
+        result = gate_redirect_target_related(
+            "owner/r",
+            _candidate(candidate_url="https://alive.example/x"),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.CLEAN),
+            http_check=lambda url: {"status_code": 200, "final_url": "https://alive.example/x"},
+        )
+        assert result.passed is True
+        assert "no redirect" in result.reason
+
+    def test_passes_when_subagent_clean(self, db):
+        result = gate_redirect_target_related(
+            "owner/r",
+            _candidate(candidate_url="https://alive.example/x"),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.CLEAN),
+            http_check=lambda url: {"status_code": 301, "final_url": "https://alive.example/canonical"},
+            landing_fetch=lambda url: {"title": "Same Content", "h1": "X", "body_snippet": "ok"},
+            prompt_path="ignored.txt",
+        )
+        assert result.passed is True
+
+    def test_fails_when_subagent_unrelated(self, db):
+        result = gate_redirect_target_related(
+            "owner/r",
+            _candidate(candidate_url="https://alive.example/x"),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.UNRELATED),
+            http_check=lambda url: {"status_code": 301, "final_url": "https://login.example/"},
+            landing_fetch=lambda url: {"title": "Sign in", "h1": "Login", "body_snippet": "Please log in"},
+            prompt_path="ignored.txt",
+        )
+        assert result.passed is False
+        assert "unrelated" in result.reason
+
+    def test_defensive_pass_when_no_candidate_url(self, db):
+        result = gate_redirect_target_related(
+            "owner/r",
+            {"dead_url": "x", "candidate_url": ""},
+            db,
+        )
+        assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# Dispatch integration: needs_operator_review routes to NEEDS_OPERATOR_REVIEW verdict
+# ---------------------------------------------------------------------------
+
+
+class TestRunPreflightNeedsReviewDispatch:
+    def test_needs_operator_review_reason_routes_to_review_verdict(self):
+        from gh_link_auditor.preflight.report import GateResult, PreflightVerdict
+        from tools.preflight_check import run_preflight
+
+        def fake_uncertain_gate(repo, candidate, db):
+            return GateResult(
+                name="fake",
+                passed=False,
+                reason="needs_operator_review",
+                evidence={"why": "uncertain"},
+            )
+
+        report = run_preflight(
+            "owner/r",
+            {"dead_url": "https://a", "candidate_url": "https://b"},
+            gates=[fake_uncertain_gate],
+        )
+        assert report.verdict == PreflightVerdict.NEEDS_OPERATOR_REVIEW
+        assert report.gate_failure_name == "fake"

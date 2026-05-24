@@ -404,15 +404,311 @@ def gate_stars_floor(
 
 
 # ---------------------------------------------------------------------------
-# Registry: PR-δ ships 7 non-subagent gates; PR-ε will append 3 more.
+# Hard gate #1 (#288): anti-AI text scan in repo + maintainer profile
+# ---------------------------------------------------------------------------
+
+
+_AI_SCAN_FILES = (
+    "README.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    ".github/CONTRIBUTING.md",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+)
+
+
+def gate_anti_ai(
+    repo_full_name: str,
+    candidate: dict[str, Any],
+    db: Any,
+    *,
+    subagent: Any = None,
+    content_fetch: ContentFetch | None = None,
+    prompt_path: Any = None,
+) -> GateResult:
+    """Subagent-classified anti-AI policy scan (#288).
+
+    Reads the repo's public-facing policy files via the clone-last
+    ``GitHubContentsClient``. Concatenates everything that exists and
+    sends it to the subagent (``claude --print``) with the
+    ``ai_scan.txt`` prompt. Verdict mapping:
+
+    - ``hostile`` → gate FAILS (drop candidate)
+    - ``uncertain`` → returns ``passed=False`` with ``reason='needs_operator_review'``
+      so ``run_preflight`` can surface NEEDS_OPERATOR_REVIEW
+    - ``clean`` → PASS
+
+    When the subagent isn't available (no claude CLI), falls back to
+    ``hostile_classifier.ANTI_AI_PHRASES`` keyword pre-scan; any hit →
+    ``uncertain``, no hits → ``clean``.
+    """
+    from gh_link_auditor.preflight.subagent import (
+        RealSubagent,
+        SubagentVerdict,
+        anti_ai_keyword_fallback,
+    )
+
+    sub = subagent if subagent is not None else RealSubagent()
+
+    if content_fetch is None:
+        from gh_link_auditor.github_api import GitHubContentsClient
+
+        client = GitHubContentsClient()
+        owner, _, name = repo_full_name.partition("/")
+
+        def content_fetch(r: str, p: str) -> str | None:
+            try:
+                return client.fetch_file_content(owner, name, p)
+            except Exception:  # noqa: BLE001 — defensive; downstream prefers no-content
+                return None
+
+    texts = {}
+    for path in _AI_SCAN_FILES:
+        content = content_fetch(repo_full_name, path)
+        if content:
+            texts[path] = content[:4000]  # cap per file to keep prompt manageable
+
+    if not texts:
+        # Nothing to scan — defensively PASS rather than fail (the repo has
+        # no policy docs to forbid AI; this is the common case).
+        return GateResult(
+            name="anti_ai",
+            passed=True,
+            reason="no policy files found to scan",
+            evidence={"files_scanned": 0},
+        )
+
+    # Subagent path
+    if sub is not None and hasattr(sub, "run") and getattr(sub, "is_available", lambda: True)():
+        if prompt_path is None:
+            from pathlib import Path
+
+            prompt_path = Path(__file__).resolve().parent.parent.parent.parent / "prompts" / "preflight" / "ai_scan.txt"
+        try:
+            verdict = sub.run(prompt_path, {"repo": repo_full_name, "texts": texts})
+        except Exception as exc:  # noqa: BLE001 — fall through to fallback
+            verdict = None
+            evidence_extra = {"subagent_error": str(exc)}
+        else:
+            evidence_extra = {}
+        if verdict == SubagentVerdict.HOSTILE:
+            return GateResult(
+                name="anti_ai",
+                passed=False,
+                reason="subagent classified content as hostile to AI PRs",
+                evidence={"files_scanned": len(texts), **evidence_extra},
+            )
+        if verdict == SubagentVerdict.CLEAN:
+            return GateResult(
+                name="anti_ai",
+                passed=True,
+                reason="subagent classified content as clean",
+                evidence={"files_scanned": len(texts), **evidence_extra},
+            )
+        if verdict == SubagentVerdict.UNCERTAIN:
+            return GateResult(
+                name="anti_ai",
+                passed=False,
+                reason="needs_operator_review",
+                evidence={"files_scanned": len(texts), "subagent_verdict": "uncertain", **evidence_extra},
+            )
+        # subagent error / unknown verdict → fall through to keyword fallback
+
+    # Fallback: keyword scan
+    combined = "\n\n".join(texts.values())
+    fallback_verdict = anti_ai_keyword_fallback(combined)
+    if fallback_verdict == SubagentVerdict.UNCERTAIN:
+        return GateResult(
+            name="anti_ai",
+            passed=False,
+            reason="needs_operator_review",
+            evidence={"files_scanned": len(texts), "fallback": "keyword_hit"},
+        )
+    return GateResult(
+        name="anti_ai",
+        passed=True,
+        reason="keyword fallback found no anti-AI phrases",
+        evidence={"files_scanned": len(texts), "fallback": "keyword_clean"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Hard gate #3 (#290): blacklist (repo + maintainer)
+# ---------------------------------------------------------------------------
+
+
+def gate_blacklist(
+    repo_full_name: str,
+    candidate: dict[str, Any],
+    db: Any,
+) -> GateResult:
+    """Fail when the repo OR its maintainer is in the unified-DB blacklist.
+
+    The maintainer-level plumbing already exists in
+    ``unified_db.is_blacklisted(repo_url, maintainer=None)`` (#208 was
+    correct about the column being unused at most call sites; this gate
+    is one of the first callers to pass it).
+    """
+    if db is None or not hasattr(db, "is_blacklisted"):
+        return GateResult(
+            name="blacklist",
+            passed=True,
+            reason="no db available; cannot check blacklist (defensive PASS)",
+            evidence={},
+        )
+
+    repo_url = f"https://github.com/{repo_full_name}"
+    maintainer = repo_full_name.partition("/")[0]
+    if db.is_blacklisted(repo_url, maintainer):
+        return GateResult(
+            name="blacklist",
+            passed=False,
+            reason="repo or maintainer is blacklisted",
+            evidence={"repo_url": repo_url, "maintainer": maintainer},
+        )
+    return GateResult(
+        name="blacklist",
+        passed=True,
+        reason="not blacklisted",
+        evidence={"repo_url": repo_url, "maintainer": maintainer},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Hard gate #7 (#294): candidate URL redirects to unrelated content
+# ---------------------------------------------------------------------------
+
+
+def gate_redirect_target_related(
+    repo_full_name: str,
+    candidate: dict[str, Any],
+    db: Any,
+    *,
+    subagent: Any = None,
+    http_check: HttpCheck | None = None,
+    landing_fetch: Callable[[str], dict[str, str]] | None = None,
+    prompt_path: Any = None,
+) -> GateResult:
+    """Subagent-classified semantic check on redirect landing pages (#294).
+
+    Per operator: pure URL redirects that land on the right page are FINE.
+    Only fail if the final landing page is unrelated to the candidate's
+    expected content.
+
+    No-redirect case (`final_url == candidate_url`) skips the subagent
+    and passes immediately. Subagent verdict ``unrelated`` → FAIL;
+    ``clean`` → PASS. Anything else (including subagent unavailable)
+    defensively passes — we don't want to drop perfectly good candidates
+    just because we can't reach the subagent.
+    """
+    from gh_link_auditor.preflight.subagent import RealSubagent, SubagentVerdict
+
+    candidate_url = candidate.get("candidate_url") or ""
+    if not candidate_url:
+        return GateResult(
+            name="redirect_target_related",
+            passed=True,
+            reason="no candidate_url to check (defensive PASS)",
+            evidence={},
+        )
+
+    check = http_check or _default_http_check
+    result = check(candidate_url)
+    final_url = result.get("final_url") or candidate_url
+    if final_url == candidate_url:
+        return GateResult(
+            name="redirect_target_related",
+            passed=True,
+            reason="no redirect",
+            evidence={"candidate_url": candidate_url, "final_url": final_url},
+        )
+
+    if landing_fetch is None:
+        # Minimal default: use urllib to GET the landing page and extract
+        # title-ish snippet. Kept tiny to avoid pulling in BeautifulSoup.
+        def landing_fetch(url: str) -> dict[str, str]:
+            try:
+                import urllib.request
+
+                req = urllib.request.Request(url, headers={"User-Agent": "gh-link-auditor/preflight"})
+                with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 — http handled
+                    body = resp.read(8192).decode("utf-8", errors="replace")
+                return {"title": "", "h1": "", "body_snippet": body[:200]}
+            except Exception:  # noqa: BLE001
+                return {"title": "", "h1": "", "body_snippet": ""}
+
+    landing = landing_fetch(final_url)
+
+    sub = subagent if subagent is not None else RealSubagent()
+    if sub is not None and hasattr(sub, "run") and getattr(sub, "is_available", lambda: True)():
+        if prompt_path is None:
+            from pathlib import Path
+
+            prompt_path = (
+                Path(__file__).resolve().parent.parent.parent.parent / "prompts" / "preflight" / "redirect_target.txt"
+            )
+        try:
+            verdict = sub.run(
+                prompt_path,
+                {
+                    "candidate_url": candidate_url,
+                    "final_url": final_url,
+                    "expected_topic": candidate.get("source_file") or "",
+                    "landing_page": landing,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            return GateResult(
+                name="redirect_target_related",
+                passed=True,
+                reason=f"subagent error; defensive PASS ({exc})",
+                evidence={"candidate_url": candidate_url, "final_url": final_url},
+            )
+        if verdict == SubagentVerdict.UNRELATED:
+            return GateResult(
+                name="redirect_target_related",
+                passed=False,
+                reason="subagent: redirect landing page is unrelated",
+                evidence={"candidate_url": candidate_url, "final_url": final_url, "landing": landing},
+            )
+        if verdict == SubagentVerdict.CLEAN:
+            return GateResult(
+                name="redirect_target_related",
+                passed=True,
+                reason="subagent: redirect lands on related content",
+                evidence={"candidate_url": candidate_url, "final_url": final_url},
+            )
+        # uncertain / unexpected → defensive pass (operator can review if needed)
+        return GateResult(
+            name="redirect_target_related",
+            passed=True,
+            reason=f"subagent verdict {verdict}; defensive PASS",
+            evidence={"candidate_url": candidate_url, "final_url": final_url},
+        )
+
+    # No subagent → defensive pass (we don't have a non-LLM signal here)
+    return GateResult(
+        name="redirect_target_related",
+        passed=True,
+        reason="subagent unavailable; defensive PASS",
+        evidence={"candidate_url": candidate_url, "final_url": final_url},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Registry: full 10-gate set after PR-ε (#288, #290, #294 appended).
 # ---------------------------------------------------------------------------
 
 
 HARD_GATES: list[Callable[..., GateResult]] = [
+    gate_anti_ai,
     gate_repo_active,
+    gate_blacklist,
     gate_dead_url_still_present,
     gate_dead_url_still_dead,
     gate_candidate_url_alive,
+    gate_redirect_target_related,
     gate_no_duplicate_pr,
     gate_no_markdown_corruption,
     gate_stars_floor,
