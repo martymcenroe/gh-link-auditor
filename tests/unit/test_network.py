@@ -1209,7 +1209,7 @@ class TestMakeRequestEdgeCases:
             "gh_link_auditor.network.urllib.request.urlopen",
             side_effect=socket.timeout("timed out"),
         ):
-            status_code, error_type, response_time_ms, retry_after = _make_request(
+            status_code, error_type, response_time_ms, retry_after, final_url = _make_request(
                 "https://example.com",
                 "HEAD",
                 config,
@@ -1218,6 +1218,7 @@ class TestMakeRequestEdgeCases:
         assert status_code is None
         assert error_type == "timeout"
         assert response_time_ms is not None
+        assert final_url is None  # No response → no final URL (#315)
 
     def test_broken_pipe(self):
         """BrokenPipeError is classified as connection_reset."""
@@ -1226,7 +1227,7 @@ class TestMakeRequestEdgeCases:
             "gh_link_auditor.network.urllib.request.urlopen",
             side_effect=BrokenPipeError("Broken pipe"),
         ):
-            status_code, error_type, response_time_ms, retry_after = _make_request(
+            status_code, error_type, response_time_ms, retry_after, final_url = _make_request(
                 "https://example.com",
                 "HEAD",
                 config,
@@ -1234,6 +1235,7 @@ class TestMakeRequestEdgeCases:
 
         assert status_code is None
         assert error_type == "connection_reset"
+        assert final_url is None  # Connection reset → no final URL (#315)
 
     def test_unexpected_exception(self):
         """Unexpected exception returns 'invalid' error type."""
@@ -1242,7 +1244,7 @@ class TestMakeRequestEdgeCases:
             "gh_link_auditor.network.urllib.request.urlopen",
             side_effect=RuntimeError("Something unexpected"),
         ):
-            status_code, error_type, response_time_ms, retry_after = _make_request(
+            status_code, error_type, response_time_ms, retry_after, final_url = _make_request(
                 "https://example.com",
                 "HEAD",
                 config,
@@ -1250,6 +1252,7 @@ class TestMakeRequestEdgeCases:
 
         assert status_code is None
         assert error_type == "invalid"
+        assert final_url is None  # Unexpected exception → no final URL (#315)
 
 
 # ---------------------------------------------------------------------------
@@ -1333,6 +1336,82 @@ class TestCheckUrlFullFlow:
 
         assert result["status"] == "ok"
         assert isinstance(result, dict)
-        # Verify all required keys are present
-        expected_keys = {"url", "status", "status_code", "method", "response_time_ms", "retries", "error"}
+        # Verify all required keys are present, including final_url (#315)
+        expected_keys = {
+            "url",
+            "status",
+            "status_code",
+            "method",
+            "response_time_ms",
+            "retries",
+            "error",
+            "final_url",
+        }
         assert set(result.keys()) == expected_keys
+
+
+# ---------------------------------------------------------------------------
+# #315: final_url exposure for preflight gate #7 / score C4
+# ---------------------------------------------------------------------------
+
+
+class TestCheckUrlFinalUrl:
+    """#315: ``RequestResult.final_url`` is populated by ``check_url``."""
+
+    def test_final_url_matches_requested_when_no_redirect(self, no_retry_backoff_config):
+        """Direct 2xx with no redirect → final_url == requested url."""
+        resp = FakeURLResponse(data=b"", status=200, url="https://example.com")
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", return_value=resp):
+            result = check_url("https://example.com", backoff_config=no_retry_backoff_config)
+
+        assert result["status"] == "ok"
+        assert result["final_url"] == "https://example.com"
+
+    def test_final_url_reflects_redirect_target(self, no_retry_backoff_config):
+        """When response.url differs from the requested URL, final_url is the destination."""
+        resp = FakeURLResponse(data=b"", status=200, url="https://example.com/canonical/")
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", return_value=resp):
+            result = check_url("https://example.com/old-path", backoff_config=no_retry_backoff_config)
+
+        assert result["status"] == "ok"
+        assert result["url"] == "https://example.com/old-path"
+        assert result["final_url"] == "https://example.com/canonical/"
+
+    def test_final_url_falls_back_to_requested_when_response_lacks_url(self, no_retry_backoff_config):
+        """A response object without ``url`` attribute falls back to the requested URL."""
+        # FakeURLResponse with url=None should yield final_url == requested URL.
+        resp = FakeURLResponse(data=b"", status=200, url=None)
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", return_value=resp):
+            result = check_url("https://example.com", backoff_config=no_retry_backoff_config)
+
+        assert result["final_url"] == "https://example.com"
+
+    def test_final_url_none_on_dns_failure(self, no_retry_backoff_config):
+        """DNS failure produces no response → final_url is None."""
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(socket.gaierror("name resolution failed")),
+        ):
+            result = check_url("https://nonexistent.invalid", backoff_config=no_retry_backoff_config)
+
+        assert result["status"] == "failed"
+        assert result["final_url"] is None
+
+    def test_final_url_populated_on_http_error(self, no_retry_backoff_config):
+        """HTTPError carries a url too — final_url should reflect where the error came from."""
+        http_error = urllib.error.HTTPError(
+            "https://example.com/missing",
+            404,
+            "Not Found",
+            {},
+            None,
+        )
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=http_error,
+        ):
+            result = check_url("https://example.com/missing", backoff_config=no_retry_backoff_config)
+
+        assert result["status"] == "error"
+        assert result["status_code"] == 404
+        assert result["final_url"] == "https://example.com/missing"

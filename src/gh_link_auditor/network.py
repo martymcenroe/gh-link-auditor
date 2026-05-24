@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 from email.utils import parsedate_to_datetime
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
@@ -53,6 +53,10 @@ class RequestResult(TypedDict):
     response_time_ms: int | None  # Response time in milliseconds
     retries: int  # Number of retries attempted
     error: str | None  # Error description if not ok
+    # Final URL after any redirect chain (#315 — used by preflight gate #7 / score C4).
+    # Optional via NotRequired so pre-#315 call sites that build RequestResult dicts
+    # without this key remain valid TypedDict constructions.
+    final_url: NotRequired[str | None]
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +264,7 @@ def _make_request(
     url: str,
     method: str,
     config: RequestConfig,
-) -> tuple[int | None, str | None, int | None, str | None]:
+) -> tuple[int | None, str | None, int | None, str | None, str | None]:
     """Make a single HTTP request (internal helper).
 
     Args:
@@ -269,13 +273,15 @@ def _make_request(
         config: Request configuration.
 
     Returns:
-        Tuple of ``(status_code, error_type, response_time_ms, retry_after_header)``.
+        Tuple of ``(status_code, error_type, response_time_ms, retry_after_header, final_url)``.
 
         - ``status_code``: HTTP status code, or ``None`` on connection-level errors.
         - ``error_type``: One of ``"timeout"``, ``"dns_failure"``,
           ``"connection_reset"``, ``"invalid"``, or ``None`` on success/HTTP error.
         - ``response_time_ms``: Wall-clock response time in milliseconds, or ``None``.
         - ``retry_after_header``: Raw ``Retry-After`` header value, or ``None``.
+        - ``final_url``: Final URL after any redirects (#315). ``None`` on
+          connection-level errors that produced no response.
     """
     ctx = _create_ssl_context(config["verify_ssl"])
     headers = {"User-Agent": config["user_agent"]}
@@ -286,29 +292,31 @@ def _make_request(
         with urllib.request.urlopen(req, timeout=config["timeout"], context=ctx) as response:
             elapsed_ms = int((time.monotonic() - start) * 1000)
             retry_after = response.headers.get("Retry-After")
-            return response.status, None, elapsed_ms, retry_after
+            final_url = getattr(response, "url", None) or url
+            return response.status, None, elapsed_ms, retry_after, final_url
     except urllib.error.HTTPError as exc:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         retry_after = exc.headers.get("Retry-After") if exc.headers else None
-        return exc.code, None, elapsed_ms, retry_after
+        final_url = getattr(exc, "url", None) or url
+        return exc.code, None, elapsed_ms, retry_after, final_url
     except urllib.error.URLError as exc:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         reason_str = str(exc.reason)
         if "timed out" in reason_str or isinstance(exc.reason, socket.timeout):
-            return None, "timeout", elapsed_ms, None
+            return None, "timeout", elapsed_ms, None, None
         # DNS / name resolution failures
         if isinstance(exc.reason, OSError):
-            return None, "dns_failure", elapsed_ms, None
-        return None, "dns_failure", elapsed_ms, None
+            return None, "dns_failure", elapsed_ms, None, None
+        return None, "dns_failure", elapsed_ms, None, None
     except socket.timeout:
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        return None, "timeout", elapsed_ms, None
+        return None, "timeout", elapsed_ms, None, None
     except (http.client.RemoteDisconnected, ConnectionResetError, BrokenPipeError):
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        return None, "connection_reset", elapsed_ms, None
+        return None, "connection_reset", elapsed_ms, None, None
     except Exception:
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        return None, "invalid", elapsed_ms, None
+        return None, "invalid", elapsed_ms, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -452,8 +460,10 @@ def _headless_browser_get(url: str, timeout_s: float = 20.0) -> RequestResult:
             response_time_ms=0,
             retries=0,
             error=f"playwright unavailable: {exc}",
+            final_url=None,
         )
 
+    final_landing_url: str | None = None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=True)
@@ -468,6 +478,9 @@ def _headless_browser_get(url: str, timeout_s: float = 20.0) -> RequestResult:
                 )
                 final_status = response.status if response is not None else None
                 final_title = (page.title() or "").lower()
+                # Capture the final URL after any client-side / HTTP redirects (#315).
+                # getattr-with-default keeps test fakes that don't expose `url` working.
+                final_landing_url = getattr(page, "url", None) or url
             finally:
                 browser.close()
     except Exception as exc:  # noqa: BLE001 — third-party error surface is wide
@@ -480,6 +493,7 @@ def _headless_browser_get(url: str, timeout_s: float = 20.0) -> RequestResult:
             response_time_ms=elapsed_ms,
             retries=0,
             error=f"headless probe failed: {exc}",
+            final_url=final_landing_url,
         )
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -493,6 +507,7 @@ def _headless_browser_get(url: str, timeout_s: float = 20.0) -> RequestResult:
             response_time_ms=elapsed_ms,
             retries=0,
             error="still on JS challenge page after networkidle",
+            final_url=final_landing_url,
         )
 
     return RequestResult(
@@ -503,6 +518,7 @@ def _headless_browser_get(url: str, timeout_s: float = 20.0) -> RequestResult:
         response_time_ms=elapsed_ms,
         retries=0,
         error=None,
+        final_url=final_landing_url,
     )
 
 
@@ -547,7 +563,7 @@ def check_url(
 
     # Use a while loop (per reviewer suggestion) for cleaner retry/fallback logic.
     while True:
-        status_code, error_type, response_time_ms, retry_after_header = _make_request(
+        status_code, error_type, response_time_ms, retry_after_header, final_url = _make_request(
             url,
             method,
             request_config,
@@ -563,6 +579,7 @@ def check_url(
                 response_time_ms=response_time_ms,
                 retries=retries,
                 error=None,
+                final_url=final_url,
             )
 
         retry_ok, try_get = should_retry(status_code, error_type)
@@ -618,6 +635,7 @@ def check_url(
                 response_time_ms=response_time_ms,
                 retries=retries,
                 error=_build_error_message(status_code, error_type),
+                final_url=final_url,
             )
 
         # Retryable — check if we have retries left
@@ -637,4 +655,5 @@ def check_url(
             response_time_ms=response_time_ms,
             retries=retries,
             error=_build_error_message(status_code, error_type),
+            final_url=final_url,
         )
