@@ -89,7 +89,16 @@ def run_preflight(
             return PreflightReport(
                 repo_full_name=repo_full_name,
                 candidate=dict(candidate),
-                verdict=PreflightVerdict.HARD_GATE_FAILED,
+                # Subagent gates encode "uncertain" classification via
+                # reason='needs_operator_review' — route to the explicit
+                # NEEDS_OPERATOR_REVIEW verdict so tool A surfaces the
+                # report to the operator instead of silently dropping
+                # the candidate (#288, #294).
+                verdict=(
+                    PreflightVerdict.NEEDS_OPERATOR_REVIEW
+                    if result.reason == "needs_operator_review"
+                    else PreflightVerdict.HARD_GATE_FAILED
+                ),
                 score=0,
                 threshold=threshold,
                 gate_results=gate_results,
