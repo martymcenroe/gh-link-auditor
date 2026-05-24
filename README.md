@@ -17,8 +17,8 @@
 | Auto-blacklist on repo unresponsiveness (PRs ignored for N days) | Shipped |
 | Snooze + recheck queue for ambiguous findings | Shipped |
 | Batch engine (run pipeline across many repos with rate limits) | Shipped |
-| Campaign metrics dashboard (`ghla metrics campaign`) | Shipped |
-| Repo discovery via stargazer harvesting | Shipped |
+| Pipeline run-metrics dashboard (`ghla metrics campaign`) | Shipped |
+| Repo discovery from stargazer graphs | Shipped |
 | Hostile-maintainer comment detection + auto-blacklist | Shipped |
 | Anti-AI policy-rejection classifier + auto-blacklist | Shipped |
 | Bulk-scan (unattended 7,500-repo audit with crash-resumable persistence) | Shipped |
@@ -42,7 +42,7 @@ This is a dry run by default — N0 through N3 only. Add `--dry-run=false` (or o
 | `ghla batch <yaml-config>` | Run the pipeline across many repos with rate limiting |
 | `ghla bulk-scan {start,status,stop,report,list-runs}` | Unattended thousand-repo audit with resumable persistence (#218, #230) |
 | `ghla blacklist {list,add,remove,stats}` | Manage the repo blacklist |
-| `ghla metrics {campaign,refresh,scan-history}` | Show campaign dashboard and refresh PR statuses |
+| `ghla metrics {campaign,refresh,scan-history}` | Show pipeline run-metrics dashboard and refresh PR statuses |
 | `ghla recheck` | Process snoozed findings due for re-verification |
 
 (`ghla` here is shorthand for `poetry run python -m gh_link_auditor.cli.main`.)

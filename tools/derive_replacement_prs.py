@@ -403,11 +403,32 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-prs", type=int, default=10, help="safety cap (default 10)")
     p.add_argument("--auto-approve", action="store_true", help="skip per-repo prompt")
     p.add_argument("--dry-run", action="store_true", help="preview without forking")
+    p.add_argument(
+        "--campaign-allowed",
+        action="store_true",
+        help=(
+            "acknowledge that the public-surface scrub (issue #278) is merged "
+            "and the operator has manually reviewed the surface. Required to "
+            "submit any PRs; omit to keep the pipeline paused."
+        ),
+    )
     return p
+
+
+_CAMPAIGN_PAUSED_MESSAGE = (
+    "ERROR: --campaign-allowed flag is required.\n"
+    "PR submission is paused until the operator has confirmed that the "
+    "public-surface scrub (issue #278, chore: remove A++/contribution-graph/"
+    "harvest language) is merged and a manual review of the public surface is "
+    "complete. Re-run with --campaign-allowed once that's done."
+)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if not args.campaign_allowed:
+        print(_CAMPAIGN_PAUSED_MESSAGE, file=sys.stderr)
+        return 2
     result = derive_and_submit(args)
     _print_summary(result)
     return 0

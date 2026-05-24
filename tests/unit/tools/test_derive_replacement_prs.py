@@ -686,6 +686,7 @@ class TestBuildParser:
         assert args.max_prs == 10
         assert args.auto_approve is False
         assert args.dry_run is False
+        assert args.campaign_allowed is False
 
     def test_explicit_flags(self):
         args = mod._build_parser().parse_args(
@@ -704,6 +705,7 @@ class TestBuildParser:
                 "5",
                 "--auto-approve",
                 "--dry-run",
+                "--campaign-allowed",
             ]
         )
         assert args.db == "/tmp/x.db"
@@ -714,18 +716,33 @@ class TestBuildParser:
         assert args.max_prs == 5
         assert args.auto_approve is True
         assert args.dry_run is True
+        assert args.campaign_allowed is True
 
 
 class TestMain:
     def test_main_dry_run_exit_zero(self, db_path, monkeypatch):
         with UnifiedDatabase(db_path) as udb:
             _insert_finding(udb, repo_full_name="m/m")
-        rc = mod.main(["--db", db_path, "--dry-run"])
+        rc = mod.main(["--db", db_path, "--dry-run", "--campaign-allowed"])
         assert rc == 0
 
     def test_main_no_candidates(self, db_path):
         # Empty DB — main returns 0, prints summary with zeros
         with UnifiedDatabase(db_path):
             pass
-        rc = mod.main(["--db", db_path, "--auto-approve"])
+        rc = mod.main(["--db", db_path, "--auto-approve", "--campaign-allowed"])
         assert rc == 0
+
+    def test_main_refuses_without_campaign_allowed(self, db_path, capsys):
+        """#278: without --campaign-allowed the tool must exit 2 with a pause message."""
+        rc = mod.main(["--db", db_path, "--dry-run"])
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "--campaign-allowed flag is required" in captured.err
+        assert "#278" in captured.err
+
+    def test_main_pause_message_mentions_flag_and_issue(self):
+        """The pause-message constant points the operator at both the flag and the issue."""
+        assert "--campaign-allowed" in mod._CAMPAIGN_PAUSED_MESSAGE
+        assert "#278" in mod._CAMPAIGN_PAUSED_MESSAGE
+        assert "scrub" in mod._CAMPAIGN_PAUSED_MESSAGE.lower()

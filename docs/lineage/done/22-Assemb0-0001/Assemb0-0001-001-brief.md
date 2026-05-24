@@ -86,13 +86,11 @@ For each submitted PR, track:
 - **PR Status:** Open / Merged / Closed
 - **Who merged:** Author accepted directly, or maintainer merged our PR
 - **Time to merge:** How long from PR submission to merge
-- **Contribution credit:** Does this count toward our GitHub contribution graph?
 
-#### 4. GitHub Score Impact
+#### 4. Run-level Metrics
 
-- Link to `github.com/martymcenroe` contribution graph
 - Count of repos where we have merged contributions
-- Before/after contribution count comparison
+- Before/after merged-PR count comparison
 
 ### Technical Approach
 
@@ -127,9 +125,8 @@ For each submitted PR, track:
 
 Every merged PR:
 1. Fixes real documentation for real users
-2. Earns a green square on the GitHub contribution graph
-3. Establishes presence in the open-source community
-4. Builds a portfolio of cross-repo contributions
+2. Establishes presence in the open-source community
+3. Builds a portfolio of cross-repo contributions
 
 This isn't just a link checker — it's a **contribution engine**.
 

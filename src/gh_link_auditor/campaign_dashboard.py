@@ -1,6 +1,6 @@
-"""Campaign dashboard — terminal display of contribution stats.
+"""Pipeline run-metrics dashboard — terminal display of run statistics.
 
-Formats campaign metrics and recent PR outcomes into a human-readable
+Formats pipeline run metrics and recent PR outcomes into a human-readable
 terminal dashboard.
 
 See Issue #87 for specification.
@@ -18,10 +18,10 @@ def format_dashboard(
     recent_prs: list[PROutcome],
     now: datetime | None = None,
 ) -> str:
-    """Format the full campaign dashboard.
+    """Format the full pipeline run-metrics dashboard.
 
     Args:
-        metrics: Aggregate campaign metrics.
+        metrics: Aggregate pipeline run metrics.
         recent_prs: List of recent PR outcomes (sorted newest first).
         now: Current time (defaults to UTC now, injectable for testing).
 
@@ -196,7 +196,7 @@ def format_dashboard_json(
     """Format dashboard data as a JSON-serializable dict.
 
     Args:
-        metrics: Aggregate campaign metrics.
+        metrics: Aggregate pipeline run metrics.
         recent_prs: List of recent PR outcomes.
 
     Returns:
