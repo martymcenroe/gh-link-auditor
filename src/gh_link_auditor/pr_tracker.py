@@ -9,10 +9,11 @@ See Issue #86 for specification.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from gh_link_auditor.metrics.models import PROutcome
@@ -225,6 +226,133 @@ def _check_maintainer_fixed(
         return False
 
 
+def _extract_pr_url_change(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    *,
+    gh_run: Any = None,
+) -> tuple[str, str] | None:
+    """Extract the (dead_url, candidate_url) tuple from a PR's diff (#208).
+
+    Parses the unified diff for a single URL substitution. Returns None
+    when the PR is empty / multi-URL / not a clean URL swap (defensive —
+    fix-steal detection only applies to our single-URL PR format).
+    """
+    if gh_run is None:
+        gh_run = subprocess.run
+
+    try:
+        result = gh_run(
+            ["gh", "pr", "diff", str(pr_number), "--repo", f"{owner}/{repo}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+
+    removed: list[str] = []
+    added: list[str] = []
+    for line in result.stdout.splitlines():
+        if line.startswith("---") or line.startswith("+++"):
+            continue
+        if line.startswith("-") and len(line) > 1:
+            removed.append(line[1:])
+        elif line.startswith("+") and len(line) > 1:
+            added.append(line[1:])
+
+    if len(removed) != 1 or len(added) != 1:
+        return None
+
+    # Extract URL from each line (use simple http(s) regex)
+    url_re = re.compile(r"https?://[^\s\"'<>)]+")
+    rm_match = url_re.search(removed[0])
+    add_match = url_re.search(added[0])
+    if not rm_match or not add_match:
+        return None
+    return rm_match.group(0), add_match.group(0)
+
+
+def check_fix_steal_diff(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    *,
+    gh_run: Any = None,
+    gh_get: Any = None,
+    lookback_commits: int = 20,
+) -> tuple[bool, str | None]:
+    """Detect whether the maintainer committed our exact URL fix after
+    closing our PR (#208).
+
+    Returns ``(stolen, commit_sha)``. ``stolen=True`` only when:
+
+    1. The closed PR contains a single, parseable URL swap.
+    2. A subsequent commit on the default branch contains the SAME swap
+       (byte-equivalent dead_url → candidate_url substitution).
+
+    The keyword-based ``_check_maintainer_fixed`` (older heuristic) is
+    kept for the no-diff fallback; this diff-based path is the strict
+    signal that auto-blacklists the maintainer (not just the repo).
+    """
+    if gh_run is None:
+        gh_run = subprocess.run
+
+    pair = _extract_pr_url_change(owner, repo, pr_number, gh_run=gh_run)
+    if pair is None:
+        return False, None
+    dead_url, candidate_url = pair
+
+    if gh_get is None:
+
+        def gh_get(path: str) -> Any:
+            try:
+                r = gh_run(
+                    ["gh", "api", path],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if r.returncode != 0 or not r.stdout.strip():
+                    return None
+                import json as _json
+
+                return _json.loads(r.stdout)
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                return None
+
+    commits = gh_get(f"repos/{owner}/{repo}/commits?per_page={lookback_commits}")
+    if not isinstance(commits, list):
+        return False, None
+
+    for c in commits:
+        sha = c.get("sha") if isinstance(c, dict) else None
+        if not sha:
+            continue
+        # Fetch the commit's diff via gh api repos/.../commits/<sha>
+        commit_detail = gh_get(f"repos/{owner}/{repo}/commits/{sha}")
+        if not isinstance(commit_detail, dict):
+            continue
+        files = commit_detail.get("files") or []
+        for f in files:
+            patch = f.get("patch") if isinstance(f, dict) else None
+            if not patch:
+                continue
+            # A byte-equivalent fix swap shows the SAME removed + added lines
+            if dead_url in patch and candidate_url in patch:
+                # Confirm same removal-then-addition pattern
+                rm_line = next((ln for ln in patch.splitlines() if ln.startswith("-") and dead_url in ln), None)
+                add_line = next((ln for ln in patch.splitlines() if ln.startswith("+") and candidate_url in ln), None)
+                if rm_line and add_line:
+                    return True, sha
+    return False, None
+
+
 _UNRESPONSIVE_DAYS = 30
 _UNRESPONSIVE_EXPIRY_DAYS = 90
 
@@ -334,6 +462,31 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                         source="fix_stolen",
                     )
                     logger.info("Auto-blacklisted (fix stolen): %s", repo_url)
+
+                    # Strict confirmation: diff-equivalence check (#208).
+                    # When confirmed, also blacklist the MAINTAINER (not
+                    # just the repo) so other repos they maintain are
+                    # excluded too.
+                    stolen, stealing_sha = check_fix_steal_diff(owner, repo, pr_number)
+                    if stolen:
+                        outcome.rejection_reason = (
+                            f"maintainer committed our exact fix in {stealing_sha[:8]}"
+                            if stealing_sha
+                            else "maintainer committed our exact fix"
+                        )
+                        udb.add_to_blacklist(
+                            maintainer=owner,
+                            reason=(
+                                f"Diff-equivalent fix-steal confirmed for {repo_url} "
+                                f"(commit {stealing_sha[:8] if stealing_sha else 'unknown'})"
+                            ),
+                            source="fix_stolen_diff",
+                        )
+                        logger.info(
+                            "Auto-blacklisted MAINTAINER (diff-confirmed fix steal): %s (%s)",
+                            owner,
+                            stealing_sha[:8] if stealing_sha else "n/a",
+                        )
 
             udb.record_pr_outcome(outcome)
             updated.append(outcome)

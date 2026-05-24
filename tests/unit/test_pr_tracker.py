@@ -165,6 +165,125 @@ class TestCheckMaintainerFixed:
             assert _check_maintainer_fixed("org", "repo", 42) is False
 
 
+class TestExtractPrUrlChange:
+    """Tests for _extract_pr_url_change() (#208)."""
+
+    def test_extracts_clean_single_url_swap(self) -> None:
+        from gh_link_auditor.pr_tracker import _extract_pr_url_change
+
+        diff = (
+            "--- a/README.md\n"
+            "+++ b/README.md\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-See the docs at https://old.example/x for details.\n"
+            "+See the docs at https://new.example/x for details.\n"
+        )
+
+        def fake_run(*args, **kwargs):
+            return _mock_completed(diff)
+
+        pair = _extract_pr_url_change("o", "r", 42, gh_run=fake_run)
+        assert pair == ("https://old.example/x", "https://new.example/x")
+
+    def test_returns_none_on_multi_url_diff(self) -> None:
+        from gh_link_auditor.pr_tracker import _extract_pr_url_change
+
+        diff = (
+            "--- a/README.md\n"
+            "+++ b/README.md\n"
+            "-line one https://a.example\n"
+            "-line two https://b.example\n"
+            "+line one https://x.example\n"
+            "+line two https://y.example\n"
+        )
+
+        def fake_run(*args, **kwargs):
+            return _mock_completed(diff)
+
+        assert _extract_pr_url_change("o", "r", 42, gh_run=fake_run) is None
+
+    def test_returns_none_on_no_urls(self) -> None:
+        from gh_link_auditor.pr_tracker import _extract_pr_url_change
+
+        diff = "--- a/x\n+++ b/x\n-old text\n+new text\n"
+
+        def fake_run(*args, **kwargs):
+            return _mock_completed(diff)
+
+        assert _extract_pr_url_change("o", "r", 42, gh_run=fake_run) is None
+
+    def test_returns_none_on_gh_failure(self) -> None:
+        from gh_link_auditor.pr_tracker import _extract_pr_url_change
+
+        def fake_run(*args, **kwargs):
+            return _mock_completed("", returncode=1)
+
+        assert _extract_pr_url_change("o", "r", 42, gh_run=fake_run) is None
+
+
+class TestCheckFixStealDiff:
+    """Tests for check_fix_steal_diff() — the davidism / pallets case (#208)."""
+
+    def test_detects_byte_equivalent_steal(self) -> None:
+        from gh_link_auditor.pr_tracker import check_fix_steal_diff
+
+        # Step 1: PR diff is a clean URL swap
+        pr_diff = "--- a/README.md\n+++ b/README.md\n-See https://old.example/x\n+See https://new.example/x\n"
+
+        def fake_run(*args, **kwargs):
+            return _mock_completed(pr_diff)
+
+        # Step 2: maintainer's commit contains the SAME URL swap
+        commits_listing = [{"sha": "deadbeef12345678"}]
+        commit_detail = {
+            "files": [{"patch": ("@@ -1,1 +1,1 @@\n-See https://old.example/x\n+See https://new.example/x\n")}]
+        }
+
+        def fake_gh_get(path):
+            if "/commits/" in path:
+                return commit_detail
+            if "commits" in path:
+                return commits_listing
+            return None
+
+        stolen, sha = check_fix_steal_diff("o", "r", 42, gh_run=fake_run, gh_get=fake_gh_get)
+        assert stolen is True
+        assert sha == "deadbeef12345678"
+
+    def test_returns_false_when_no_pr_diff(self) -> None:
+        from gh_link_auditor.pr_tracker import check_fix_steal_diff
+
+        def fake_run(*args, **kwargs):
+            return _mock_completed("", returncode=1)
+
+        stolen, sha = check_fix_steal_diff("o", "r", 42, gh_run=fake_run, gh_get=lambda p: None)
+        assert stolen is False
+        assert sha is None
+
+    def test_returns_false_when_no_matching_commit(self) -> None:
+        from gh_link_auditor.pr_tracker import check_fix_steal_diff
+
+        pr_diff = "-See https://old.example/x\n+See https://new.example/x\n"
+
+        def fake_run(*args, **kwargs):
+            return _mock_completed(pr_diff)
+
+        # Commits exist but none contain the URL swap
+        commits_listing = [{"sha": "abc123"}]
+        commit_detail = {"files": [{"patch": "-totally unrelated\n+also unrelated\n"}]}
+
+        def fake_gh_get(path):
+            if "/commits/" in path:
+                return commit_detail
+            if "commits" in path:
+                return commits_listing
+            return None
+
+        stolen, sha = check_fix_steal_diff("o", "r", 42, gh_run=fake_run, gh_get=fake_gh_get)
+        assert stolen is False
+        assert sha is None
+
+
 class TestFetchPrComments:
     """Tests for _fetch_pr_comments() — issue #178."""
 
