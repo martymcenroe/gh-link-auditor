@@ -76,11 +76,16 @@ class TestRunPreflightScaffold:
     """
 
     def test_returns_preflight_report(self):
-        report = run_preflight("owner/r", {"dead_url": "https://a", "candidate_url": "https://b"})
+        # gates=[] exercises the scaffold-style PASS path without invoking
+        # real GitHub / network collaborators (#289).
+        report = run_preflight(
+            "owner/r",
+            {"dead_url": "https://a", "candidate_url": "https://b"},
+            gates=[],
+        )
         assert isinstance(report, PreflightReport)
         assert report.repo_full_name == "owner/r"
         assert report.verdict == PreflightVerdict.PASS
-        # Scaffold returns score == threshold so tool A's gate logic passes (#284).
         assert report.score == DEFAULT_THRESHOLD
         assert report.threshold == DEFAULT_THRESHOLD
         assert report.gate_results == []
@@ -88,9 +93,13 @@ class TestRunPreflightScaffold:
         assert report.run_id.startswith("preflight-")
 
     def test_custom_threshold_passed_through(self):
-        report = run_preflight("owner/r", {"dead_url": "https://a", "candidate_url": "https://b"}, threshold=85)
+        report = run_preflight(
+            "owner/r",
+            {"dead_url": "https://a", "candidate_url": "https://b"},
+            threshold=85,
+            gates=[],
+        )
         assert report.threshold == 85
-        # Scaffold mirrors score to threshold so tool A's gate logic passes (#284).
         assert report.score == 85
 
     def test_explicit_run_id_used(self):
@@ -98,36 +107,98 @@ class TestRunPreflightScaffold:
             "owner/r",
             {"dead_url": "https://a", "candidate_url": "https://b"},
             run_id="caller-supplied-id",
+            gates=[],
         )
         assert report.run_id == "caller-supplied-id"
 
     def test_candidate_is_copied_not_shared(self):
         candidate = {"dead_url": "https://a", "candidate_url": "https://b"}
-        report = run_preflight("owner/r", candidate)
+        report = run_preflight("owner/r", candidate, gates=[])
         candidate["dead_url"] = "MUTATED"
-        # report.candidate should not have been mutated through the dict identity
         assert report.candidate["dead_url"] == "https://a"
 
 
+class TestRunPreflightDispatch:
+    """Verify run_preflight's gate dispatch routes correctly (#289)."""
+
+    def test_passing_gate_continues_to_pass_verdict(self):
+        from gh_link_auditor.preflight.report import GateResult
+
+        def fake_pass_gate(repo, candidate, db):
+            return GateResult(name="fake_pass", passed=True, reason="ok", evidence={"x": 1})
+
+        report = run_preflight(
+            "owner/r",
+            {"dead_url": "https://a", "candidate_url": "https://b"},
+            gates=[fake_pass_gate],
+        )
+        assert report.verdict == PreflightVerdict.PASS
+        assert len(report.gate_results) == 1
+        assert report.gate_results[0].name == "fake_pass"
+
+    def test_failing_gate_short_circuits(self):
+        from gh_link_auditor.preflight.report import GateResult
+
+        def fake_fail_gate(repo, candidate, db):
+            return GateResult(name="fake_fail", passed=False, reason="boom", evidence={})
+
+        def should_not_run(repo, candidate, db):
+            raise AssertionError("subsequent gate should not run after a fail")
+
+        report = run_preflight(
+            "owner/r",
+            {"dead_url": "https://a", "candidate_url": "https://b"},
+            gates=[fake_fail_gate, should_not_run],
+        )
+        assert report.verdict == PreflightVerdict.HARD_GATE_FAILED
+        assert report.gate_failure_name == "fake_fail"
+        assert len(report.gate_results) == 1  # short-circuit
+
+    def test_score_too_low_when_components_below_threshold(self):
+        from gh_link_auditor.preflight.report import ScoreComponent
+
+        def fake_score(repo, candidate, db):
+            return ScoreComponent(name="fake", points_awarded=10, max_points=100, evidence={})
+
+        report = run_preflight(
+            "owner/r",
+            {"dead_url": "https://a", "candidate_url": "https://b"},
+            gates=[],
+            score_components=[fake_score],
+        )
+        assert report.verdict == PreflightVerdict.SCORE_TOO_LOW
+        assert report.score == 10
+
+
 class TestMain:
-    def test_exit_zero_on_pass(self, capsys):
+    def _patch_gates_empty(self, monkeypatch):
+        import tools.preflight_check as tpc
+        from gh_link_auditor.preflight import gates as gates_mod
+
+        monkeypatch.setattr(gates_mod, "HARD_GATES", [])
+        monkeypatch.setattr(tpc, "HARD_GATES", [])
+
+    def test_exit_zero_on_pass(self, capsys, monkeypatch):
+        self._patch_gates_empty(monkeypatch)
         rc = main(["--repo", "owner/r"])
         out = capsys.readouterr().out
         assert rc == 0
         assert "verdict=pass" in out
 
-    def test_strict_returns_zero_when_pass(self, capsys):
+    def test_strict_returns_zero_when_pass(self, capsys, monkeypatch):
+        self._patch_gates_empty(monkeypatch)
         rc = main(["--repo", "owner/r", "--strict"])
         assert rc == 0
 
-    def test_score_only_prints_int(self, capsys):
+    def test_score_only_prints_int(self, capsys, monkeypatch):
+        self._patch_gates_empty(monkeypatch)
         rc = main(["--repo", "owner/r", "--score-only"])
         out = capsys.readouterr().out.strip()
         assert rc == 0
-        # Scaffold score mirrors threshold so the integration's gate passes (#284).
         assert out == str(DEFAULT_THRESHOLD)
 
-    def test_report_writes_files(self, tmp_path, capsys):
+    def test_report_writes_files(self, tmp_path, capsys, monkeypatch):
+        self._patch_gates_empty(monkeypatch)
         rc = main(["--repo", "owner/r", "--report", "--preflight-log-dir", str(tmp_path)])
         out = capsys.readouterr().out
         assert rc == 0

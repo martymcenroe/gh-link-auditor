@@ -31,6 +31,7 @@ from gh_link_auditor.preflight import (  # noqa: E402
     PreflightVerdict,
     save_report,
 )
+from gh_link_auditor.preflight.gates import HARD_GATES  # noqa: E402
 
 DEFAULT_REPORT_DIR = _PROJECT_ROOT / "data" / "preflight-reports"
 DEFAULT_THRESHOLD = 90
@@ -43,12 +44,16 @@ def run_preflight(
     threshold: int = DEFAULT_THRESHOLD,
     run_id: str | None = None,
     skip_preflight_banner: bool = False,
+    gates: list | None = None,
+    score_components: list | None = None,
 ) -> PreflightReport:
     """Run preflight evaluation for a single candidate.
 
-    This is the scaffolded entry point: returns ``PASS`` with no gates /
-    scores evaluated. Per-gate (#288-#297) and per-score (#298-#309)
-    issues plug into this dispatch in subsequent PRs.
+    Dispatches through every callable in ``HARD_GATES`` (PR-δ ships 7 non-
+    subagent gates; PR-ε appends 3 subagent-using gates). Any failing
+    gate short-circuits to ``HARD_GATE_FAILED``. If all gates pass and no
+    score components are wired yet, returns ``PASS`` with ``score=threshold``
+    so tool A's integration doesn't drop the candidate.
 
     Args:
         repo_full_name: ``owner/repo``.
@@ -60,27 +65,67 @@ def run_preflight(
         run_id: optional caller-supplied run id; auto-generated if None.
         skip_preflight_banner: when True, the report markdown includes
             the BAD-ESCAPE banner (set by ``--skip-preflight`` on tool A).
+        gates: optional override of the gate registry — defaults to
+            ``HARD_GATES``. Tests inject empty / synthetic registries.
+        score_components: optional override of the score registry —
+            defaults to empty (PR-η / PR-θ will populate).
 
     Returns:
         A ``PreflightReport`` with the verdict + score + per-gate /
         per-score evidence.
     """
     now = datetime.now(timezone.utc).isoformat()
-    # Scaffold returns ``score=threshold`` so a PASS verdict actually passes
-    # the integration's ``report.score < args.preflight_threshold`` check
-    # (#284). When per-gate / per-score issues land they'll set the real
-    # score from the score_breakdown sum.
+    gate_registry = HARD_GATES if gates is None else gates
+    score_registry = [] if score_components is None else score_components
+
+    gate_results = []
+    gate_failure_name: str | None = None
+
+    for gate_fn in gate_registry:
+        result = gate_fn(repo_full_name, candidate, db)
+        gate_results.append(result)
+        if not result.passed:
+            gate_failure_name = result.name
+            return PreflightReport(
+                repo_full_name=repo_full_name,
+                candidate=dict(candidate),
+                verdict=PreflightVerdict.HARD_GATE_FAILED,
+                score=0,
+                threshold=threshold,
+                gate_results=gate_results,
+                score_breakdown=[],
+                gate_failure_name=gate_failure_name,
+                started_at=now,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                run_id=run_id or _make_run_id(),
+                skip_preflight_banner=skip_preflight_banner,
+            )
+
+    score_breakdown = []
+    for score_fn in score_registry:
+        sc = score_fn(repo_full_name, candidate, db)
+        score_breakdown.append(sc)
+
+    if score_breakdown:
+        total = sum(sc.points_awarded for sc in score_breakdown)
+        verdict = PreflightVerdict.PASS if total >= threshold else PreflightVerdict.SCORE_TOO_LOW
+    else:
+        # No score components wired yet (PR-η / PR-θ haven't landed) — return
+        # score=threshold so tool A treats this as PASS (scaffold behavior).
+        total = threshold
+        verdict = PreflightVerdict.PASS
+
     return PreflightReport(
         repo_full_name=repo_full_name,
         candidate=dict(candidate),
-        verdict=PreflightVerdict.PASS,
-        score=threshold,
+        verdict=verdict,
+        score=total,
         threshold=threshold,
-        gate_results=[],
-        score_breakdown=[],
+        gate_results=gate_results,
+        score_breakdown=score_breakdown,
         gate_failure_name=None,
         started_at=now,
-        completed_at=now,
+        completed_at=datetime.now(timezone.utc).isoformat(),
         run_id=run_id or _make_run_id(),
         skip_preflight_banner=skip_preflight_banner,
     )
