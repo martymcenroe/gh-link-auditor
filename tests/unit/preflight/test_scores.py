@@ -250,14 +250,253 @@ class TestScoreC7:
 
 
 class TestCorrectnessScoresRegistry:
-    def test_registry_has_six_pr_eta_scores(self):
-        assert len(CORRECTNESS_SCORES) == 6
+    def test_registry_has_twelve_scores_after_pr_theta(self):
+        assert len(CORRECTNESS_SCORES) == 12
         score_names = {fn.__name__ for fn in CORRECTNESS_SCORES}
         assert score_names == {
             "score_c1_url_verbatim",
             "score_c2_occurrence_count",
             "score_c3_dead_http_status",
             "score_c4_candidate_http_status",
+            "score_c5_content_equivalence",
             "score_c6_replace_simulation_valid",
             "score_c7_context_preserved",
+            "score_r1_stars",
+            "score_r2_recency",
+            "score_r3_outsider_merge_rate",
+            "score_r4_maintainer_structure",
+            "score_r5_license",
         }
+
+
+# ---------------------------------------------------------------------------
+# C5 (#302): content equivalence (subagent)
+# ---------------------------------------------------------------------------
+
+
+from gh_link_auditor.preflight.scores import (  # noqa: E402
+    score_c5_content_equivalence,
+    score_r1_stars,
+    score_r2_recency,
+    score_r3_outsider_merge_rate,
+    score_r4_maintainer_structure,
+    score_r5_license,
+)
+from gh_link_auditor.preflight.subagent import SubagentVerdict  # noqa: E402
+from gh_link_auditor.repo_quality import RepoQuality  # noqa: E402
+from tests.fakes.subagent import FakeSubagent  # noqa: E402
+
+
+class TestScoreC5:
+    def test_full_15_when_subagent_clean(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.CLEAN),
+            landing_fetch=lambda url: {"title": "OK", "h1": "X", "body_snippet": "ok"},
+            prompt_path="ignored.txt",
+        )
+        assert result.points_awarded == 15
+
+    def test_partial_8_when_subagent_partial(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.PARTIAL),
+            landing_fetch=lambda url: {"title": "Related", "h1": "Y", "body_snippet": "related"},
+            prompt_path="ignored.txt",
+        )
+        assert result.points_awarded == 8
+
+    def test_zero_when_subagent_unrelated(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.UNRELATED),
+            landing_fetch=lambda url: {"title": "Sign in", "h1": "Login", "body_snippet": "login"},
+            prompt_path="ignored.txt",
+        )
+        assert result.points_awarded == 0
+
+    def test_zero_when_no_candidate_url(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(candidate_url=""),
+            db,
+        )
+        assert result.points_awarded == 0
+
+
+# ---------------------------------------------------------------------------
+# R1 (#305): stars tiered
+# ---------------------------------------------------------------------------
+
+
+class TestScoreR1Stars:
+    @pytest.mark.parametrize(
+        "stars,expected",
+        [(2000, 5), (700, 4), (200, 3), (75, 2), (25, 1), (10, 0)],
+    )
+    def test_tier_boundaries(self, db, monkeypatch, stars, expected):
+        monkeypatch.setattr(
+            "gh_link_auditor.preflight.scores.fetch_repo_metadata",
+            lambda owner, name: RepoQuality(stars=stars),
+        )
+        result = score_r1_stars("owner/r", _candidate(), db)
+        assert result.points_awarded == expected
+
+
+# ---------------------------------------------------------------------------
+# R2 (#306): recency tiered
+# ---------------------------------------------------------------------------
+
+
+class TestScoreR2Recency:
+    def test_recent_pushes_score_5(self, db, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime(2026, 5, 24, tzinfo=timezone.utc)
+        monkeypatch.setattr(
+            "gh_link_auditor.preflight.scores.fetch_repo_metadata",
+            lambda owner, name: RepoQuality(pushed_at=(now - timedelta(days=3)).isoformat()),
+        )
+        result = score_r2_recency("owner/r", _candidate(), db, now=now)
+        assert result.points_awarded == 5
+
+    def test_one_year_old_scores_zero(self, db, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime(2026, 5, 24, tzinfo=timezone.utc)
+        monkeypatch.setattr(
+            "gh_link_auditor.preflight.scores.fetch_repo_metadata",
+            lambda owner, name: RepoQuality(pushed_at=(now - timedelta(days=400)).isoformat()),
+        )
+        result = score_r2_recency("owner/r", _candidate(), db, now=now)
+        assert result.points_awarded == 0
+
+    def test_missing_pushed_at_scores_zero(self, db, monkeypatch):
+        monkeypatch.setattr(
+            "gh_link_auditor.preflight.scores.fetch_repo_metadata",
+            lambda owner, name: RepoQuality(pushed_at=""),
+        )
+        result = score_r2_recency("owner/r", _candidate(), db)
+        assert result.points_awarded == 0
+
+
+# ---------------------------------------------------------------------------
+# R3 (#307): outsider PR merge rate
+# ---------------------------------------------------------------------------
+
+
+class TestScoreR3OutsiderMergeRate:
+    def test_full_5_at_30_percent(self, db):
+        pulls = [
+            {"user": {"login": "alice"}, "merged_at": "2026-01-01T00:00:00Z"},
+            {"user": {"login": "bob"}, "merged_at": "2026-01-02T00:00:00Z"},
+            {"user": {"login": "owner"}, "merged_at": "2026-01-03T00:00:00Z"},  # excluded
+        ]
+        result = score_r3_outsider_merge_rate("owner/r", _candidate(), db, gh_get=lambda p: pulls)
+        assert result.points_awarded == 5  # 2/2 = 100%
+
+    def test_zero_when_no_outsider_prs(self, db):
+        pulls = [{"user": {"login": "owner"}, "merged_at": "2026-01-01T00:00:00Z"}]
+        result = score_r3_outsider_merge_rate("owner/r", _candidate(), db, gh_get=lambda p: pulls)
+        assert result.points_awarded == 0
+
+    def test_zero_when_no_prs(self, db):
+        result = score_r3_outsider_merge_rate("owner/r", _candidate(), db, gh_get=lambda p: [])
+        assert result.points_awarded == 0
+
+    def test_uses_cache_on_second_call(self, db):
+        calls = []
+
+        def fake_gh(path):
+            calls.append(path)
+            return [{"user": {"login": "alice"}, "merged_at": "2026-01-01T00:00:00Z"}]
+
+        score_r3_outsider_merge_rate("owner/r", _candidate(), db, gh_get=fake_gh)
+        score_r3_outsider_merge_rate("owner/r", _candidate(), db, gh_get=fake_gh)
+        # Second call should hit the cache and skip the API
+        assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# R4 (#308): maintainer structure
+# ---------------------------------------------------------------------------
+
+
+class TestScoreR4MaintainerStructure:
+    def test_full_for_organization_owned(self, db):
+        def fake_gh(path):
+            if path == "repos/owner/r":
+                return {"owner": {"type": "Organization"}}
+            return None
+
+        result = score_r4_maintainer_structure("owner/r", _candidate(), db, gh_get=fake_gh)
+        assert result.points_awarded == 5
+
+    def test_full_for_multiple_contributors(self, db):
+        def fake_gh(path):
+            if path == "repos/owner/r":
+                return {"owner": {"type": "User"}}
+            if "contributors" in path:
+                return [{"login": "a"}, {"login": "b"}]
+            return None
+
+        result = score_r4_maintainer_structure("owner/r", _candidate(), db, gh_get=fake_gh)
+        assert result.points_awarded == 5
+
+    def test_full_when_codeowners_exists(self, db):
+        def fake_gh(path):
+            if path == "repos/owner/r":
+                return {"owner": {"type": "User"}}
+            if "contributors" in path:
+                return [{"login": "solo"}]
+            if "CODEOWNERS" in path:
+                return {"name": "CODEOWNERS"}
+            return None
+
+        result = score_r4_maintainer_structure("owner/r", _candidate(), db, gh_get=fake_gh)
+        assert result.points_awarded == 5
+
+    def test_partial_for_solo_no_codeowners(self, db):
+        def fake_gh(path):
+            if path == "repos/owner/r":
+                return {"owner": {"type": "User"}}
+            if "contributors" in path:
+                return [{"login": "solo"}]
+            return None
+
+        result = score_r4_maintainer_structure("owner/r", _candidate(), db, gh_get=fake_gh)
+        assert result.points_awarded == 2
+
+
+# ---------------------------------------------------------------------------
+# R5 (#309): license permissive
+# ---------------------------------------------------------------------------
+
+
+class TestScoreR5License:
+    @pytest.mark.parametrize(
+        "license_id,expected",
+        [
+            ("MIT", 5),
+            ("Apache-2.0", 5),
+            ("BSD-3-Clause", 5),
+            ("MPL-2.0", 5),
+            ("ISC", 5),
+            ("GPL-3.0", 2),
+            ("AGPL-3.0", 2),
+            (None, 0),
+        ],
+    )
+    def test_license_tiers(self, db, monkeypatch, license_id, expected):
+        monkeypatch.setattr(
+            "gh_link_auditor.preflight.scores.fetch_repo_metadata",
+            lambda owner, name: RepoQuality(license=license_id),
+        )
+        result = score_r5_license("owner/r", _candidate(), db)
+        assert result.points_awarded == expected
