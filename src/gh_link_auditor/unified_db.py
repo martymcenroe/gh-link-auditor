@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class UnifiedDatabase:
@@ -273,6 +273,43 @@ class UnifiedDatabase:
             )
         """)
 
+        # --- preflight_pr_stats_cache: outsider PR merge rate (#285, R3 / #307) ---
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS preflight_pr_stats_cache (
+                repo_full_name TEXT PRIMARY KEY,
+                merge_rate REAL NOT NULL,
+                sample_size INTEGER NOT NULL,
+                computed_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+
+        # --- preflight_repo_meta_cache: archived/disabled/stars/license (#285) ---
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS preflight_repo_meta_cache (
+                repo_full_name TEXT PRIMARY KEY,
+                stars INTEGER,
+                pushed_at TEXT,
+                license TEXT,
+                archived INTEGER DEFAULT 0,
+                disabled INTEGER DEFAULT 0,
+                computed_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+
+        # --- preflight_ai_scan_cache: subagent AI-scan verdicts keyed by file SHA (#285, gate #1 / #288) ---
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS preflight_ai_scan_cache (
+                repo TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_sha TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                computed_at TEXT NOT NULL,
+                PRIMARY KEY (repo, file_path, file_sha)
+            )
+        """)
+
         # --- pipeline_runs: replaces JSON state files ---
         c.execute("""
             CREATE TABLE IF NOT EXISTS pipeline_runs (
@@ -398,6 +435,8 @@ class UnifiedDatabase:
             self._migrate_v6_to_v7()
         if from_version <= 7:
             self._migrate_v7_to_v8()
+        if from_version <= 8:
+            self._migrate_v8_to_v9()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -596,6 +635,52 @@ class UnifiedDatabase:
             c.execute("ALTER TABLE bulk_scan_repos ADD COLUMN previous_full_name TEXT")
         c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
         logger.info("Migration to v8 complete")
+
+    # ------------------------------------------------------------------
+    # Migration v8 -> v9: preflight cache tables (#285)
+    # ------------------------------------------------------------------
+
+    def _migrate_v8_to_v9(self) -> None:
+        logger.info("Migrating schema v8 → v9")
+        c = self._conn
+        # Add only the 3 new preflight cache tables (#285). Narrow scope —
+        # re-calling _create_all_tables works but holds the DB file open
+        # for many more statements than necessary, which on Windows can
+        # trip tempdir cleanup in tests (see #281's TestMigration… notes).
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS preflight_pr_stats_cache (
+                repo_full_name TEXT PRIMARY KEY,
+                merge_rate REAL NOT NULL,
+                sample_size INTEGER NOT NULL,
+                computed_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS preflight_repo_meta_cache (
+                repo_full_name TEXT PRIMARY KEY,
+                stars INTEGER,
+                pushed_at TEXT,
+                license TEXT,
+                archived INTEGER DEFAULT 0,
+                disabled INTEGER DEFAULT 0,
+                computed_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS preflight_ai_scan_cache (
+                repo TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_sha TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                computed_at TEXT NOT NULL,
+                PRIMARY KEY (repo, file_path, file_sha)
+            )
+        """)
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        c.commit()
+        logger.info("Migration to v9 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db
@@ -1062,6 +1147,137 @@ class UnifiedDatabase:
             "retry_count": row["retry_count"],
             "last_checked_at": row["last_checked_at"],
         }
+
+    # ------------------------------------------------------------------
+    # Preflight caches (#285)
+    # ------------------------------------------------------------------
+
+    def cache_pr_stats(
+        self,
+        repo_full_name: str,
+        merge_rate: float,
+        sample_size: int,
+        ttl_days: int = 7,
+    ) -> None:
+        """Persist outsider-PR-merge-rate stats for a repo (R3 / #307; 7-day TTL)."""
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(days=ttl_days)
+        self._conn.execute(
+            """INSERT OR REPLACE INTO preflight_pr_stats_cache
+            (repo_full_name, merge_rate, sample_size, computed_at, expires_at)
+            VALUES (?,?,?,?,?)""",
+            (repo_full_name, float(merge_rate), int(sample_size), now.isoformat(), expires.isoformat()),
+        )
+        self._conn.commit()
+
+    def get_cached_pr_stats(self, repo_full_name: str) -> dict[str, Any] | None:
+        """Read non-expired PR-merge-rate stats for a repo, or None."""
+        now = _now_iso()
+        row = self._conn.execute(
+            "SELECT * FROM preflight_pr_stats_cache WHERE repo_full_name = ? AND expires_at > ?",
+            (repo_full_name, now),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "repo_full_name": row["repo_full_name"],
+            "merge_rate": row["merge_rate"],
+            "sample_size": row["sample_size"],
+            "computed_at": row["computed_at"],
+            "expires_at": row["expires_at"],
+        }
+
+    def cache_repo_meta(
+        self,
+        repo_full_name: str,
+        stars: int | None,
+        pushed_at: str | None,
+        license: str | None,
+        archived: bool,
+        disabled: bool,
+        ttl_hours: int = 24,
+    ) -> None:
+        """Persist GitHub repo metadata snapshot (gates #2 / #289 + #10 / #297; score R1-R5)."""
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(hours=ttl_hours)
+        self._conn.execute(
+            """INSERT OR REPLACE INTO preflight_repo_meta_cache
+            (repo_full_name, stars, pushed_at, license, archived, disabled,
+             computed_at, expires_at)
+            VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                repo_full_name,
+                stars,
+                pushed_at,
+                license,
+                int(bool(archived)),
+                int(bool(disabled)),
+                now.isoformat(),
+                expires.isoformat(),
+            ),
+        )
+        self._conn.commit()
+
+    def get_cached_repo_meta(self, repo_full_name: str) -> dict[str, Any] | None:
+        """Read non-expired repo metadata for a repo, or None."""
+        now = _now_iso()
+        row = self._conn.execute(
+            "SELECT * FROM preflight_repo_meta_cache WHERE repo_full_name = ? AND expires_at > ?",
+            (repo_full_name, now),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "repo_full_name": row["repo_full_name"],
+            "stars": row["stars"],
+            "pushed_at": row["pushed_at"],
+            "license": row["license"],
+            "archived": bool(row["archived"]),
+            "disabled": bool(row["disabled"]),
+            "computed_at": row["computed_at"],
+            "expires_at": row["expires_at"],
+        }
+
+    def cache_ai_scan(
+        self,
+        repo: str,
+        file_path: str,
+        file_sha: str,
+        verdict: str,
+    ) -> None:
+        """Persist subagent AI-scan verdict keyed by file SHA (gate #1 / #288).
+
+        Cache invalidates implicitly when ``file_sha`` changes — there is no
+        explicit TTL because the verdict is a function of the file content.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            """INSERT OR REPLACE INTO preflight_ai_scan_cache
+            (repo, file_path, file_sha, verdict, computed_at)
+            VALUES (?,?,?,?,?)""",
+            (repo, file_path, file_sha, verdict, now),
+        )
+        self._conn.commit()
+
+    def get_cached_ai_scan(
+        self,
+        repo: str,
+        file_path: str,
+        file_sha: str,
+    ) -> str | None:
+        """Read AI-scan verdict for a specific (repo, file_path, file_sha)."""
+        row = self._conn.execute(
+            """SELECT verdict FROM preflight_ai_scan_cache
+            WHERE repo = ? AND file_path = ? AND file_sha = ?""",
+            (repo, file_path, file_sha),
+        ).fetchone()
+        if row is None:
+            return None
+        return row["verdict"]
 
     # ------------------------------------------------------------------
     # Archive Cache (#123)
