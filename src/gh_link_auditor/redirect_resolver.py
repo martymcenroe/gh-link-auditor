@@ -152,6 +152,15 @@ class RedirectResolver:
         - Trailing slash toggle
         - http -> https upgrade
         - www prefix toggle
+        - /index.html (or /index.htm) strip
+
+        Returns ``[]`` when the input URL itself is currently 2xx — a "fix"
+        that proposes a different URL on the same server is not a fix if
+        the original is already alive (#342). The outer bulk-scan probe
+        is sometimes wrong about which URLs are dead (HEAD-only checks,
+        transient rate-limits, missing UA); this guard catches the
+        downstream consequence: emitting a same-server mutation as a
+        candidate when the dead URL never needed fixing in the first place.
 
         Args:
             url: Dead URL to mutate.
@@ -159,6 +168,11 @@ class RedirectResolver:
         Returns:
             List of (live_url, mutation_type) tuples.
         """
+        src_result = _http_head(url)
+        src_status = src_result.get("status_code") if src_result else None
+        if src_status is not None and 200 <= src_status < 300:
+            return []
+
         mutations: list[tuple[str, str]] = []
         parsed = urlparse(url)
 

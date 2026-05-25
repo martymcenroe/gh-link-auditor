@@ -267,6 +267,30 @@ class TestUrlMutations:
             mutations = resolver.test_url_mutations("https://example.com/nope")
         assert mutations == []
 
+    def test_returns_empty_when_input_url_is_alive(self):
+        """When the dead URL is actually 2xx now (outer probe was wrong),
+        skip mutation emission entirely — no candidate row should be
+        produced for a same-server "fix" that doesn't fix anything (#342)."""
+        resolver = _make_resolver()
+        with patch(
+            "gh_link_auditor.redirect_resolver._http_head",
+            return_value={"status_code": 200, "location": None},
+        ):
+            mutations = resolver.test_url_mutations("https://example.com/works-fine")
+        assert mutations == []
+
+    def test_skips_when_input_dead_and_mutation_also_dead(self):
+        """Input 404 and every mutation also 404 (e.g. host-wide outage):
+        no candidate row produced. Behavior preserved by the existing
+        2xx-3xx gate on mutations; this test pins it post-#342."""
+        resolver = _make_resolver()
+        with patch(
+            "gh_link_auditor.redirect_resolver._http_head",
+            return_value={"status_code": 404, "location": None},
+        ):
+            mutations = resolver.test_url_mutations("https://glm.example.com/html/index.html")
+        assert mutations == []
+
 
 # ---------------------------------------------------------------------------
 # verify_live
