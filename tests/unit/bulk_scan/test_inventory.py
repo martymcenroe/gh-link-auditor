@@ -41,6 +41,25 @@ class TestCleanUrlTail:
             _clean_url_tail("https://en.wikipedia.org/wiki/Foo_(bar)is") == "https://en.wikipedia.org/wiki/Foo_(bar)is"
         )
 
+    def test_commonmark_escapes_unwrapped(self) -> None:
+        # Markdown ``[text](url_\(bar\))`` regex-captures the URL with the
+        # escapes in place; cleanup must un-escape (#339).
+        assert (
+            _clean_url_tail(r"https://en.wikipedia.org/wiki/Silhouette_\(clustering\)")
+            == "https://en.wikipedia.org/wiki/Silhouette_(clustering)"
+        )
+
+    def test_commonmark_escapes_unwrapped_then_balanced(self) -> None:
+        # After unescape, parens are balanced and preserved (Wikipedia style).
+        assert (
+            _clean_url_tail(r"https://en.wikipedia.org/wiki/Less_\(Unix\)")
+            == "https://en.wikipedia.org/wiki/Less_(Unix)"
+        )
+
+    def test_unescaped_url_unchanged(self) -> None:
+        # No backslash means no change.
+        assert _clean_url_tail("https://numpy.org/doc/stable/") == "https://numpy.org/doc/stable/"
+
 
 class TestExtractUrls:
     def test_simple(self) -> None:
