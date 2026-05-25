@@ -167,6 +167,80 @@ class TestGateDeadUrlStillDead:
         )
         assert result.passed is False
         assert "resurrected" in result.reason
+        assert result.evidence["redirect_to_renamed"] is False
+
+    def test_passes_when_dead_url_redirects_to_renamed_github_owner(self, db):
+        """github.com owner rename: old-org -> new-org. PR is a real fix."""
+        result = gate_dead_url_still_dead(
+            "owner/r",
+            _candidate(dead_url="https://github.com/deepmind/lab/blob/master/python/README.md"),
+            db,
+            http_check=lambda url: {
+                "status_code": 200,
+                "status": "ok",
+                "final_url": "https://github.com/google-deepmind/lab/blob/master/python/README.md",
+            },
+        )
+        assert result.passed is True
+        assert result.evidence["redirect_to_renamed"] is True
+        assert "canonical target" in result.reason
+
+    def test_passes_when_dead_url_redirects_to_renamed_github_repo(self, db):
+        """github.com repo rename: same owner, old-name -> new-name. PR is a real fix."""
+        result = gate_dead_url_still_dead(
+            "owner/r",
+            _candidate(dead_url="https://github.com/open-mmlab/mmclassification/blob/master/configs/x.py"),
+            db,
+            http_check=lambda url: {
+                "status_code": 200,
+                "status": "ok",
+                "final_url": "https://github.com/open-mmlab/mmpretrain/blob/master/configs/x.py",
+            },
+        )
+        assert result.passed is True
+        assert result.evidence["redirect_to_renamed"] is True
+
+    def test_passes_when_dead_url_redirects_to_different_host(self, db):
+        """Different host entirely: docs moved off blogspot, etc."""
+        result = gate_dead_url_still_dead(
+            "owner/r",
+            _candidate(dead_url="https://oldproject.blogspot.com/docs"),
+            db,
+            http_check=lambda url: {
+                "status_code": 200,
+                "status": "ok",
+                "final_url": "https://oldproject.com/docs",
+            },
+        )
+        assert result.passed is True
+        assert result.evidence["redirect_to_renamed"] is True
+
+    def test_fails_when_dead_url_redirects_within_same_repo_path(self, db):
+        """Same github owner/repo, different path: docs reorganization,
+        NOT a rename — the URL really is live, just rearranged."""
+        result = gate_dead_url_still_dead(
+            "owner/r",
+            _candidate(dead_url="https://github.com/owner/repo/blob/main/old/file.md"),
+            db,
+            http_check=lambda url: {
+                "status_code": 200,
+                "status": "ok",
+                "final_url": "https://github.com/owner/repo/blob/main/new/file.md",
+            },
+        )
+        assert result.passed is False
+        assert result.evidence["redirect_to_renamed"] is False
+
+    def test_fails_when_dead_url_2xx_with_no_final_url(self, db):
+        """Lazy http_check that doesn't return final_url: defaults to no-rename."""
+        result = gate_dead_url_still_dead(
+            "owner/r",
+            _candidate(),
+            db,
+            http_check=lambda url: {"status_code": 200, "status": "ok"},
+        )
+        assert result.passed is False
+        assert result.evidence["redirect_to_renamed"] is False
 
 
 # ---------------------------------------------------------------------------
