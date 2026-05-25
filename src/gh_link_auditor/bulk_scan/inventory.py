@@ -31,12 +31,22 @@ _FENCED_RE = re.compile(r"^(\s{0,3})(```+|~~~+)")
 _INDENTED_CODE_RE = re.compile(r"^(?: {4,}|\t)")
 _TRAIL_CHARS = set(".,;:!?'\"`")
 
+# CommonMark backslash escapes inside the URL portion of a markdown link
+# render as the unescaped char per the CommonMark spec (and on GitHub).
+# The raw URL extractor captures them verbatim, producing "dead" URLs
+# whose literal byte sequence (e.g. ``Foo_\(bar\)``) 404s on the host but
+# whose rendered href (``Foo_(bar)``) is alive — a false-positive dead-
+# link finding. Backslash is not a valid RFC 3986 URL character, so any
+# ``\`` we see in extracted text is a markdown artifact (#339).
+_ESCAPE_RE = re.compile(r"\\([(){}\[\]\\.\-+*_!#`|~<>=])")
+
 _GH_API = "https://api.github.com"
 _RAW_BASE = "https://raw.githubusercontent.com"
 
 
 def _clean_url_tail(raw: str) -> str:
-    """Strip trailing punctuation; cut at first unmatched closing paren.
+    """Unescape CommonMark backslashes; strip trailing punctuation; cut
+    at first unmatched closing paren.
 
     Markdown like ``[name](url)'s text`` makes the URL regex capture
     ``url)'s`` — the trailing ``s`` is a word-char so the trail-chars
@@ -44,7 +54,11 @@ def _clean_url_tail(raw: str) -> str:
     at the first unmatched ``)``; anything after is markdown spillover.
 
     Balanced parens are preserved (Wikipedia ``Foo_(bar)`` style).
+
+    Escape stripping happens FIRST so paren-matching downstream sees
+    the rendered form, not the raw markdown (#339).
     """
+    raw = _ESCAPE_RE.sub(r"\1", raw)
     while raw and raw[-1] in _TRAIL_CHARS:
         raw = raw[:-1]
 
