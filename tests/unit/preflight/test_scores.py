@@ -330,6 +330,120 @@ class TestScoreC5:
         assert result.points_awarded == 0
 
 
+class TestScoreC5FastPath:
+    """Fast-path equivalence checks should short-circuit to 15/15 without
+    invoking the subagent (#340)."""
+
+    def _exploding_subagent(self):
+        class Boom:
+            def run(self, *_a, **_kw):  # pragma: no cover - should never be called
+                raise AssertionError("subagent should NOT be invoked on fast-path match")
+
+            def is_available(self):
+                return True
+
+        return Boom()
+
+    def test_escape_only_equivalence(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(
+                dead_url=r"https://en.wikipedia.org/wiki/Silhouette_\(clustering\)",
+                candidate_url="https://en.wikipedia.org/wiki/Silhouette_(clustering)",
+            ),
+            db,
+            subagent=self._exploding_subagent(),
+        )
+        assert result.points_awarded == 15
+        assert result.evidence["pattern"] == "escape_only"
+
+    def test_index_canonical_equivalence(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(
+                dead_url="https://libspatialindex.github.io/index.html",
+                candidate_url="https://libspatialindex.github.io/",
+            ),
+            db,
+            subagent=self._exploding_subagent(),
+        )
+        assert result.points_awarded == 15
+        assert result.evidence["pattern"] == "index_canonical"
+
+    def test_stray_trailing_backslash(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(
+                dead_url=r"https://en.wikipedia.org/wiki/List_of_tallest_buildings_in_France\\",
+                candidate_url="https://en.wikipedia.org/wiki/List_of_tallest_buildings_in_France",
+            ),
+            db,
+            subagent=self._exploding_subagent(),
+        )
+        assert result.points_awarded == 15
+        assert result.evidence["pattern"] == "stray_trailing"
+
+    def test_stray_trailing_hash(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(
+                dead_url="http://www.example.com/page#",
+                candidate_url="http://www.example.com/page",
+            ),
+            db,
+            subagent=self._exploding_subagent(),
+        )
+        assert result.points_awarded == 15
+        assert result.evidence["pattern"] == "stray_trailing"
+
+    def test_truncation_fix_closing_paren(self, db):
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(
+                dead_url="https://en.wikipedia.org/wiki/Euler_equations_(fluid_dynamics",
+                candidate_url="https://en.wikipedia.org/wiki/Euler_equations_(fluid_dynamics)",
+            ),
+            db,
+            subagent=self._exploding_subagent(),
+        )
+        assert result.points_awarded == 15
+        assert result.evidence["pattern"] == "truncation_fix"
+
+    def test_same_final_url_via_redirect(self, db):
+        def http_check(url):
+            return {"final_url": "https://canonical.example/x", "status_code": 200}
+
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(
+                dead_url="https://oldhost.example/x",
+                candidate_url="https://newhost.example/x",
+            ),
+            db,
+            subagent=self._exploding_subagent(),
+            http_check=http_check,
+        )
+        assert result.points_awarded == 15
+        assert result.evidence["pattern"] == "same_final_url"
+
+    def test_unrelated_urls_fall_through_to_subagent(self, db):
+        """Two genuinely different URLs should NOT trigger fast-path; the
+        subagent (FakeSubagent here) determines the verdict."""
+        result = score_c5_content_equivalence(
+            "owner/r",
+            _candidate(
+                dead_url="https://example.com/old-broken-page",
+                candidate_url="https://different.example/wholly-different",
+            ),
+            db,
+            subagent=FakeSubagent.configure(default=SubagentVerdict.UNRELATED),
+            landing_fetch=lambda url: {"title": "X", "h1": "Y", "body_snippet": "z"},
+            prompt_path="ignored.txt",
+        )
+        # subagent UNRELATED -> 0
+        assert result.points_awarded == 0
+
+
 # ---------------------------------------------------------------------------
 # R1 (#305): stars tiered
 # ---------------------------------------------------------------------------
