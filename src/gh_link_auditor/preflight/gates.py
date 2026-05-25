@@ -175,6 +175,43 @@ def gate_dead_url_still_present(
 # ---------------------------------------------------------------------------
 
 
+def _is_redirect_to_renamed_location(dead_url: str, final_url: str | None) -> bool:
+    """True when ``final_url`` is a meaningfully different location from
+    ``dead_url`` — indicating the dead URL only "works" via redirect to a
+    renamed canonical address.
+
+    Currently handles:
+    - github.com URLs where owner or repo path segments differ
+    - any URL where the host differs entirely
+
+    Stays conservative: same-host docs-reorganization redirects don't count
+    here (too many false positives — many sites silently redirect everything,
+    e.g. http -> https or www-prefix normalization that doesn't represent a
+    real rename).
+    """
+    if not final_url or final_url == dead_url:
+        return False
+
+    from urllib.parse import urlparse
+
+    d = urlparse(dead_url)
+    f = urlparse(final_url)
+
+    # Different host: counts as a rename (org or domain moved)
+    if d.netloc.lower() != f.netloc.lower():
+        return True
+
+    # Same host. For github.com URLs, look for an owner/repo rename
+    if d.netloc.lower() == "github.com":
+        d_parts = d.path.strip("/").split("/")
+        f_parts = f.path.strip("/").split("/")
+        if len(d_parts) >= 2 and len(f_parts) >= 2:
+            if d_parts[0] != f_parts[0] or d_parts[1] != f_parts[1]:
+                return True
+
+    return False
+
+
 def gate_dead_url_still_dead(
     repo_full_name: str,
     candidate: dict[str, Any],
@@ -182,10 +219,14 @@ def gate_dead_url_still_dead(
     *,
     http_check: HttpCheck | None = None,
 ) -> GateResult:
-    """Fail when the dead URL returns 2xx — it's been resurrected.
+    """Fail when the dead URL serves direct 2xx content (it's been resurrected).
 
-    Filing a PR to "fix" a URL that works now would be a no-op at best,
-    embarrassing at worst.
+    PASS in two situations:
+    1. dead URL is still non-2xx (the original "dead" condition)
+    2. dead URL returns 2xx but only via a redirect to a renamed canonical
+       location (different host, or different github.com owner/repo) —
+       in that case the PR to update to the canonical target is a real fix
+       (the redirect is fragile; the new URL is the durable address)
     """
     dead_url = candidate.get("dead_url") or ""
     if not dead_url:
@@ -199,12 +240,33 @@ def gate_dead_url_still_dead(
     check = http_check or _default_http_check
     result = check(dead_url)
     status_code = result.get("status_code")
+    final_url = result.get("final_url")
+
     if status_code is not None and 200 <= status_code < 300:
+        if _is_redirect_to_renamed_location(dead_url, final_url):
+            return GateResult(
+                name="dead_url_still_dead",
+                passed=True,
+                reason=(
+                    f"dead URL returned {status_code} via redirect to renamed location; PR updates to canonical target"
+                ),
+                evidence={
+                    "dead_url": dead_url,
+                    "status_code": status_code,
+                    "final_url": final_url,
+                    "redirect_to_renamed": True,
+                },
+            )
         return GateResult(
             name="dead_url_still_dead",
             passed=False,
-            reason=f"dead URL returned {status_code}; it has been resurrected",
-            evidence={"dead_url": dead_url, "status_code": status_code},
+            reason=f"dead URL returned {status_code}; it has been resurrected (serves direct content)",
+            evidence={
+                "dead_url": dead_url,
+                "status_code": status_code,
+                "final_url": final_url,
+                "redirect_to_renamed": False,
+            },
         )
     return GateResult(
         name="dead_url_still_dead",
