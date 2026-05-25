@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Callable
+from urllib.parse import unquote
 
 from gh_link_auditor.network import check_url
 from gh_link_auditor.preflight.report import ScoreComponent
@@ -20,6 +21,16 @@ from gh_link_auditor.repo_quality import fetch_repo_metadata
 
 HttpCheck = Callable[[str], dict[str, Any]]
 ContentFetch = Callable[[str, str], str | None]
+
+# CommonMark backslash escapes inside the URL portion of a markdown link.
+# These render as the unescaped char on GitHub but get stored verbatim by
+# our URL extractor (see #339). C5 fast-path treats escaped vs unescaped as
+# the same URL.
+_ESCAPE_RE = re.compile(r"\\([(){}\[\]\\.\-+*_!#`|~<>=])")
+
+# Stray characters that sometimes get glued onto the end of a URL by source-
+# parsing artifacts (trailing backslash from markdown, anchor `#`, whitespace).
+_STRAY_TRAILING = set("\\#")
 
 
 def _default_http_check(url: str) -> dict[str, Any]:
@@ -29,6 +40,83 @@ def _default_http_check(url: str) -> dict[str, Any]:
         "status": result.get("status"),
         "final_url": result.get("final_url"),
     }
+
+
+def _strip_escapes(url: str) -> str:
+    """Remove CommonMark backslash escapes inside the URL string."""
+    return _ESCAPE_RE.sub(r"\1", url)
+
+
+def _strip_index_html(url: str) -> str:
+    """Canonicalize `/index.html` (or `/index.htm`) endings to `/`."""
+    for tail in ("/index.html", "/index.htm"):
+        if url.endswith(tail):
+            return url[: -len(tail)] + "/"
+    return url
+
+
+def _are_urls_near_equivalent(
+    dead_url: str,
+    candidate_url: str,
+    http_check: HttpCheck | None = None,
+) -> tuple[bool, str]:
+    """Detect semantically-equivalent URL pairs that C5 should treat as `clean`.
+
+    Returns (is_equivalent, pattern_name). pattern_name is empty when not
+    equivalent. Patterns checked in order; first match wins.
+
+    Patterns:
+    - identical: byte-equal (defensive; should rarely fire)
+    - escape_only: differ only in CommonMark backslash escapes
+    - index_canonical: differ only in /index.html (or /index.htm) <-> /
+    - percent_encoding: differ only in percent-encoding of identical chars
+    - stray_trailing: dead URL has stray trailing \\, #, or whitespace
+    - truncation_fix: candidate URL adds a missing closing bracket (1–3 chars)
+    - same_final_url: both URLs resolve to the same final_url via redirect
+
+    The last pattern requires a live ``http_check``; pass ``None`` to skip it.
+    """
+    if not dead_url or not candidate_url:
+        return False, ""
+    if dead_url == candidate_url:
+        return True, "identical"
+
+    dead_unescaped = _strip_escapes(dead_url)
+    cand_unescaped = _strip_escapes(candidate_url)
+    if dead_unescaped == cand_unescaped:
+        return True, "escape_only"
+
+    if _strip_index_html(dead_unescaped) == _strip_index_html(cand_unescaped):
+        return True, "index_canonical"
+
+    try:
+        if unquote(dead_unescaped) == unquote(cand_unescaped):
+            return True, "percent_encoding"
+    except Exception:  # noqa: BLE001
+        pass
+
+    if dead_unescaped.startswith(cand_unescaped):
+        extras = dead_unescaped[len(cand_unescaped) :]
+        if extras and all(c in _STRAY_TRAILING or c.isspace() for c in extras):
+            return True, "stray_trailing"
+
+    if cand_unescaped.startswith(dead_unescaped):
+        extras = cand_unescaped[len(dead_unescaped) :]
+        if 0 < len(extras) <= 3 and all(c in ")]}" for c in extras):
+            return True, "truncation_fix"
+
+    if http_check is not None:
+        try:
+            d = http_check(dead_url) or {}
+            c = http_check(candidate_url) or {}
+            d_final = d.get("final_url")
+            c_final = c.get("final_url")
+            if d_final and c_final and d_final == c_final:
+                return True, "same_final_url"
+        except Exception:  # noqa: BLE001
+            pass
+
+    return False, ""
 
 
 def _fetch_source_content(repo_full_name: str, source_file: str) -> str | None:
@@ -335,6 +423,20 @@ def score_c5_content_equivalence(
             points_awarded=0,
             max_points=15,
             evidence={"reason": "no_candidate_url"},
+        )
+
+    # Pre-subagent fast path: if the dead/candidate pair is one of the well-
+    # known semantically-equivalent shapes (escape-only diff, index.html
+    # canonical, stray trailing char, truncation fix, redirect-to-same-URL),
+    # short-circuit to CLEAN without burning a subagent invocation.
+    dead_url = candidate.get("dead_url") or ""
+    is_eq, pattern = _are_urls_near_equivalent(dead_url, candidate_url, http_check=http_check)
+    if is_eq:
+        return ScoreComponent(
+            name="C5",
+            points_awarded=15,
+            max_points=15,
+            evidence={"subagent": "fast_path", "pattern": pattern},
         )
 
     if landing_fetch is None:
