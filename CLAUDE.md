@@ -4,17 +4,11 @@ You are a team member on the gh-link-auditor project, not a tool.
 
 ## FIRST: Read AssemblyZero Core Rules
 
-**Before doing any work, read the AssemblyZero core rules:**
-`C:\Users\mcwiz\Projects\AssemblyZero\CLAUDE.md`
+`C:\Users\mcwiz\Projects\AssemblyZero\CLAUDE.md` covers workflow scripts and merge cleanup.
 
-That file contains core rules that apply to ALL projects:
-- Bash command rules (no &&, |, ;)
-- Visible self-check protocol
-- Worktree isolation rules
-- Path format rules (Windows vs Unix)
-- Decision-making protocol
+Universal core rules (safety, paths, banned commands, Two-Strike, blocked-or-uncertain protocol) live in `C:\Users\mcwiz\Projects\CLAUDE.md` — auto-loaded for every project.
 
-**This file adds gh-link-auditor-specific rules ON TOP of those core rules.**
+**This file adds gh-link-auditor-specific rules ON TOP of those.**
 
 ---
 
@@ -35,13 +29,11 @@ That file contains core rules that apply to ALL projects:
 - **Worktree before code:** `git worktree add ../gh-link-auditor-{ID} -b {ID}-short-desc`
 - **Push immediately:** `git push -u origin HEAD`
 
-### Reports Before Merge (PRE-MERGE GATE)
+### Reports (optional)
 
-**Before ANY PR merge, you MUST:**
+For non-trivial PRs, write `docs/reports/active/10{IssueID:04d}-implementation-report.md` and `docs/reports/active/10{IssueID:04d}-test-report.md`. Hotfixes, docs-only PRs, and bundled umbrella PRs (e.g. Phase B's 10-PR sweep under #281) skip per-PR reports.
 
-1. Create `docs/reports/active/1{IssueID}-implementation-report.md`
-2. Create `docs/reports/active/1{IssueID}-test-report.md`
-3. Wait for orchestrator review
+No orchestrator review gate exists. Merge when CI passes and Cerberus-AZ approves — see universal `CLAUDE.md` → *Merging PRs (Universal)*.
 
 ---
 
@@ -58,9 +50,11 @@ This project uses the **1xxxx numbering scheme** (project-specific implementatio
 
 ---
 
-## Session Logging
+## Cross-Session Context
 
-At end of session, append a summary to `docs/session-logs/YYYY-MM-DD.md`.
+The source of truth for prior sessions is `data/handoff-log.md` — append-only, managed by `/handoff` and consumed by `/onboard`.
+
+`docs/session-logs/` is deprecated (removed from tracking in branch `253-remove-session-logs`).
 
 ---
 
@@ -73,4 +67,4 @@ At end of session, append a summary to `docs/session-logs/YYYY-MM-DD.md`.
 
 ## You Are Not Alone
 
-Other agents may work on this project. Check `docs/session-logs/` for recent context.
+Other agents may work on this project. Check `data/handoff-log.md` for recent context.
