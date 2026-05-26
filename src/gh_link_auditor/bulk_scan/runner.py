@@ -21,6 +21,7 @@ from gh_link_auditor.bulk_scan import (
     investigation,
     liveness,
     process_lock,
+    progress,
     scoring,
     selection,
     storage,
@@ -433,6 +434,7 @@ def run_full(
     target_count: int,
     token: str | None = None,
     skip_selection: bool = False,
+    status_interval_s: float = 30.0,
 ) -> dict[str, Any]:
     """End-to-end orchestration. Resumable: existing state respected.
 
@@ -440,10 +442,16 @@ def run_full(
     on exit. Concurrent invocations of bulk-scan against the same run-id raise
     LockBusyError, preventing the racing-processes data-loss scenario from
     2026-05-22.
+
+    Emits a stage-aware status line every ``status_interval_s`` seconds via the
+    module logger (which the CLI routes to stderr). One terminal, one process,
+    visible progress -- no separate watcher required (#359).
     """
     # Acquire the per-(run_id, host) lock before any work
     process_lock.acquire(db, run_id)
+    emitter = progress.StatusEmitter(db, run_id, interval_s=status_interval_s)
     try:
+        emitter.start()
         run = storage.get_run(db, run_id)
         if run is None:
             storage.create_run(db, run_id, target_count, {"target_count": target_count})
@@ -472,4 +480,5 @@ def run_full(
         heartbeat.write_heartbeat(db, run_id, HEARTBEAT_FILE)
         return storage.get_run(db, run_id) or {}
     finally:
+        emitter.stop()
         process_lock.release(db, run_id)
