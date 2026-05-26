@@ -375,3 +375,118 @@ class TestNonDestructiveStage3:
             # The investigation_attempts counter only bumped once
             row = db._conn.execute("SELECT investigation_attempts FROM bulk_scan_findings WHERE run_id='r1'").fetchone()
             assert row["investigation_attempts"] == 1
+
+
+class TestQualityStopLossPermanentlyDisabled:
+    """Anti-regression contract for #361 / #362 (operator directive 2026-05-26).
+
+    The quality stop-loss has been re-introduced multiple times across multiple
+    sessions. Each time it broke real scans by aborting them partway through
+    on an early-sample median that was 0 because skip-paths dominate the
+    first batches. PR #362 made the function a permanent no-op. These tests
+    pin that contract so the next time someone (agent or otherwise) wires a
+    threshold check back in, CI catches it.
+
+    DO NOT delete these tests. DO NOT relax the assertions. If you find
+    yourself proposing any "auto-abort when quality drops" behavior in
+    bulk_scan, read tools/finish_stage3.py's module docstring and
+    memory/feedback_no_quality_stop_loss.md first.
+    """
+
+    def test_returns_false_when_quality_check_might_trigger(self, tmp_path) -> None:
+        """The original failure shape: many findings, median 0. Must still pass."""
+        from gh_link_auditor.bulk_scan import runner
+
+        with UnifiedDatabase(str(tmp_path / "qsl.db")) as db:
+            storage.create_run(db, "r1", 1, {})
+            # Seed enough findings to be past the sample-threshold gate
+            for i in range(2000):
+                storage.add_finding(
+                    db,
+                    "r1",
+                    f"owner/repo{i}",
+                    "README.md",
+                    1,
+                    f"https://x.test/{i}",
+                    candidate_url=f"https://y.test/{i}",
+                    method="url_mutation",
+                    tier=1,
+                    similarity_score=0.0,
+                    verified_live=False,
+                    confidence=0.0,  # median will be 0 -- the original abort trigger
+                )
+            # _check_quality_stop_loss must return False regardless of state
+            assert runner._check_quality_stop_loss(db, "r1") is False
+
+    def test_returns_false_with_empty_run(self, tmp_path) -> None:
+        from gh_link_auditor.bulk_scan import runner
+
+        with UnifiedDatabase(str(tmp_path / "qsl-empty.db")) as db:
+            storage.create_run(db, "empty", 1, {})
+            assert runner._check_quality_stop_loss(db, "empty") is False
+
+    def test_returns_false_with_high_confidence(self, tmp_path) -> None:
+        """Even at perfect confidence the function returns False -- the function
+        is wholly disabled, not just under one condition."""
+        from gh_link_auditor.bulk_scan import runner
+
+        with UnifiedDatabase(str(tmp_path / "qsl-high.db")) as db:
+            storage.create_run(db, "high", 1, {})
+            for i in range(2000):
+                storage.add_finding(
+                    db,
+                    "high",
+                    f"owner/repo{i}",
+                    "README.md",
+                    1,
+                    f"https://x.test/{i}",
+                    candidate_url=f"https://y.test/{i}",
+                    method="url_mutation",
+                    tier=1,
+                    similarity_score=1.0,
+                    verified_live=True,
+                    confidence=1.0,
+                )
+            assert runner._check_quality_stop_loss(db, "high") is False
+
+    def test_does_not_set_quality_aborted_status(self, tmp_path) -> None:
+        """The function MUST NOT mutate run status under any condition."""
+        from gh_link_auditor.bulk_scan import runner
+
+        with UnifiedDatabase(str(tmp_path / "qsl-status.db")) as db:
+            storage.create_run(db, "s", 1, {})
+            for i in range(2000):
+                storage.add_finding(
+                    db,
+                    "s",
+                    f"owner/repo{i}",
+                    "README.md",
+                    1,
+                    f"https://x.test/{i}",
+                    candidate_url=f"https://y.test/{i}",
+                    method="url_mutation",
+                    tier=1,
+                    similarity_score=0.0,
+                    verified_live=False,
+                    confidence=0.0,
+                )
+            runner._check_quality_stop_loss(db, "s")
+            run = storage.get_run(db, "s")
+            # The run status must NOT be flipped to quality_aborted under any input
+            assert run is not None
+            assert run["status"] != "quality_aborted"
+            assert not run.get("quality_aborted")
+
+    def test_docstring_records_permanent_disable(self) -> None:
+        """Pins the intent in source so a future "I'll just re-enable this"
+        change has to also delete this assertion, surfacing the regression in code review."""
+        from gh_link_auditor.bulk_scan import runner
+
+        doc = runner._check_quality_stop_loss.__doc__ or ""
+        # The function MUST advertise itself as permanently disabled. If
+        # someone reverts the function body, they have to also rewrite this
+        # docstring, which is visible in code review.
+        assert "Permanently disabled" in doc, (
+            "Quality stop-loss docstring must record the operator directive. "
+            "See memory/feedback_no_quality_stop_loss.md."
+        )
