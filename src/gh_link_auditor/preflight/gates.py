@@ -342,27 +342,9 @@ def gate_no_duplicate_pr(
     candidate_url = candidate.get("candidate_url") or ""
 
     if gh_get is None:
-        import json
-        import subprocess
+        from gh_link_auditor.preflight._subproc import gh_api_json
 
-        def _gh(api_path: str) -> Any:
-            try:
-                result = subprocess.run(
-                    ["gh", "api", api_path],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=30,
-                    check=False,
-                )
-                if result.returncode != 0:
-                    return None
-                return json.loads(result.stdout) if result.stdout.strip() else None
-            except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-                return None
-
-        gh_get = _gh
+        gh_get = gh_api_json
 
     pulls = gh_get(f"repos/{repo_full_name}/pulls?state=open&per_page=100")
     if not isinstance(pulls, list):

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from gh_link_auditor.hostile_classifier import ANTI_AI_PHRASES
+from gh_link_auditor.preflight._subproc import run_utf8
 
 logger = logging.getLogger(__name__)
 
@@ -144,15 +145,10 @@ class RealSubagent:
 
         env = {**os.environ, "CLAUDECODE": ""}
         try:
-            result = subprocess.run(
+            result = run_utf8(
                 ["claude", "--print", rendered],
                 env=env,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
                 timeout=self._timeout_s,
-                check=False,
             )
         except subprocess.TimeoutExpired:
             logger.warning("Subagent timed out after %ss on %s", self._timeout_s, prompt_path)
