@@ -287,10 +287,16 @@ class TestIsFalsePositive:
         # status. (Previously this returned False — required a 403/429 to fire.)
         assert is_false_positive("https://stackoverflow.com/q/1") is True
 
-    def test_non_se_bot_blocked_without_status_not_filtered(self) -> None:
-        # Non-SE bot-blocked domains (medium, wikipedia, etc.) still require a
-        # status code to be flagged — they aren't always-alive, just bot-blocked.
-        assert is_false_positive("https://medium.com/something") is False
+    def test_wikipedia_bot_blocked_without_status_not_filtered(self) -> None:
+        # wikipedia.org is BOT_BLOCKED_DOMAINS but NOT ALWAYS_ALIVE_DOMAINS, so
+        # it still requires a status code to flag as false positive.
+        assert is_false_positive("https://en.wikipedia.org/wiki/Foo") is False
+
+    def test_categorical_skip_blocklist_filtered_without_status(self) -> None:
+        # Host-blocklist domains added 2026-05-26 (npmjs, medium, openai, etc.)
+        # are categorical skips like Stack Exchange — filtered regardless of status.
+        assert is_false_positive("https://www.npmjs.com/package/foo") is True
+        assert is_false_positive("https://medium.com/something") is True
 
     # ------------------------------------------------------------------
     # #243: donation / sponsorship URL categorical skip

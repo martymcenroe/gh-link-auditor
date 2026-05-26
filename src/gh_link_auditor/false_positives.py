@@ -22,11 +22,21 @@ SKIP_DOMAINS: set[str] = {
     "0.0.0.0",
 }
 
-# Stack Exchange network — categorical skip. URLs here have semantics our
-# pipeline doesn't encode: /a/N and /q/N redirect to long form, content is
-# essentially never deleted, and "fixing" SO links is almost always wrong
-# (#211, 2026-05-13).
+# Categorical skip during inventory AND investigation. Two sub-categories
+# share the same set because the pipeline behavior is identical: don't
+# probe, don't investigate, don't burn candidate-generation cycles.
+#
+# 1. Stack Exchange family (#211) — URLs have semantics our pipeline
+#    can't encode: /a/N and /q/N redirect to long form, content is
+#    essentially never deleted, and "fixing" SO links is almost always wrong.
+#
+# 2. Known-anti-bot / JS-shell / paywalled (data/host-blocklist-candidates.md
+#    2026-05-23) — measured 0% candidate-yield across hundreds of real
+#    investigations, often 100% bot-blocked (None status). We have nothing
+#    useful to offer maintainers from these hosts. Add new entries here
+#    when the next host-blocklist audit surfaces another categorical waste.
 ALWAYS_ALIVE_DOMAINS: set[str] = {
+    # Stack Exchange family (#211)
     "stackoverflow.com",
     "stackexchange.com",  # plus every *.stackexchange.com subdomain
     "serverfault.com",
@@ -34,6 +44,34 @@ ALWAYS_ALIVE_DOMAINS: set[str] = {
     "askubuntu.com",
     "mathoverflow.net",
     "stackapps.com",
+    # Known-anti-bot / JS-shell / paywalled (from
+    # data/host-blocklist-candidates.md, generated 2026-05-23 across a
+    # 506k-finding scan — every host below had 0 candidates produced
+    # despite tens to hundreds of real investigation attempts).
+    "npmjs.com",
+    "kalshi.com",
+    "polymarket.com",
+    "medium.com",
+    "openai.com",
+    "linkedin.com",
+    "dl.acm.org",
+    "ieeexplore.ieee.org",
+    "sciencedirect.com",
+    "glyphwiki.org",
+    "opendap.4tu.nl",
+    "play.picoctf.org",
+    "docs.signalfx.com",
+    "forums.welltrainedmind.com",
+    "experimentalhistory.substack.com",
+    "gseth.com",
+    "ecode360.com",
+    "eigenphi.io",
+    "notes.andymatuschak.org",
+    "vision.princeton.edu",
+    "afcd.foodstandards.gov.au",
+    "bibliography.lingpy.org",
+    "pyspedas.readthedocs.io",
+    "mfa-models.readthedocs.io",
 }
 
 # Domains that return 403/429 to bots but work fine in browsers.
