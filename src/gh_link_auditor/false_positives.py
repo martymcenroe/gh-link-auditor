@@ -72,6 +72,25 @@ ALWAYS_ALIVE_DOMAINS: set[str] = {
     "bibliography.lingpy.org",
     "pyspedas.readthedocs.io",
     "mfa-models.readthedocs.io",
+    # Round 2 (2026-05-26, #366): remaining 0%-yield hosts from the
+    # 2026-05-23 telemetry that were deferred in PR #358. None had any
+    # tier-1 candidate in tens-to-hundreds of real investigations. The
+    # exclusions per PR #358 (github.com, arxiv.org, doi.org, huggingface.co,
+    # web.archive.org, learn.microsoft.com, raw.githubusercontent.com)
+    # remain excluded -- those hosts have specific handlers or are useful
+    # signal sources.
+    "drive.google.com",
+    "asusrouter.vaskivskyi.com",
+    "opencollective.com",
+    "gitter.im",
+    "mapping-commons.github.io",
+    "facebook.github.io",
+    "cherry-rl.net",
+    "zh.wiktionary.org",
+    "youtube.com",
+    "mindspore.cn",
+    "gnu.org",
+    "img.shields.io",
 }
 
 # Domains that return 403/429 to bots but work fine in browsers.

@@ -443,6 +443,53 @@ class TestIsAlwaysAliveDomain:
     def test_http_scheme_too(self) -> None:
         assert is_always_alive_domain("http://stackoverflow.com/a/1") is True
 
+    # Round 2 wired hosts (#366, 2026-05-26). Each host had 0 tier-1
+    # candidates across tens-to-hundreds of real investigations in the
+    # 2026-05-23 telemetry; pin them so the next refactor of
+    # ALWAYS_ALIVE_DOMAINS doesn't silently drop them.
+    def test_drive_google_com(self) -> None:
+        assert is_always_alive_domain("https://drive.google.com/file/d/abc/view") is True
+
+    def test_asusrouter_vaskivskyi_com(self) -> None:
+        assert is_always_alive_domain("https://asusrouter.vaskivskyi.com/devices/") is True
+
+    def test_opencollective_com(self) -> None:
+        assert is_always_alive_domain("https://opencollective.com/example") is True
+
+    def test_gitter_im(self) -> None:
+        assert is_always_alive_domain("https://gitter.im/some-org/room") is True
+
+    def test_mapping_commons_github_io(self) -> None:
+        assert is_always_alive_domain("https://mapping-commons.github.io/dosdp/") is True
+
+    def test_facebook_github_io(self) -> None:
+        assert is_always_alive_domain("https://facebook.github.io/react/") is True
+
+    def test_cherry_rl_net(self) -> None:
+        assert is_always_alive_domain("https://cherry-rl.net/docs/") is True
+
+    def test_zh_wiktionary_org(self) -> None:
+        assert is_always_alive_domain("https://zh.wiktionary.org/wiki/test") is True
+
+    def test_youtube_com(self) -> None:
+        assert is_always_alive_domain("https://www.youtube.com/watch?v=abc") is True
+        assert is_always_alive_domain("https://youtube.com/watch?v=abc") is True
+
+    def test_mindspore_cn(self) -> None:
+        assert is_always_alive_domain("https://www.mindspore.cn/docs/") is True
+
+    def test_gnu_org(self) -> None:
+        assert is_always_alive_domain("https://www.gnu.org/software/bash/") is True
+        assert is_always_alive_domain("https://gnu.org/software/bash/") is True
+
+    def test_img_shields_io(self) -> None:
+        assert is_always_alive_domain("https://img.shields.io/badge/x-y-blue") is True
+
+    def test_github_io_does_not_match_other_subdomains(self) -> None:
+        # mapping-commons.github.io and facebook.github.io are specific; other
+        # *.github.io sites should NOT be blocked by these entries.
+        assert is_always_alive_domain("https://some-other-user.github.io/repo/") is False
+
     def test_unrelated_domain_not_skipped(self) -> None:
         assert is_always_alive_domain("https://example.com/") is False
 
