@@ -315,7 +315,8 @@ def derive_and_submit(
 
         for repo_full_name, repo_rows in repos.items():
             repo_url = f"https://github.com/{repo_full_name}"
-            if udb.is_blacklisted(repo_url):
+            maintainer = repo_full_name.partition("/")[0]
+            if udb.is_blacklisted(repo_url, maintainer):
                 skipped.append((repo_full_name, "blacklisted"))
                 continue
             if _has_open_pr(udb, repo_full_name):

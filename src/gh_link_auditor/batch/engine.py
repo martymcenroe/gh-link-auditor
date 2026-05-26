@@ -155,9 +155,10 @@ async def _process_single_repo(
             from gh_link_auditor.unified_db import UnifiedDatabase
 
             repo_url = f"https://github.com/{task.repo_full_name}"
+            maintainer = task.repo_full_name.partition("/")[0]
             udb = UnifiedDatabase(config.db_path)
             try:
-                if udb.is_blacklisted(repo_url):
+                if udb.is_blacklisted(repo_url, maintainer):
                     task.status = TaskStatus.SKIPPED
                     task.error_message = "blacklisted"
                     task.completed_at = now_utc()
