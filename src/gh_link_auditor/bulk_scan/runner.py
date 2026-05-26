@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from pathlib import Path
 from typing import Any
 
 from gh_link_auditor.bulk_scan import (
-    heartbeat,
     inventory,
     investigation,
     liveness,
@@ -29,8 +27,6 @@ from gh_link_auditor.bulk_scan import (
 from gh_link_auditor.bulk_scan.config import (
     ABORT_FILE,
     BATCH_SIZE,
-    HEARTBEAT_FILE,
-    HEARTBEAT_INTERVAL_S,
     INCLUDE_LANGUAGES,
     LIVENESS_CACHE_TTL_HOURS,
     QUALITY_SAMPLE_AFTER_N_CANDIDATES,
@@ -45,26 +41,6 @@ logger = logging.getLogger(__name__)
 
 def _abort_requested() -> bool:
     return Path(ABORT_FILE).exists()
-
-
-def _maybe_heartbeat(
-    db: UnifiedDatabase,
-    run_id: str,
-    last_hb: float,
-    *,
-    sample_median: float | None = None,
-) -> float:
-    now = time.monotonic()
-    if now - last_hb < HEARTBEAT_INTERVAL_S:
-        return last_hb
-    heartbeat.write_heartbeat(
-        db,
-        run_id,
-        HEARTBEAT_FILE,
-        sample_path=SAMPLE_FILE if Path(SAMPLE_FILE).exists() else None,
-        sample_median=sample_median,
-    )
-    return now
 
 
 def _maybe_write_sample(db: UnifiedDatabase, run_id: str) -> float | None:
@@ -130,7 +106,6 @@ def run_inventory(db: UnifiedDatabase, run_id: str, token: str | None = None) ->
     storage.update_run_status(db, run_id, "inventorying")
     api = inventory.build_api_client(token)
     raw = inventory.build_raw_client()
-    last_hb = 0.0
     try:
         while True:
             if _abort_requested():
@@ -172,7 +147,6 @@ def run_inventory(db: UnifiedDatabase, run_id: str, token: str | None = None) ->
                 except Exception as e:
                     logger.warning("inventory failed: %s :: %s", full_name, e)
                     storage.update_repo_status(db, run_id, full_name, "error", error=str(e)[:500])
-            last_hb = _maybe_heartbeat(db, run_id, last_hb)
     finally:
         api.close()
         raw.close()
@@ -287,7 +261,6 @@ def run_investigation(
     liveness_results: dict[str, dict],
 ) -> None:
     storage.update_run_status(db, run_id, "investigating")
-    last_hb = 0.0
     sample_median: float | None = None
     repo_dead_counts: dict[str, int] = {}
     repo_languages = _load_repo_languages(db, run_id)
@@ -382,7 +355,6 @@ def run_investigation(
         # (see _check_quality_stop_loss docstring; operator directive 2026-05-26).
         if i % BATCH_SIZE == 0:
             sample_median = _maybe_write_sample(db, run_id) or sample_median
-            last_hb = _maybe_heartbeat(db, run_id, last_hb, sample_median=sample_median)
 
     for repo, cnt in repo_dead_counts.items():
         storage.update_repo_status(db, run_id, repo, "investigated", dead_url_count=cnt)
@@ -473,7 +445,6 @@ def run_full(
         if run["status"] not in ("aborted", "done"):
             run_scoring(db, run_id)
 
-        heartbeat.write_heartbeat(db, run_id, HEARTBEAT_FILE)
         return storage.get_run(db, run_id) or {}
     finally:
         emitter.stop()

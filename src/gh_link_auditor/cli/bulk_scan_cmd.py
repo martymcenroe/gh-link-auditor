@@ -112,7 +112,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
     run_id = args.run_id or f"bulk-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     print(f"starting bulk-scan run: {run_id}")
     print(f"target: {args.target} repos | db: {args.db_path}")
-    print(f"heartbeat: see {Path('data/bulk-scan-heartbeat.txt').resolve()}")
+    print("progress: streamed to stderr via StatusEmitter (one line per 30s)")
     print(f"abort marker: touch {ABORT_FILE} to stop gracefully")
     from gh_link_auditor.bulk_scan.process_lock import LockBusyError
 
