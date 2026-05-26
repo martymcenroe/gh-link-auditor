@@ -79,6 +79,104 @@ class TestCmdStatus:
         assert rc == 1
         assert "not found" in out
 
+    def test_surfaces_investigation_buckets_when_present(self, tmp_path, capsys) -> None:
+        """#277: when investigation_state buckets are populated, the status
+        output must include them so the operator doesn't need a second tool."""
+        db_path = str(tmp_path / "x.db")
+        with UnifiedDatabase(db_path) as db:
+            storage.create_run(db, "r1", 100, {})
+            storage.update_run_status(db, "r1", "investigating")
+            for i in range(5):
+                storage.add_finding(
+                    db,
+                    "r1",
+                    f"owner/repo{i}",
+                    "README.md",
+                    1,
+                    f"https://x.test/{i}",
+                    candidate_url="",
+                    method="pending",
+                    tier=0,
+                    similarity_score=None,
+                    verified_live=False,
+                    confidence=0.0,
+                )
+            # Flip a few to investigated_with_candidate / no_candidate / skipped
+            db._conn.execute(
+                "UPDATE bulk_scan_findings SET investigation_state = 'investigated_with_candidate' "
+                "WHERE run_id = 'r1' AND line_number = 1 AND dead_url = 'https://x.test/0'"
+            )
+            db._conn.execute(
+                "UPDATE bulk_scan_findings SET investigation_state = 'investigated_no_candidate' "
+                "WHERE run_id = 'r1' AND line_number = 1 AND dead_url = 'https://x.test/1'"
+            )
+            db._conn.execute(
+                "UPDATE bulk_scan_findings SET investigation_state = 'investigated_no_candidate' "
+                "WHERE run_id = 'r1' AND line_number = 1 AND dead_url = 'https://x.test/2'"
+            )
+            db._conn.execute(
+                "UPDATE bulk_scan_findings SET investigation_state = 'skipped_alive' "
+                "WHERE run_id = 'r1' AND line_number = 1 AND dead_url = 'https://x.test/3'"
+            )
+            db._conn.commit()
+
+        rc = _cmd_status(_ns(db_path=db_path, run_id="r1"))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "investigation:" in out
+        assert "inv_with_cand:  1" in out
+        assert "inv_no_cand:    2" in out
+        assert "skipped_alive:  1" in out
+        # 1 with + 2 no => 1/3 = 33.3%
+        assert "yield:          33.3%" in out
+
+    def test_does_not_show_buckets_when_run_only_selecting(self, tmp_path, capsys) -> None:
+        """Before Stage 3 starts, the investigation block stays hidden so
+        the operator's status output isn't cluttered with zeros."""
+        db_path = str(tmp_path / "x.db")
+        with UnifiedDatabase(db_path) as db:
+            storage.create_run(db, "r1", 100, {})
+            # Default status is 'selecting'; no findings inserted.
+        rc = _cmd_status(_ns(db_path=db_path, run_id="r1"))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "investigation:" not in out
+
+    def test_shows_buckets_even_with_zero_real_investigations(self, tmp_path, capsys) -> None:
+        """A run that reached 'investigating' but had everything skipped must
+        still surface the skipped totals; yield must read 'n/a' rather than
+        triggering a divide-by-zero."""
+        db_path = str(tmp_path / "x.db")
+        with UnifiedDatabase(db_path) as db:
+            storage.create_run(db, "r1", 100, {})
+            storage.update_run_status(db, "r1", "investigating")
+            for i in range(3):
+                storage.add_finding(
+                    db,
+                    "r1",
+                    f"owner/repo{i}",
+                    "README.md",
+                    1,
+                    f"https://x.test/{i}",
+                    candidate_url="",
+                    method="pending",
+                    tier=0,
+                    similarity_score=None,
+                    verified_live=False,
+                    confidence=0.0,
+                )
+            db._conn.execute(
+                "UPDATE bulk_scan_findings SET investigation_state = 'skipped_blocklist' WHERE run_id = 'r1'"
+            )
+            db._conn.commit()
+
+        rc = _cmd_status(_ns(db_path=db_path, run_id="r1"))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "investigation:" in out
+        assert "skipped_block:  3" in out
+        assert "yield:          n/a" in out
+
 
 class TestCmdStop:
     def test_writes_abort_marker(self, tmp_path, capsys, monkeypatch) -> None:

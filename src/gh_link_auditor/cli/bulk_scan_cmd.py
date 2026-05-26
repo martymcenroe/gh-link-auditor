@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from gh_link_auditor.bulk_scan import scoring, storage
+from gh_link_auditor.bulk_scan import progress, scoring, storage
 from gh_link_auditor.bulk_scan.config import (
     ABORT_FILE,
     DEFAULT_TARGET_REPO_COUNT,
@@ -143,6 +143,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         total = storage.count_findings(db, run_id)
         surfaced = storage.count_findings(db, run_id, surfaced=True)
         median = scoring.quality_sample_median(db, run_id)
+        buckets = progress.investigation_buckets(db, run_id)
         print(f"run_id:           {run_id}")
         print(f"status:           {run['status']}")
         print(f"started_at:       {run['started_at']}")
@@ -155,6 +156,29 @@ def _cmd_status(args: argparse.Namespace) -> int:
             print(f"sample_median:    {median:.2f}")
         if run.get("quality_aborted"):
             print("QUALITY_ABORTED:  yes")
+        # #277: surface investigation_state buckets so the operator can
+        # see Stage 3 progress without a second tool. After heartbeat
+        # retirement (#369), this is the canonical out-of-band check.
+        non_pending = {k: v for k, v in buckets.items() if k != "pending"}
+        if non_pending or run["status"] in ("investigating", "scoring", "done", "quality_aborted"):
+            pending = buckets.get("pending", 0)
+            inv_no = buckets.get("investigated_no_candidate", 0)
+            inv_yes = buckets.get("investigated_with_candidate", 0)
+            derived = buckets.get("derived_candidate", 0)
+            skipped_alive = buckets.get("skipped_alive", 0)
+            skipped_lang = buckets.get("skipped_language", 0)
+            skipped_block = buckets.get("skipped_blocklist", 0)
+            real = inv_no + inv_yes
+            yield_str = f"{100.0 * inv_yes / real:.1f}%" if real else "n/a"
+            print("investigation:")
+            print(f"  pending:        {pending:,}")
+            print(f"  skipped_alive:  {skipped_alive:,}")
+            print(f"  skipped_lang:   {skipped_lang:,}")
+            print(f"  skipped_block:  {skipped_block:,}")
+            print(f"  inv_no_cand:    {inv_no:,}")
+            print(f"  inv_with_cand:  {inv_yes:,}")
+            print(f"  derived_cands:  {derived:,}")
+            print(f"  yield:          {yield_str}")
         return 0
 
 
