@@ -602,25 +602,9 @@ def score_r3_outsider_merge_rate(
             return _r3_score_from_rate(cached["merge_rate"], cached["sample_size"])
 
     if gh_get is None:
-        import json
-        import subprocess
+        from gh_link_auditor.preflight._subproc import gh_api_json
 
-        def gh_get(path: str) -> list[Any] | None:
-            try:
-                r = subprocess.run(
-                    ["gh", "api", path],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=30,
-                    check=False,
-                )
-                if r.returncode != 0 or not r.stdout.strip():
-                    return None
-                return json.loads(r.stdout)
-            except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-                return None
+        gh_get = gh_api_json
 
     owner = repo_full_name.partition("/")[0]
     pulls = gh_get(f"repos/{repo_full_name}/pulls?state=closed&per_page=20")
@@ -669,27 +653,9 @@ def score_r4_maintainer_structure(
 ) -> ScoreComponent:
     """5 pt for multi-committer / CODEOWNERS / org-owned; 2 pt for solo; 0 on fetch error."""
     if gh_get is None:
-        import json
-        import subprocess
+        from gh_link_auditor.preflight._subproc import gh_api_json
 
-        def gh_get(path: str) -> Any:
-            try:
-                r = subprocess.run(
-                    ["gh", "api", path],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=30,
-                    check=False,
-                )
-                if r.returncode != 0:
-                    return None
-                if not r.stdout.strip():
-                    return None
-                return json.loads(r.stdout)
-            except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-                return None
+        gh_get = gh_api_json
 
     # 1. Org-owned?
     repo_data = gh_get(f"repos/{repo_full_name}")
