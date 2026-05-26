@@ -172,6 +172,11 @@ class StatusEmitter:
 
     Started by runner.run_full() at the top, stopped in the finally block.
     Re-entrant safe: stop() is idempotent.
+
+    The daemon thread opens its OWN ``UnifiedDatabase`` (#390 / #F3):
+    sqlite3 connections have ``check_same_thread=True`` by default, so
+    sharing the caller's connection would raise ``ProgrammingError`` on
+    every poll tick and silently lose every status line.
     """
 
     def __init__(
@@ -180,7 +185,21 @@ class StatusEmitter:
         run_id: str,
         interval_s: float = DEFAULT_INTERVAL_S,
         log: logging.Logger | None = None,
+        *,
+        db_path: str | None = None,
     ) -> None:
+        # Resolve the DB path now so the daemon thread can open its own
+        # connection. Fall back to the supplied db's ``_db_path`` for
+        # backwards compatibility with callers that don't pass db_path.
+        resolved_db_path = db_path or getattr(db, "_db_path", None)
+        if not resolved_db_path:
+            raise ValueError(
+                "StatusEmitter needs a db_path -- pass db_path explicitly or "
+                "ensure the supplied UnifiedDatabase exposes _db_path."
+            )
+        self._db_path: str = str(resolved_db_path)
+        # _db is retained for backwards-compat in case any external caller
+        # touches it, but is NOT used from the daemon thread.
         self._db = db
         self._run_id = run_id
         self._interval_s = interval_s
@@ -204,30 +223,39 @@ class StatusEmitter:
             self._thread.join(timeout=self._interval_s + 5.0)
 
     def _run(self) -> None:
-        # First emission shortly after start so the operator sees the line
-        # before having to wait a full interval.
-        first_wait = min(2.0, self._interval_s)
-        if self._stop.wait(first_wait):
-            return
-        while not self._stop.is_set():
-            try:
-                snap = snapshot(self._db, self._run_id)
-                if snap:
-                    now_mono = time.monotonic()
-                    counts = snap["counts"]
-                    self._stage1_window.append((now_mono, counts.get("inventoried", 0) + counts.get("error", 0)))
-                    self._findings_window.append((now_mono, snap["total_findings"]))
-                    pending3 = snap.get("inv_buckets", {}).get("pending", 0)
-                    self._stage3_window.append((now_mono, snap["total_findings"] - pending3))
-                    line = render(
-                        snap,
-                        self._stage1_window,
-                        self._findings_window,
-                        self._stage3_window,
-                        self._started_mono,
-                    )
-                    self._log.info(line)
-            except Exception as exc:  # noqa: BLE001
-                self._log.warning("status emitter poll error: %s", exc)
-            if self._stop.wait(self._interval_s):
+        # Open a thread-local UnifiedDatabase. The caller's db._conn cannot
+        # be used from this thread (sqlite3 ProgrammingError); see #390.
+        thread_db = UnifiedDatabase(self._db_path)
+        try:
+            # First emission shortly after start so the operator sees the
+            # line before having to wait a full interval.
+            first_wait = min(2.0, self._interval_s)
+            if self._stop.wait(first_wait):
                 return
+            while not self._stop.is_set():
+                try:
+                    snap = snapshot(thread_db, self._run_id)
+                    if snap:
+                        now_mono = time.monotonic()
+                        counts = snap["counts"]
+                        self._stage1_window.append((now_mono, counts.get("inventoried", 0) + counts.get("error", 0)))
+                        self._findings_window.append((now_mono, snap["total_findings"]))
+                        pending3 = snap.get("inv_buckets", {}).get("pending", 0)
+                        self._stage3_window.append((now_mono, snap["total_findings"] - pending3))
+                        line = render(
+                            snap,
+                            self._stage1_window,
+                            self._findings_window,
+                            self._stage3_window,
+                            self._started_mono,
+                        )
+                        self._log.info(line)
+                except Exception as exc:  # noqa: BLE001
+                    self._log.warning("status emitter poll error: %s", exc)
+                if self._stop.wait(self._interval_s):
+                    return
+        finally:
+            try:
+                thread_db.close()
+            except Exception:  # noqa: BLE001
+                pass

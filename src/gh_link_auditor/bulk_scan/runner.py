@@ -455,7 +455,7 @@ def run_full(
             try:
                 from gh_link_auditor.bulk_scan.host_blocklist_telemetry import write_candidates_report
 
-                write_candidates_report(db, run_id, db_path=str(getattr(db, "_path", "")))
+                write_candidates_report(db, run_id, db_path=str(getattr(db, "_db_path", "")))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("host-blocklist-telemetry failed (non-fatal): %s", exc)
 
