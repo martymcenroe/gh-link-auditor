@@ -65,6 +65,8 @@ def fetch_repo_metadata(owner: str, repo: str) -> RepoQuality:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -94,6 +96,8 @@ def fetch_repo_metadata(owner: str, repo: str) -> RepoQuality:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -133,6 +137,8 @@ def fetch_contributing_guidelines(owner: str, repo: str) -> str:
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=15,
                 check=False,
             )

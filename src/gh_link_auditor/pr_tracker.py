@@ -72,6 +72,8 @@ def _fetch_pr_status(owner: str, repo: str, pr_number: int) -> dict:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -106,6 +108,8 @@ def _fetch_pr_comments(owner: str, repo: str, pr_number: int) -> list[dict]:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -193,6 +197,8 @@ def _check_maintainer_fixed(
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -210,6 +216,8 @@ def _check_maintainer_fixed(
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )

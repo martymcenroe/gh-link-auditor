@@ -47,6 +47,8 @@ def _run_gh(args: list[str], cwd: str | None = None) -> subprocess.CompletedProc
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=cwd,
             timeout=120,
             check=False,
@@ -285,6 +287,8 @@ def n6_submit_pr(state: PipelineState) -> PipelineState:
                 cwd=str(repo_dir),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
             )
 
@@ -300,6 +304,8 @@ def n6_submit_pr(state: PipelineState) -> PipelineState:
                 cwd=str(repo_dir),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
             )
             commit_msg = _generate_commit_message(fixes)
@@ -308,6 +314,8 @@ def n6_submit_pr(state: PipelineState) -> PipelineState:
                 cwd=str(repo_dir),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
             )
 
@@ -317,6 +325,8 @@ def n6_submit_pr(state: PipelineState) -> PipelineState:
                 cwd=str(repo_dir),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
             )
 
