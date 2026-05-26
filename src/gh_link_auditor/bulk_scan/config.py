@@ -38,13 +38,13 @@ QUALITY_MEDIAN_THRESHOLD = 0.7  # abort if first-100 median confidence drops bel
 RAM_WARN_MB = 1024
 RAM_ABORT_MB = 2048
 DISK_REFUSE_GB = 4.5  # refuse new writes if data dir exceeds this
-HEARTBEAT_INTERVAL_S = 300  # 5 min
 BATCH_SIZE = 100  # checkpoint frequency
 REPO_ERROR_BACKOFF_S = 60  # after 3 consecutive errors
 RATE_LIMIT_BACKOFF_MAX_S = 900  # 15 min cap
 
 # --- Files ---
-HEARTBEAT_FILE = "data/bulk-scan-heartbeat.txt"
+# bulk-scan-heartbeat.txt was retired in #369; in-process StatusEmitter
+# (PR #360) and tools/finish_stage{1,2,3}-status.txt are the replacements.
 SAMPLE_FILE = "data/bulk-scan-sample.md"
 REPORT_FILE = "data/bulk-scan-report.md"
 ABORT_FILE = "data/bulk-scan-abort"  # touch this to gracefully stop
