@@ -1,13 +1,20 @@
 """Rate-limit-aware GitHub REST API client for the bulk scan (#224).
 
-Wraps ``httpx.Client`` with three protections against secondary rate limits:
+Wraps ``httpx.Client`` with four protections against secondary rate limits:
 
-1. **Inter-request throttle** — enforces a minimum delay between requests
+1. **Inter-request throttle** -- enforces a minimum delay between requests
    (default 750ms = ~80 req/min, well under any documented GH limit).
-2. **Quota watermark** — when ``X-RateLimit-Remaining`` drops below a floor,
+2. **Quota watermark** -- when ``X-RateLimit-Remaining`` drops below a floor,
    sleep until ``X-RateLimit-Reset``.
-3. **Retry on 429 / secondary rate limit** — honors ``Retry-After``, falls back
-   to exponential backoff up to 15 min. Max 5 retries.
+3. **Per-request retry on 429 / secondary rate limit** -- honors ``Retry-After``,
+   falls back to exponential backoff up to 15 min. Max 5 retries.
+4. **Sticky cooldown circuit-breaker (#226)** -- when any request hits a
+   rate limit, every subsequent request across this client (process-wide
+   singleton) waits for the cooldown to clear BEFORE sending. Without it,
+   a 429 on one worker doesn't slow down 31 sibling workers, and the
+   per-request retry loops simultaneously exhaust against the same blocked
+   endpoint. The 2026-05-14 incident saw 7,373 of 7,500 repos error within
+   6 minutes for exactly this reason.
 
 GitHub's secondary rate limit fires on burst patterns (many requests in a short
 window) even when the primary 5K/hr is far from exhausted. This is the one that
@@ -18,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -58,11 +66,17 @@ class GitHubRateLimitedClient:
         self._last_request_t = 0.0
         self._remaining: int | None = None
         self._reset_at: datetime | None = None
+        # #226: sticky cooldown -- monotonic deadline. Every request waits
+        # until this time before sending. Set on every rate-limit response;
+        # shared across all worker threads using this client.
+        self._cooldown_until_mono: float = 0.0
+        self._cooldown_lock = threading.Lock()
         # Telemetry
         self.total_requests = 0
         self.total_429s = 0
         self.total_secondary_limits = 0
         self.total_sleep_s = 0.0
+        self.total_cooldown_waits = 0
 
     # ------------------------------------------------------------------
     # Public
@@ -87,6 +101,7 @@ class GitHubRateLimitedClient:
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         for attempt in range(self._max_retries + 1):
+            self._wait_for_cooldown()
             self._wait_for_quota()
             self._wait_for_request_spacing()
             r = self._client.request(method, url, **kwargs)
@@ -98,14 +113,20 @@ class GitHubRateLimitedClient:
             self._record_rate_limit(r)
             if attempt >= self._max_retries:
                 logger.warning(
-                    "max retries exhausted on %s — returning %d response",
+                    "max retries exhausted on %s -- returning %d response",
                     url,
                     r.status_code,
                 )
                 return r
             delay = self._compute_backoff(r, attempt)
+            # #226: extend the sticky cooldown so sibling worker threads
+            # also wait. Without this, 31 other workers will fire identical
+            # requests against the same blocked endpoint and exhaust their
+            # own retry budgets simultaneously.
+            self._extend_cooldown(delay)
             logger.warning(
-                "rate-limited (%d) on %s — backing off %.1fs (attempt %d/%d)",
+                "rate-limited (%d) on %s -- backing off %.1fs (attempt %d/%d); "
+                "sticky cooldown extended for all workers",
                 r.status_code,
                 url,
                 delay,
@@ -114,8 +135,41 @@ class GitHubRateLimitedClient:
             )
             self.total_sleep_s += delay
             time.sleep(delay)
-        # Unreachable — loop returns or sleeps then continues
+        # Unreachable -- loop returns or sleeps then continues
         raise RuntimeError("unreachable")
+
+    def _wait_for_cooldown(self) -> None:
+        """Block until the sticky cooldown (#226) clears.
+
+        Read-then-sleep pattern: hold the lock only long enough to read
+        the deadline; release before sleeping so concurrent workers see
+        the same deadline and serialize their sleeps independently.
+        """
+        with self._cooldown_lock:
+            deadline = self._cooldown_until_mono
+        now = time.monotonic()
+        if deadline <= now:
+            return
+        sleep_s = deadline - now
+        logger.warning("sticky cooldown active -- sleeping %.1fs (#226)", sleep_s)
+        self.total_sleep_s += sleep_s
+        self.total_cooldown_waits += 1
+        time.sleep(sleep_s)
+
+    def _extend_cooldown(self, delay_s: float) -> None:
+        """Push the sticky cooldown deadline forward, never backward.
+
+        If two threads hit 429 at nearly the same moment, both will call
+        ``_extend_cooldown``; the later (longer) deadline wins. Threads
+        that already entered ``_wait_for_cooldown`` will see the updated
+        deadline when they re-acquire the lock at next iteration. Within
+        the same retry loop the same thread sleeps for ``delay_s``
+        directly after this call -- the cooldown applies to OTHER threads.
+        """
+        new_deadline = time.monotonic() + delay_s
+        with self._cooldown_lock:
+            if new_deadline > self._cooldown_until_mono:
+                self._cooldown_until_mono = new_deadline
 
     def _wait_for_quota(self) -> None:
         """If remaining quota is below floor, sleep until reset."""

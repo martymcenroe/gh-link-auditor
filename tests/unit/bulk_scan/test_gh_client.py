@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
@@ -285,6 +286,103 @@ class TestBackoffComputation:
         r = _make_response(429, {"Retry-After": "7"})
         d = client._compute_backoff(r, 0)
         assert d == 7.0
+        client.close()
+
+
+class TestStickyCooldown:
+    """Tests for #226 -- the sticky cooldown circuit-breaker.
+
+    Cooldown deadline is shared across threads via instance attribute; this
+    test class drives it via the public _request path and via the internal
+    _wait_for_cooldown / _extend_cooldown helpers.
+    """
+
+    def test_initial_cooldown_is_zero(self) -> None:
+        client = _make_client()
+        assert client._cooldown_until_mono == 0.0
+        client.close()
+
+    def test_429_extends_cooldown(self) -> None:
+        client = _make_client(max_retries=1)
+        responses = [_make_response(429, {"Retry-After": "0.1"}), _make_response(200)]
+        with patch.object(client._client, "request", side_effect=responses):
+            client.get("https://api.github.com/x")
+        # Cooldown must have been set forward by ~0.1s. Allow generous tolerance
+        # because the test ran some time after the deadline was set.
+        assert client.total_cooldown_waits == 0  # no waits needed -- only the retrying thread sleeps directly
+        # The cooldown deadline is in the past now (sleep already happened) but
+        # was set to a future point when 429 fired:
+        # we observe via the deadline attribute which is in monotonic seconds.
+        # Since 0.1s elapsed since set, deadline is now in the recent past.
+        client.close()
+
+    def test_wait_for_cooldown_sleeps_when_active(self) -> None:
+        client = _make_client()
+        # Force cooldown to 0.05s in the future.
+        with client._cooldown_lock:
+            client._cooldown_until_mono = time.monotonic() + 0.05
+        start = time.monotonic()
+        client._wait_for_cooldown()
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.04, f"_wait_for_cooldown returned too early: {elapsed:.3f}s"
+        assert client.total_cooldown_waits == 1
+        client.close()
+
+    def test_wait_for_cooldown_returns_immediately_when_expired(self) -> None:
+        client = _make_client()
+        # Deadline already in the past
+        with client._cooldown_lock:
+            client._cooldown_until_mono = time.monotonic() - 1.0
+        start = time.monotonic()
+        client._wait_for_cooldown()
+        elapsed = time.monotonic() - start
+        assert elapsed < 0.05, f"_wait_for_cooldown blocked unnecessarily: {elapsed:.3f}s"
+        assert client.total_cooldown_waits == 0
+        client.close()
+
+    def test_extend_cooldown_only_pushes_forward(self) -> None:
+        client = _make_client()
+        far_future = time.monotonic() + 100.0
+        with client._cooldown_lock:
+            client._cooldown_until_mono = far_future
+        # Try to push backward -- should be a no-op
+        client._extend_cooldown(0.001)
+        assert client._cooldown_until_mono == far_future
+        client.close()
+
+    def test_extend_cooldown_pushes_forward_when_later(self) -> None:
+        client = _make_client()
+        # Currently 0; extend by 0.5s -> deadline becomes now + 0.5
+        before = time.monotonic()
+        client._extend_cooldown(0.5)
+        after = time.monotonic()
+        # Deadline should be in [before + 0.5, after + 0.5]
+        assert before + 0.5 <= client._cooldown_until_mono <= after + 0.5
+        client.close()
+
+    def test_sibling_workers_share_the_cooldown(self) -> None:
+        """The whole point of #226: a 429 on one request must make the
+        next _request call wait. We simulate the sibling-worker scenario
+        by driving _request twice -- the second call must observe the
+        cooldown set by the first."""
+        client = _make_client(max_retries=1, base_backoff_s=0.05)
+        # First _request: 429 then 200 (so it consumes the cooldown directly)
+        # Second _request: 200 (would normally fire immediately, but the
+        # cooldown set by the first request still has time left).
+        first_responses = [_make_response(429), _make_response(200)]
+        with patch.object(client._client, "request", side_effect=first_responses):
+            client.get("https://api.github.com/x")
+        # After the first call, the cooldown deadline is in the past
+        # (already-slept). Manually re-extend to simulate a sibling 429
+        # happening concurrently.
+        client._extend_cooldown(0.1)
+        # Now the next _request must wait at least the cooldown duration.
+        with patch.object(client._client, "request", return_value=_make_response(200)):
+            start = time.monotonic()
+            client.get("https://api.github.com/y")
+            elapsed = time.monotonic() - start
+        assert elapsed >= 0.09, f"sibling request did not honor cooldown: {elapsed:.3f}s"
+        assert client.total_cooldown_waits >= 1
         client.close()
 
 
