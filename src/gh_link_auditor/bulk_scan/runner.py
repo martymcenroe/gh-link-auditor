@@ -33,7 +33,6 @@ from gh_link_auditor.bulk_scan.config import (
     HEARTBEAT_INTERVAL_S,
     INCLUDE_LANGUAGES,
     LIVENESS_CACHE_TTL_HOURS,
-    QUALITY_MEDIAN_THRESHOLD,
     QUALITY_SAMPLE_AFTER_N_CANDIDATES,
     REPORT_FILE,
     SAMPLE_FILE,
@@ -84,21 +83,19 @@ def _maybe_write_sample(db: UnifiedDatabase, run_id: str) -> float | None:
 
 
 def _check_quality_stop_loss(db: UnifiedDatabase, run_id: str) -> bool:
-    """If quality drops below floor after sample threshold, abort the run."""
-    total = storage.count_findings(db, run_id)
-    if total < QUALITY_SAMPLE_AFTER_N_CANDIDATES:
-        return False
-    median = scoring.quality_sample_median(db, run_id)
-    if median is None:
-        return False
-    if median < QUALITY_MEDIAN_THRESHOLD:
-        logger.warning(
-            "quality stop-loss: median confidence %.2f < %.2f — aborting",
-            median,
-            QUALITY_MEDIAN_THRESHOLD,
-        )
-        storage.update_run_status(db, run_id, "quality_aborted", quality_aborted=True)
-        return True
+    """Permanently disabled (operator directive, 2026-05-26).
+
+    Earlier runs auto-aborted when a small early-sample median dropped
+    below a threshold. In practice this fires on almost every real run
+    partway through: the first batches are dominated by skip-paths
+    (skipped_alive / skipped_language) which contribute zero candidates,
+    so the median is 0 long before real investigations accumulate.
+
+    The operator-built finish_stage3.py docstring captures the correct
+    contract: "No quality stop-loss. This program does not abort itself
+    based on finding quality. It runs until everything is processed or
+    the operator signals shutdown." This integrated path now matches.
+    """
     return False
 
 
@@ -381,11 +378,10 @@ def run_investigation(
                         ),
                     )
 
-        # Mid-run sample + stop-loss check
+        # Mid-run sample write only -- no quality stop-loss
+        # (see _check_quality_stop_loss docstring; operator directive 2026-05-26).
         if i % BATCH_SIZE == 0:
             sample_median = _maybe_write_sample(db, run_id) or sample_median
-            if _check_quality_stop_loss(db, run_id):
-                return
             last_hb = _maybe_heartbeat(db, run_id, last_hb, sample_median=sample_median)
 
     for repo, cnt in repo_dead_counts.items():
@@ -474,7 +470,7 @@ def run_full(
             run_investigation(db, run_id, liveness_results)
 
         run = storage.get_run(db, run_id)
-        if run["status"] not in ("aborted", "quality_aborted", "done"):
+        if run["status"] not in ("aborted", "done"):
             run_scoring(db, run_id)
 
         heartbeat.write_heartbeat(db, run_id, HEARTBEAT_FILE)
