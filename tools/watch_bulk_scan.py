@@ -1,9 +1,13 @@
-"""Poll a running bulk-scan and print progress to the console.
+"""Stream a bulk-scan run's progress to stdout as a single status line per
+tick, matching the shape of tools/finish_stage{1,2,3}.py.
 
-Workaround for the CLI's missing logging output (fix landing as a PR).
-Until that ships, run this in a second terminal alongside the scan and
-you'll see the repo-count incrementing, findings count incrementing, and
-a rough rate + ETA.
+Out-of-process: polls the DB; never touches the running scan. Run in a
+second terminal alongside `ghla bulk-scan start`.
+
+Shape per tick (matches PR #271 / finish_stage*.py render_line):
+
+    [HH:MM:SS] stage<N> processed/total (pct%) bucket=<count> ...
+        findings+=<N> rate=<r>/min (5m: <r>/min) ETA=<T>
 
 Usage::
 
@@ -18,7 +22,8 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from datetime import datetime, timezone
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,12 +32,35 @@ sys.path.insert(0, str(ROOT / "src"))
 from gh_link_auditor.bulk_scan import scoring, storage  # noqa: E402
 from gh_link_auditor.unified_db import DEFAULT_DB_PATH, UnifiedDatabase  # noqa: E402
 
+# Map bulk_scan_runs.status -> stage number for the prefix
+STAGE_MAP = {
+    "selecting": 1,
+    "inventorying": 1,
+    "checking": 2,
+    "investigating": 3,
+    "scoring": 4,
+    "done": 5,
+    "quality_aborted": 5,
+    "aborted": 5,
+}
 
-def _resolve_run_id(db: UnifiedDatabase, requested: str | None) -> str | None:
-    if requested:
-        return requested
-    runs = storage.list_runs(db, limit=1)
-    return runs[0]["run_id"] if runs else None
+
+def _investigation_buckets(db: UnifiedDatabase, run_id: str) -> dict[str, int]:
+    """Group bulk_scan_findings by investigation_state for the run.
+
+    Mirrors finish_stage3.py's Stats buckets:
+    - pending: stage-2 left these for stage 3
+    - skipped_alive / skipped_language / skipped_blocklist: outside stage 3 work
+    - investigated_no_candidate / investigated_with_candidate: real stage-3 investigations
+    - derived_candidate: an inserted candidate row (cands+)
+    - dropped_unsafe_url: filtered out post-investigation
+    """
+    rows = db._conn.execute(
+        "SELECT investigation_state, COUNT(*) AS n FROM bulk_scan_findings "
+        "WHERE run_id = ? GROUP BY investigation_state",
+        (run_id,),
+    ).fetchall()
+    return {r["investigation_state"]: r["n"] for r in rows}
 
 
 def _snapshot(db: UnifiedDatabase, run_id: str) -> dict:
@@ -43,34 +71,136 @@ def _snapshot(db: UnifiedDatabase, run_id: str) -> dict:
     total = storage.count_findings(db, run_id)
     surfaced = storage.count_findings(db, run_id, surfaced=True)
     median = scoring.quality_sample_median(db, run_id)
+    inv_buckets = _investigation_buckets(db, run_id)
     return {
         "status": run["status"],
         "counts": counts,
-        "total": total,
+        "total_findings": total,
         "surfaced": surfaced,
         "median": median,
         "target": run.get("target_repo_count") or 0,
+        "inv_buckets": inv_buckets,
     }
 
 
-def _format_delta(curr: int, prev: int | None) -> str:
-    if prev is None:
-        return ""
-    d = curr - prev
-    return f" (+{d})" if d > 0 else " (=)" if d == 0 else f" ({d})"
+def _resolve_run_id(db: UnifiedDatabase, requested: str | None) -> str | None:
+    if requested:
+        return requested
+    runs = storage.list_runs(db, limit=1)
+    return runs[0]["run_id"] if runs else None
+
+
+def _eta_str(remaining: int, rate_per_min: float) -> str:
+    if rate_per_min <= 0:
+        return "?"
+    m = remaining / rate_per_min
+    return f"{m:.0f}m" if m < 60 else f"{m / 60:.1f}h"
+
+
+def _five_min_rate(window: deque) -> float:
+    """Rate per minute over the rolling window. Returns 0 if insufficient samples."""
+    if len(window) < 2:
+        return 0.0
+    ts0, v0 = window[0]
+    ts1, v1 = window[-1]
+    dt = ts1 - ts0
+    if dt <= 0:
+        return 0.0
+    return (v1 - v0) / (dt / 60.0)
+
+
+def _render(snap: dict, run_id: str, mono_window: deque, findings_window: deque, started_mono: float) -> str:
+    now = datetime.now().strftime("%H:%M:%S")
+    status = snap["status"]
+    stage = STAGE_MAP.get(status, 0)
+    counts = snap["counts"]
+    target = snap["target"]
+    inv = counts.get("inventoried", 0)
+    pend = counts.get("pending", 0)
+    err = counts.get("error", 0)
+    findings = snap["total_findings"]
+    surfaced = snap["surfaced"]
+
+    processed = inv + err
+    pct = (100.0 * processed / target) if target else 0.0
+
+    elapsed_min = (time.monotonic() - started_mono) / 60.0
+    overall_rate = (processed / elapsed_min) if elapsed_min > 0.1 else 0.0
+    recent_rate = _five_min_rate(mono_window)
+    findings_rate = _five_min_rate(findings_window)
+    remaining = max(target - processed, 0)
+    eta = _eta_str(remaining, recent_rate if recent_rate > 0 else overall_rate)
+
+    median_str = f" sample_median={snap['median']:.2f}" if snap.get("median") else ""
+
+    if stage == 1:
+        # Stage 1 -- selection + inventory. Per-repo progress is the headline.
+        return (
+            f"[{now}] stage1 {processed:,}/{target:,} ({pct:.1f}%) "
+            f"inventoried={inv:,} pending={pend:,} err={err:,} "
+            f"findings={findings:,} (5m: {findings_rate:+.0f}/min) "
+            f"rate={overall_rate:.1f}/min (5m: {recent_rate:.1f}/min) "
+            f"ETA={eta}"
+        )
+    if stage == 2:
+        # Stage 2 -- liveness. Findings probed is the headline; no per-repo bucket.
+        return (
+            f"[{now}] stage2 status=checking findings={findings:,} surfaced={surfaced:,} (5m: {findings_rate:+.0f}/min)"
+        )
+    if stage == 3:
+        # Stage 3 -- investigation. Mirror finish_stage3.py: processed/total
+        # with yield% over REAL investigations, candidate-insert count, rate,
+        # ETA -- not the surfaced count (that flips later at PR-submit).
+        buckets = snap.get("inv_buckets", {})
+        total_findings_local = findings
+        pending = buckets.get("pending", 0)
+        processed_findings = total_findings_local - pending
+        pct_proc = (100.0 * processed_findings / total_findings_local) if total_findings_local else 0.0
+        inv_with = buckets.get("investigated_with_candidate", 0)
+        inv_no = buckets.get("investigated_no_candidate", 0)
+        derived = buckets.get("derived_candidate", 0)
+        real_invs = inv_with + inv_no
+        yield_str = f"yield={100.0 * inv_with / real_invs:.1f}%" if real_invs else "yield=n/a"
+        skipped_total = (
+            buckets.get("skipped_alive", 0) + buckets.get("skipped_language", 0) + buckets.get("skipped_blocklist", 0)
+        )
+        # Rate based on the processed-findings delta in the rolling window
+        # (the findings_window samples track *total* findings; for stage 3
+        # the total is fixed and only `pending` shrinks. Pass processed.)
+        rate_per_min = _five_min_rate(findings_window)
+        eta_local = _eta_str(pending, rate_per_min if rate_per_min > 0 else overall_rate)
+        return (
+            f"[{now}] stage3 {processed_findings:,}/{total_findings_local:,} ({pct_proc:.1f}%) "
+            f"skipped={skipped_total:,} investigated={real_invs:,} {yield_str} "
+            f"cands+={derived:,} "
+            f"(5m: {rate_per_min:+.0f}/min) ETA={eta_local}"
+        )
+    if stage == 4:
+        return f"[{now}] stage4 scoring surfaced={surfaced:,}{median_str}"
+    if stage == 5:
+        return f"[{now}] stage5 status={status} surfaced={surfaced:,}/{findings:,}{median_str}"
+    return f"[{now}] status={status} (no progress data — stage unknown)"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("run_id", nargs="?", default=None)
     parser.add_argument("--interval", type=int, default=30, help="poll interval seconds (default 30)")
     parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH))
     args = parser.parse_args()
 
-    started_wall: float | None = None
-    first_inv: int | None = None
-    prev_inv: int | None = None
-    prev_total: int | None = None
+    started_mono = time.monotonic()
+    # Rolling windows: (monotonic_ts, value) per stage's relevant counter.
+    # mono_window tracks repo-processed (stage 1).
+    # findings_window tracks total_findings (stage 2) -- grows when new URLs probed.
+    # stage3_window tracks processed_findings = total - pending (stage 3) -- only
+    # this one moves during investigation.
+    mono_window: deque = deque(maxlen=10)
+    findings_window: deque = deque(maxlen=10)
+    stage3_window: deque = deque(maxlen=10)
 
     while True:
         try:
@@ -89,32 +219,22 @@ def main() -> int:
             print(f"run {run_id} not found", flush=True)
             return 1
 
-        now = datetime.now(timezone.utc).strftime("%H:%M:%S")
         counts = snap["counts"]
-        inv = counts.get("inventoried", 0)
-        pend = counts.get("pending", 0)
-        err = counts.get("error", 0)
-        if started_wall is None:
-            started_wall = time.time()
-            first_inv = inv
-        elapsed_min = (time.time() - started_wall) / 60
-        gained = inv - (first_inv or 0)
-        rate = (gained / elapsed_min) if elapsed_min > 0.1 else 0.0
-        remaining = max(snap["target"] - inv, 0)
-        eta_min = (remaining / rate) if rate > 0 else None
-        eta_str = f"ETA ~{eta_min:.0f}m" if eta_min is not None else "ETA n/a"
+        processed = counts.get("inventoried", 0) + counts.get("error", 0)
+        now_mono = time.monotonic()
+        mono_window.append((now_mono, processed))
+        findings_window.append((now_mono, snap["total_findings"]))
+        # stage 3: processed_findings = total - pending. Sample even outside
+        # stage 3 so when the transition happens the window already has data.
+        pending3 = snap.get("inv_buckets", {}).get("pending", 0)
+        stage3_window.append((now_mono, snap["total_findings"] - pending3))
 
-        print(
-            f"[{now}] {run_id} status={snap['status']:13s} "
-            f"inventoried={inv}/{snap['target']}{_format_delta(inv, prev_inv)} "
-            f"pending={pend} err={err} "
-            f"findings={snap['total']}{_format_delta(snap['total'], prev_total)} "
-            f"rate={rate:.1f}/min {eta_str}",
-            flush=True,
-        )
+        # Pick the window that matches the current stage so the (5m: ...) rate
+        # in the rendered line is the stage's relevant rate.
+        stage_for_window = STAGE_MAP.get(snap["status"], 0)
+        active_window = stage3_window if stage_for_window == 3 else findings_window
 
-        prev_inv = inv
-        prev_total = snap["total"]
+        print(_render(snap, run_id, mono_window, active_window, started_mono), flush=True)
 
         if snap["status"] in ("done", "quality_aborted", "aborted"):
             print(f"\nrun finished with status: {snap['status']}", flush=True)
