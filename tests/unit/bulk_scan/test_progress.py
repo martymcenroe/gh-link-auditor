@@ -221,3 +221,117 @@ def test_eta_str_minutes_when_under_60min() -> None:
 def test_eta_str_hours_when_over_60min() -> None:
     # 6000 remaining at 10/min -> 600m -> 10.0h
     assert progress._eta_str(6000, 10.0) == "10.0h"
+
+
+# ---------------------------------------------------------------------------
+# StatusEmitter thread-local DB (#390)
+# ---------------------------------------------------------------------------
+
+
+class TestStatusEmitterThreadLocalDb:
+    """Pin the #390 fix: StatusEmitter must NOT share the caller's
+    sqlite3 connection across threads. Each daemon-thread invocation
+    opens its own UnifiedDatabase using the supplied db_path.
+    """
+
+    def test_init_resolves_db_path_from_unified_database(self, tmp_path):
+        """When constructed with a UnifiedDatabase, StatusEmitter reads
+        ``_db_path`` so it can re-open in the daemon thread."""
+        from gh_link_auditor.bulk_scan import storage
+        from gh_link_auditor.bulk_scan.progress import StatusEmitter
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "ghla.db"
+        with UnifiedDatabase(str(db_path)) as db:
+            storage.create_run(db, "r1", 100, {})
+            emitter = StatusEmitter(db, "r1", interval_s=0.1)
+
+        assert emitter._db_path == str(db_path)
+
+    def test_init_accepts_explicit_db_path(self, tmp_path):
+        """The explicit ``db_path`` kwarg overrides the supplied db's
+        attribute (useful when the caller has a fake db without
+        ``_db_path``)."""
+        from gh_link_auditor.bulk_scan import storage
+        from gh_link_auditor.bulk_scan.progress import StatusEmitter
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "ghla.db"
+        with UnifiedDatabase(str(db_path)) as db:
+            storage.create_run(db, "r1", 100, {})
+            emitter = StatusEmitter(db, "r1", interval_s=0.1, db_path="/custom/path/x.db")
+
+        assert emitter._db_path == "/custom/path/x.db"
+
+    def test_init_raises_without_resolvable_db_path(self):
+        """A fake db without ``_db_path`` and no explicit db_path kwarg
+        must fail at __init__ rather than crash inside the daemon
+        thread where the error would be swallowed by the existing
+        try/except."""
+        import pytest
+
+        from gh_link_auditor.bulk_scan.progress import StatusEmitter
+
+        class FakeDbNoPath:
+            pass
+
+        with pytest.raises(ValueError, match="db_path"):
+            StatusEmitter(FakeDbNoPath(), "r1", interval_s=0.1)
+
+    def test_daemon_thread_emits_status_line_without_sqlite_error(self, tmp_path, caplog):
+        """The load-bearing regression test for #390. With the buggy
+        shared-connection code, the daemon thread's snapshot() call
+        raised sqlite3.ProgrammingError (different thread) and the
+        WARNING handler caught it -- no INFO lines ever appeared.
+        After the fix, INFO lines do appear and no WARNINGs about
+        thread misuse fire."""
+        import logging
+
+        from gh_link_auditor.bulk_scan import storage
+        from gh_link_auditor.bulk_scan.progress import StatusEmitter
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "ghla.db"
+        with UnifiedDatabase(str(db_path)) as db:
+            storage.create_run(db, "r1", 100, {})
+
+            caplog.set_level(logging.INFO, logger="gh_link_auditor.bulk_scan.progress")
+            emitter = StatusEmitter(db, "r1", interval_s=0.5)
+            emitter.start()
+            try:
+                # Wait long enough for the first emission (first_wait = 2.0,
+                # but capped at interval_s=0.5) plus a buffer.
+                time.sleep(1.5)
+            finally:
+                emitter.stop()
+
+        records = caplog.records
+        # No ProgrammingError-style warnings.
+        for r in records:
+            assert "objects created in a thread can only be used" not in r.getMessage(), (
+                f"daemon thread still sharing main-thread connection: {r.getMessage()}"
+            )
+        # At least one INFO line emitted (the status line).
+        info_lines = [r.getMessage() for r in records if r.levelno == logging.INFO]
+        assert info_lines, "StatusEmitter produced no INFO status lines"
+        assert any("stage" in line for line in info_lines), info_lines
+
+    def test_thread_local_db_is_closed_on_stop(self, tmp_path):
+        """The daemon thread should close its UnifiedDatabase when the
+        thread exits so the WAL file gets a chance to checkpoint and
+        the connection isn't leaked."""
+        from gh_link_auditor.bulk_scan import storage
+        from gh_link_auditor.bulk_scan.progress import StatusEmitter
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "ghla.db"
+        with UnifiedDatabase(str(db_path)) as db:
+            storage.create_run(db, "r1", 100, {})
+            emitter = StatusEmitter(db, "r1", interval_s=0.5)
+            emitter.start()
+            time.sleep(1.2)
+            emitter.stop()
+            # If the thread leaked its connection, the file would still
+            # be locked. The outer `with` close will catch leaks via
+            # exception on Windows.
+        # If we got here without exception, the thread cleaned up.
