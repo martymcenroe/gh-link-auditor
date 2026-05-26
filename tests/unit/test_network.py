@@ -1481,3 +1481,127 @@ class TestCheckUrlFinalUrl:
         assert result["status"] == "error"
         assert result["status_code"] == 404
         assert result["final_url"] == "https://example.com/missing"
+
+
+# ---------------------------------------------------------------------------
+# Failure-class classification (#261)
+# ---------------------------------------------------------------------------
+
+
+class TestFailureClassification:
+    """Cover the granular error_type values introduced for #261, plus the
+    coarse ``classify_failure`` helper used by downstream defer/retry
+    routing."""
+
+    def test_cert_invalid_distinct_from_dns_failure(self):
+        """SSLError must produce error_type='cert_invalid', not 'dns_failure'.
+        Pre-#261 the URLError(reason=SSLError) path got conflated with DNS."""
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(ssl.SSLError("CERTIFICATE_VERIFY_FAILED")),
+        ):
+            _, error_type, _, _, _ = _make_request(
+                "https://bad-cert.example",
+                "HEAD",
+                create_request_config(),
+            )
+        assert error_type == "cert_invalid"
+
+    def test_dns_failure_uses_gaierror_path(self):
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(socket.gaierror("nodename nor servname")),
+        ):
+            _, error_type, _, _, _ = _make_request(
+                "https://nx.invalid",
+                "HEAD",
+                create_request_config(),
+            )
+        assert error_type == "dns_failure"
+
+    def test_connection_refused_distinct_from_dns(self):
+        """ConnectionRefusedError must surface as 'connection_refused' --
+        distinct from 'dns_failure' so downstream knows the host resolved
+        but no service is listening."""
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(ConnectionRefusedError("connection refused")),
+        ):
+            _, error_type, _, _, _ = _make_request(
+                "https://refused.example",
+                "HEAD",
+                create_request_config(),
+            )
+        assert error_type == "connection_refused"
+
+    def test_transport_error_for_other_os_errors(self):
+        """Generic OSError that isn't a known subclass goes into
+        'transport_error' bucket, not the catch-all 'invalid'."""
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(OSError("network unreachable")),
+        ):
+            _, error_type, _, _, _ = _make_request(
+                "https://unreachable.example",
+                "HEAD",
+                create_request_config(),
+            )
+        assert error_type == "transport_error"
+
+    def test_classify_failure_temporary_for_cert(self):
+        """Operator note 2026-05-26 on #261: cert_invalid is OFTEN
+        TEMPORARY. classify_failure must return 'temporary' so downstream
+        routing defers re-check rather than proposing removal."""
+        from gh_link_auditor.network import classify_failure
+
+        assert classify_failure("cert_invalid") == "temporary"
+
+    def test_classify_failure_temporary_for_timeout_and_transport(self):
+        from gh_link_auditor.network import classify_failure
+
+        assert classify_failure("timeout") == "temporary"
+        assert classify_failure("transport_error") == "temporary"
+        assert classify_failure("connection_reset") == "temporary"
+
+    def test_classify_failure_durable_for_dns_and_refused(self):
+        from gh_link_auditor.network import classify_failure
+
+        assert classify_failure("dns_failure") == "durable"
+        assert classify_failure("connection_refused") == "durable"
+
+    def test_classify_failure_unknown_for_invalid_bucket(self):
+        from gh_link_auditor.network import classify_failure
+
+        assert classify_failure("invalid") == "unknown"
+
+    def test_classify_failure_none_for_no_error(self):
+        from gh_link_auditor.network import classify_failure
+
+        assert classify_failure(None) == "none"
+
+    def test_temporary_and_durable_are_disjoint(self):
+        from gh_link_auditor.network import ERROR_TYPES_DURABLE, ERROR_TYPES_TEMPORARY
+
+        assert ERROR_TYPES_TEMPORARY.isdisjoint(ERROR_TYPES_DURABLE)
+
+    def test_classify_status_failed_for_cert_invalid(self):
+        """Legacy '00008-schema' status field maps cert_invalid -> 'failed'.
+        The granular class lives on error_type / classify_failure, not on
+        the schema field."""
+        from gh_link_auditor.network import _classify_status
+
+        assert _classify_status(None, "cert_invalid") == "failed"
+        assert _classify_status(None, "connection_refused") == "failed"
+        assert _classify_status(None, "transport_error") == "failed"
+
+    def test_check_url_returns_failed_with_cert_invalid_error(self, no_retry_backoff_config):
+        """End-to-end: cert error -> RequestResult.status == 'failed' with
+        a cert-specific error message."""
+        with mock.patch(
+            "gh_link_auditor.network.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(ssl.SSLError("CERTIFICATE_VERIFY_FAILED")),
+        ):
+            result = check_url("https://bad-cert.example", backoff_config=no_retry_backoff_config)
+        assert result["status"] == "failed"
+        assert result["status_code"] is None
+        assert "certificate" in (result["error"] or "").lower()

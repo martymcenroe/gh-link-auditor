@@ -312,19 +312,38 @@ def _make_request(
         return exc.code, None, elapsed_ms, retry_after, final_url
     except urllib.error.URLError as exc:
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        reason_str = str(exc.reason)
-        if "timed out" in reason_str or isinstance(exc.reason, socket.timeout):
+        reason = exc.reason
+        # #261: distinguish failure classes so downstream can route per
+        # category. SSL/cert is OFTEN TEMPORARY (operator note 2026-05-26
+        # on issue #261): expired certs, CA chain hiccups, CDN edge issues.
+        # Downstream must NOT propose removal on first cert_invalid -- defer
+        # and re-check after N days instead.
+        if isinstance(reason, ssl.SSLError):
+            return None, "cert_invalid", elapsed_ms, None, None
+        if isinstance(reason, socket.timeout) or "timed out" in str(reason):
             return None, "timeout", elapsed_ms, None, None
-        # DNS / name resolution failures
-        if isinstance(exc.reason, OSError):
+        if isinstance(reason, ConnectionRefusedError):
+            return None, "connection_refused", elapsed_ms, None, None
+        if isinstance(reason, socket.gaierror):
             return None, "dns_failure", elapsed_ms, None, None
-        return None, "dns_failure", elapsed_ms, None, None
+        if isinstance(reason, OSError):
+            # Catch-all transport error: network unreachable, EHOSTUNREACH,
+            # other low-level OS errors. Distinct from DNS / refused / cert
+            # so downstream can decide retry policy per class.
+            return None, "transport_error", elapsed_ms, None, None
+        return None, "transport_error", elapsed_ms, None, None
+    except ssl.SSLError:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return None, "cert_invalid", elapsed_ms, None, None
     except socket.timeout:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         return None, "timeout", elapsed_ms, None, None
     except (http.client.RemoteDisconnected, ConnectionResetError, BrokenPipeError):
         elapsed_ms = int((time.monotonic() - start) * 1000)
         return None, "connection_reset", elapsed_ms, None, None
+    except ConnectionRefusedError:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return None, "connection_refused", elapsed_ms, None, None
     except Exception:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         return None, "invalid", elapsed_ms, None, None
@@ -352,6 +371,11 @@ def _classify_status(status_code: int | None, error_type: str | None) -> str:
         return "disconnected"
     if error_type == "dns_failure":
         return "failed"
+    # #261: cert_invalid, connection_refused, transport_error all map to
+    # "failed" for the legacy schema field; the granular category lives
+    # on the error_type / failure_class side of the RequestResult.
+    if error_type in {"cert_invalid", "connection_refused", "transport_error"}:
+        return "failed"
     if error_type == "invalid":
         return "invalid"
 
@@ -361,6 +385,67 @@ def _classify_status(status_code: int | None, error_type: str | None) -> str:
         return "error"
 
     return "invalid"
+
+
+# ---------------------------------------------------------------------------
+# Failure-class classification (#261)
+# ---------------------------------------------------------------------------
+
+
+# Granular error-type values that ``_make_request`` may produce. Each
+# represents a distinct probe-failure mode -- the downstream "what to do"
+# decision (defer / retry / propose removal / no-op) routes off these.
+ERROR_TYPES_TEMPORARY: frozenset[str] = frozenset(
+    {
+        # #261 operator note 2026-05-26: cert errors are OFTEN TEMPORARY.
+        # Expired certs renewed within hours; CA chain hiccups; CDN edge
+        # issues. NEVER propose removal on first cert_invalid -- defer.
+        "cert_invalid",
+        # Server load / network jitter -- often transient.
+        "timeout",
+        # Network-unreachable / EHOSTUNREACH / other low-level OS errors
+        # that may be operator-side (VPN flap, DNS resolver bouncing).
+        "transport_error",
+        # Server temporarily closed the socket.
+        "connection_reset",
+    }
+)
+ERROR_TYPES_DURABLE: frozenset[str] = frozenset(
+    {
+        # DNS resolution returned NXDOMAIN. More likely permanent than
+        # cert errors, but DNS can hiccup too -- caller may still want to
+        # re-check after N days before proposing removal.
+        "dns_failure",
+        # Service explicitly refused connection on the port. Durable in
+        # the sense that the operator/service has to act to bring it back.
+        "connection_refused",
+    }
+)
+ERROR_TYPES_UNKNOWN: frozenset[str] = frozenset({"invalid"})
+
+
+def classify_failure(error_type: str | None) -> str:
+    """Map a granular probe error_type to a coarse handling class.
+
+    Returns one of:
+
+    - ``"temporary"`` -- cert / timeout / transport / connection reset.
+      Downstream should defer (re-check after N days) before proposing
+      any removal PR. The operator clarified on #261 (2026-05-26) that
+      cert_invalid in particular is frequently transient.
+    - ``"durable"`` -- DNS NXDOMAIN / connection refused. More likely to
+      survive across re-checks, but still warrants a defer-then-confirm
+      cycle before a removal proposal.
+    - ``"unknown"`` -- catch-all "invalid" bucket; treat conservatively.
+    - ``"none"`` -- error_type is None (no failure observed).
+    """
+    if error_type is None:
+        return "none"
+    if error_type in ERROR_TYPES_TEMPORARY:
+        return "temporary"
+    if error_type in ERROR_TYPES_DURABLE:
+        return "durable"
+    return "unknown"
 
 
 def _build_error_message(status_code: int | None, error_type: str | None) -> str | None:
@@ -379,6 +464,15 @@ def _build_error_message(status_code: int | None, error_type: str | None) -> str
         return "Remote server disconnected"
     if error_type == "dns_failure":
         return "DNS resolution failed"
+    if error_type == "cert_invalid":
+        # #261: surface the granular class so operator logs distinguish
+        # cert from DNS-dead. Action class is "temporary" -- see
+        # classify_failure().
+        return "SSL/TLS certificate error"
+    if error_type == "connection_refused":
+        return "Connection refused"
+    if error_type == "transport_error":
+        return "Network transport error"
     if error_type == "invalid":
         return "Unexpected error during request"
 
