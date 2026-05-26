@@ -37,6 +37,7 @@ from gh_link_auditor.bulk_scan.config import (
     REPORT_FILE,
     SAMPLE_FILE,
 )
+from gh_link_auditor.false_positives import is_always_alive_domain
 from gh_link_auditor.unified_db import UnifiedDatabase
 
 logger = logging.getLogger(__name__)
@@ -321,6 +322,17 @@ def run_investigation(
             skipped_non_english += 1
             continue
         url = finding["dead_url"]
+        # Host-level skip: known-anti-bot / JS-shell / paywalled hosts measured
+        # to yield zero useful candidates across hundreds of investigations
+        # (data/host-blocklist-candidates.md). Earlier we only filtered these
+        # at inventory time; rows already in bulk_scan_findings from a prior
+        # scan or a slow-to-update blocklist still arrive here. Skip them now
+        # instead of burning archive_client / CDX cycles.
+        if is_always_alive_domain(url):
+            with db._conn:
+                _mark_finding(db, finding["id"], "skipped_alive")
+            skipped_alive += 1
+            continue
         result = liveness_results.get(url, {})
         if not liveness.is_dead_result(result):
             # URL is alive — mark and move on (#244: no DELETE, preserves Stage 1 mapping)
