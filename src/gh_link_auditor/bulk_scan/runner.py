@@ -445,6 +445,20 @@ def run_full(
         if run["status"] not in ("aborted", "done"):
             run_scoring(db, run_id)
 
+        # #258: at end-of-run, derive host-blocklist candidates from this
+        # run's telemetry and write a markdown report for operator review.
+        # The operator wires approved hosts into ALWAYS_ALIVE_DOMAINS via a
+        # focused PR (see #366 for the canonical pattern). NEVER mutate the
+        # static blocklist silently.
+        final_run = storage.get_run(db, run_id)
+        if final_run and final_run["status"] == "done":
+            try:
+                from gh_link_auditor.bulk_scan.host_blocklist_telemetry import write_candidates_report
+
+                write_candidates_report(db, run_id, db_path=str(getattr(db, "_path", "")))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("host-blocklist-telemetry failed (non-fatal): %s", exc)
+
         return storage.get_run(db, run_id) or {}
     finally:
         emitter.stop()
