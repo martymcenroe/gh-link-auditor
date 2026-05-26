@@ -77,7 +77,15 @@ def _gh_search_one_slice(
         "fullName,stargazersCount,pushedAt,isArchived,visibility",
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+            timeout=120,
+        )
         return json.loads(result.stdout)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
         stderr_tail = ""
