@@ -8,8 +8,9 @@ from gh_link_auditor.unified_db import SCHEMA_VERSION, UnifiedDatabase
 
 class TestSchemaV7:
     def test_schema_version(self) -> None:
-        # Phase B preflight (#285) bumped to v9.
-        assert SCHEMA_VERSION == 9
+        # Phase B preflight (#285) bumped to v9; #343 bumped to v10 for
+        # head_status / get_status columns on url_check_cache.
+        assert SCHEMA_VERSION == 10
 
     def test_fresh_db_has_bulk_scan_tables(self, tmp_path) -> None:
         with UnifiedDatabase(str(tmp_path / "x.db")) as db:

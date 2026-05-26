@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import http.client
 import ipaddress
+import logging
 import random
 import socket
 import ssl
@@ -20,6 +21,8 @@ import urllib.request
 from email.utils import parsedate_to_datetime
 from typing import NotRequired, TypedDict
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration data structures (LLD §2.3)
@@ -49,7 +52,7 @@ class RequestResult(TypedDict):
     url: str  # The requested URL
     status: str  # ok, error, timeout, failed, disconnected, invalid
     status_code: int | None  # HTTP status code or None
-    method: str  # HEAD or GET
+    method: str  # HEAD or GET (whichever yielded the final status)
     response_time_ms: int | None  # Response time in milliseconds
     retries: int  # Number of retries attempted
     error: str | None  # Error description if not ok
@@ -57,6 +60,14 @@ class RequestResult(TypedDict):
     # Optional via NotRequired so pre-#315 call sites that build RequestResult dicts
     # without this key remain valid TypedDict constructions.
     final_url: NotRequired[str | None]
+    # HEAD-specific status code (#343). Always populated when an HTTP request was
+    # actually attempted; None when no HEAD request happened (e.g., invalid-URL
+    # short-circuits). Lets downstream code see "URL is HEAD-strict" patterns
+    # (HEAD 4xx + GET 2xx) without re-probing.
+    head_status_code: NotRequired[int | None]
+    # GET-specific status code (#343). None when HEAD-only succeeded and no
+    # GET fallback was attempted. Populated when HEAD→GET fallback fired.
+    get_status_code: NotRequired[int | None]
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +571,10 @@ def check_url(
     retries = 0
     get_fallback_attempted = False
     browser_ua_attempted = False
+    # Track the status from each method separately so callers can detect
+    # HEAD-strict URLs (HEAD 4xx + GET 2xx) without re-probing (#343).
+    head_status_recorded: int | None = None
+    get_status_recorded: int | None = None
 
     # Use a while loop (per reviewer suggestion) for cleaner retry/fallback logic.
     while True:
@@ -568,6 +583,10 @@ def check_url(
             method,
             request_config,
         )
+        if method == "HEAD":
+            head_status_recorded = status_code
+        else:
+            get_status_recorded = status_code
 
         # Success — 2xx/3xx
         if status_code is not None and 200 <= status_code < 400:
@@ -580,12 +599,19 @@ def check_url(
                 retries=retries,
                 error=None,
                 final_url=final_url,
+                head_status_code=head_status_recorded,
+                get_status_code=get_status_recorded,
             )
 
         retry_ok, try_get = should_retry(status_code, error_type)
 
         # HEAD→GET fallback (403/405) — not counted as a retry
         if try_get and not get_fallback_attempted:
+            logger.info(
+                "url_check head_to_get_fallback url=%s head_status=%s",
+                url,
+                head_status_recorded,
+            )
             method = "GET"
             get_fallback_attempted = True
             continue
@@ -636,6 +662,8 @@ def check_url(
                 retries=retries,
                 error=_build_error_message(status_code, error_type),
                 final_url=final_url,
+                head_status_code=head_status_recorded,
+                get_status_code=get_status_recorded,
             )
 
         # Retryable — check if we have retries left
@@ -656,4 +684,6 @@ def check_url(
             retries=retries,
             error=_build_error_message(status_code, error_type),
             final_url=final_url,
+            head_status_code=head_status_recorded,
+            get_status_code=get_status_recorded,
         )

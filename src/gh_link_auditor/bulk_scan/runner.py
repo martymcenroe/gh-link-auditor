@@ -236,6 +236,8 @@ def run_liveness(db: UnifiedDatabase, run_id: str) -> dict[str, dict]:
             final_url=result.get("final_url"),
             is_bot_blocked=bool(result.get("is_bot_blocked")),
             ttl_hours=LIVENESS_CACHE_TTL_HOURS,
+            head_status=result.get("head_status_code"),
+            get_status=result.get("get_status_code"),
         )
 
     fresh = liveness.check_urls_bulk(to_probe, on_result=_persist)

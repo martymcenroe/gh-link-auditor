@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 class UnifiedDatabase:
@@ -247,6 +247,8 @@ class UnifiedDatabase:
         """)
 
         # --- url_check_cache: URL check results (#122) ---
+        # head_status / get_status added in v10 (#343) so callers can detect
+        # HEAD-strict URLs (HEAD 4xx + GET 2xx) without re-probing.
         c.execute("""
             CREATE TABLE IF NOT EXISTS url_check_cache (
                 url TEXT PRIMARY KEY,
@@ -254,6 +256,8 @@ class UnifiedDatabase:
                 final_url TEXT,
                 is_bot_blocked INTEGER DEFAULT 0,
                 retry_count INTEGER DEFAULT 0,
+                head_status INTEGER,
+                get_status INTEGER,
                 last_checked_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL
             )
@@ -437,6 +441,8 @@ class UnifiedDatabase:
             self._migrate_v7_to_v8()
         if from_version <= 8:
             self._migrate_v8_to_v9()
+        if from_version <= 9:
+            self._migrate_v9_to_v10()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -681,6 +687,27 @@ class UnifiedDatabase:
         c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
         c.commit()
         logger.info("Migration to v9 complete")
+
+    # ------------------------------------------------------------------
+    # Migration v9 -> v10: head_status + get_status on url_check_cache (#343)
+    # ------------------------------------------------------------------
+
+    def _migrate_v9_to_v10(self) -> None:
+        logger.info("Migrating schema v9 → v10")
+        c = self._conn
+        # If url_check_cache exists, add the new columns. If it doesn't,
+        # the table will be created with the new columns by the next
+        # _create_all_tables call (which CREATE TABLE IF NOT EXISTS) so
+        # nothing to do here.
+        cols = {row[1] for row in c.execute("PRAGMA table_info(url_check_cache)").fetchall()}
+        if cols:
+            if "head_status" not in cols:
+                c.execute("ALTER TABLE url_check_cache ADD COLUMN head_status INTEGER")
+            if "get_status" not in cols:
+                c.execute("ALTER TABLE url_check_cache ADD COLUMN get_status INTEGER")
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        c.commit()
+        logger.info("Migration to v10 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db
@@ -1115,19 +1142,29 @@ class UnifiedDatabase:
         is_bot_blocked: bool = False,
         retry_count: int = 0,
         ttl_hours: int = 24,
+        head_status: int | None = None,
+        get_status: int | None = None,
     ) -> None:
         now = datetime.now(timezone.utc)
-        expires = now.replace(hour=now.hour + ttl_hours) if ttl_hours < 24 else now.replace(day=now.day + 1)
-        # Simpler: just add hours
         from datetime import timedelta
 
         expires = now + timedelta(hours=ttl_hours)
         self._conn.execute(
             """INSERT OR REPLACE INTO url_check_cache
             (url, http_status, final_url, is_bot_blocked, retry_count,
-             last_checked_at, expires_at)
-            VALUES (?,?,?,?,?,?,?)""",
-            (url, http_status, final_url, int(is_bot_blocked), retry_count, now.isoformat(), expires.isoformat()),
+             head_status, get_status, last_checked_at, expires_at)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                url,
+                http_status,
+                final_url,
+                int(is_bot_blocked),
+                retry_count,
+                head_status,
+                get_status,
+                now.isoformat(),
+                expires.isoformat(),
+            ),
         )
         self._conn.commit()
 
@@ -1139,7 +1176,7 @@ class UnifiedDatabase:
         ).fetchone()
         if row is None:
             return None
-        return {
+        result = {
             "url": row["url"],
             "http_status": row["http_status"],
             "final_url": row["final_url"],
@@ -1147,6 +1184,15 @@ class UnifiedDatabase:
             "retry_count": row["retry_count"],
             "last_checked_at": row["last_checked_at"],
         }
+        # head_status / get_status are v10+ columns (#343). Older rows may not
+        # have them; older code paths shouldn't break if they're absent.
+        try:
+            result["head_status"] = row["head_status"]
+            result["get_status"] = row["get_status"]
+        except (IndexError, KeyError):
+            result["head_status"] = None
+            result["get_status"] = None
+        return result
 
     # ------------------------------------------------------------------
     # Preflight caches (#285)
