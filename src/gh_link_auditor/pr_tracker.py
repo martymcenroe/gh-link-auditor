@@ -399,7 +399,7 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
             repo_url = f"https://github.com/{outcome.repo_full_name}"
             new_status = _determine_status(api_data)
 
-            if not udb.is_blacklisted(repo_url):
+            if not udb.is_blacklisted(repo_url, owner):
                 hostile = _find_hostile_comments(owner, repo, pr_number)
                 if hostile:
                     first = hostile[0]
@@ -424,7 +424,7 @@ def refresh_pr_outcomes(db_path: Path) -> list[PROutcome]:
                 # Still open — check for unresponsive timeout
                 days_open = (now - outcome.submitted_at).days
                 if days_open >= _UNRESPONSIVE_DAYS:
-                    if not udb.is_blacklisted(repo_url):
+                    if not udb.is_blacklisted(repo_url, owner):
                         expiry = now + timedelta(days=_UNRESPONSIVE_EXPIRY_DAYS)
                         udb.add_to_blacklist(
                             repo_url=repo_url,

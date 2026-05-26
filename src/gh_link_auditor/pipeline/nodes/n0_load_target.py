@@ -175,7 +175,7 @@ def n0_load_target(state: PipelineState) -> PipelineState:
             if db_path:
                 udb = UnifiedDatabase(db_path)
                 repo_url = f"https://github.com/{owner}/{repo}"
-                if udb.is_blacklisted(repo_url):
+                if udb.is_blacklisted(repo_url, owner):
                     state["errors"] = state.get("errors", []) + [f"Repo {repo_url} is blacklisted"]
                     udb.close()
                     return state
