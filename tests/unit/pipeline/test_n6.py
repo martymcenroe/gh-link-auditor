@@ -36,6 +36,34 @@ def _make_fix(
     )
 
 
+@contextmanager
+def _fake_link_auditor_pat(token: str = "ghp_fake_campaign"):
+    """Module-level fake yielding a campaign-scoped token (#397/#398).
+
+    Used to mock ``link_auditor_pat_session`` in tests that invoke
+    ``n6_submit_pr`` — n6 opens this once per submission and passes the
+    yielded token down to ``_fork_repo`` and ``_create_pr``.
+    """
+    yield token
+
+
+class _SessionEntryCounter:
+    """Context-manager factory that counts entries (#398).
+
+    Used to assert ``n6_submit_pr`` enters the session exactly once and
+    that helper functions never open their own session.
+    """
+
+    def __init__(self, token: str = "ghp_fake_campaign") -> None:
+        self.entries = 0
+        self.token = token
+
+    @contextmanager
+    def __call__(self):
+        self.entries += 1
+        yield self.token
+
+
 class TestApplyFixes:
     """Tests for _apply_fixes()."""
 
@@ -214,6 +242,10 @@ class TestN6SubmitPr:
 
         with (
             patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=_fake_link_auditor_pat,
+            ),
+            patch(
                 "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
                 return_value="testuser/repo",
             ),
@@ -254,6 +286,10 @@ class TestN6SubmitPr:
         readme.write_text("Check [link](https://old.example.com/page) here.\n")
 
         with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=_fake_link_auditor_pat,
+            ),
             patch(
                 "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
                 return_value="testuser/repo",
@@ -297,6 +333,10 @@ class TestN6SubmitPr:
 
         with (
             patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=_fake_link_auditor_pat,
+            ),
+            patch(
                 "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
                 return_value="testuser/repo",
             ),
@@ -329,9 +369,15 @@ class TestN6SubmitPr:
         state["repo_name_short"] = "repo"
         state["fixes"] = [_make_fix()]
 
-        with patch(
-            "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
-            side_effect=RuntimeError("fork failed: permission denied"),
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=_fake_link_auditor_pat,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
+                side_effect=RuntimeError("fork failed: permission denied"),
+            ),
         ):
             result = n6_submit_pr(state)
 
@@ -354,6 +400,10 @@ class TestN6SubmitPr:
 
         with (
             patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=_fake_link_auditor_pat,
+            ),
+            patch(
                 "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
                 return_value="testuser/repo",
             ),
@@ -366,14 +416,85 @@ class TestN6SubmitPr:
 
         assert "pr_url" not in result
 
+    def test_enters_link_auditor_session_exactly_once(self, tmp_path: Path) -> None:
+        """#398: a successful submission must trigger exactly one pinentry.
+
+        Two `with link_auditor_pat_session()` blocks (the pre-refactor state)
+        would trigger pinentry twice and leave two PAT-byte copies in heap
+        for GC. One block is strictly better for both UX and security.
+        """
+        state = create_initial_state(target="https://github.com/org/repo")
+        state["target_type"] = "url"
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+        state["fixes"] = [_make_fix()]
+        state["reviewed_verdicts"] = []
+
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        readme = clone_dir / "README.md"
+        readme.write_text("Check [link](https://old.example.com/page) here.\n")
+
+        counter = _SessionEntryCounter()
+        with (
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=counter,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._fork_repo",
+                return_value="testuser/repo",
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._clone_fork",
+                return_value=clone_dir,
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._get_default_branch",
+                return_value="main",
+            ),
+            patch(
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr._create_pr",
+                return_value=("https://github.com/org/repo/pull/42", 42),
+            ),
+            patch("subprocess.run", return_value=_mock_completed("")),
+        ):
+            result = n6_submit_pr(state)
+
+        assert counter.entries == 1, f"expected single decrypt, got {counter.entries}"
+        assert result.get("pr_url") == "https://github.com/org/repo/pull/42"
+
+    def test_propagates_link_auditor_session_failure_to_state_errors(self) -> None:
+        """#397/#398: a missing campaign PAT bubbles up as a state error.
+
+        When operator hasn't run the one-time gpg-encrypt for the
+        campaign PAT, link_auditor_pat_session raises. n6's existing
+        try/except surfaces it as a structured state["errors"] entry
+        — same shape as fork-failure / git-failure handling.
+        """
+        state = create_initial_state(target="https://github.com/org/repo")
+        state["target_type"] = "url"
+        state["repo_owner"] = "org"
+        state["repo_name_short"] = "repo"
+        state["fixes"] = [_make_fix()]
+
+        @contextmanager
+        def boom(*_a, **_kw):
+            raise RuntimeError("campaign PAT unavailable: file missing")
+            yield  # unreachable
+
+        with patch(
+            "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+            side_effect=boom,
+        ):
+            result = n6_submit_pr(state)
+
+        assert any("campaign PAT unavailable" in e for e in result.get("errors", []))
+        assert "pr_url" not in result
+
 
 class TestForkRepo:
-    """Tests for _fork_repo() — classic-PAT REST implementation (issue #185)."""
-
-    @staticmethod
-    @contextmanager
-    def _fake_classic_pat(token: str = "ghp_fake_classic"):
-        yield token
+    """Tests for _fork_repo() — caller-provides-PAT (issue #398)."""
 
     def test_returns_fork_full_name(self) -> None:
         from gh_link_auditor.pipeline.nodes.n6_submit_pr import _fork_repo
@@ -383,19 +504,13 @@ class TestForkRepo:
             status_code=202,
             body={"full_name": "martymcenroe/upstream-repo"},
         )
-        with (
-            patch(
-                "gh_link_auditor.classic_pat.classic_pat_session",
-                side_effect=self._fake_classic_pat,
-            ),
-            patch("httpx.post", return_value=fake_response) as mock_post,
-        ):
-            result = _fork_repo("upstream-org", "upstream-repo")
+        with patch("httpx.post", return_value=fake_response) as mock_post:
+            result = _fork_repo("upstream-org", "upstream-repo", "ghp_fake_campaign")
 
         assert result == "martymcenroe/upstream-repo"
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/upstream-org/upstream-repo/forks"
         headers = mock_post.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer ghp_fake_classic"
+        assert headers["Authorization"] == "Bearer ghp_fake_campaign"
         assert headers["Accept"] == "application/vnd.github+json"
 
     def test_raises_on_api_error(self) -> None:
@@ -403,39 +518,39 @@ class TestForkRepo:
         from tests.fakes.http import FakeHTTPResponse
 
         fake_response = FakeHTTPResponse(status_code=403, body={"message": "forbidden"})
+        with patch("httpx.post", return_value=fake_response):
+            with pytest.raises(Exception):
+                _fork_repo("org", "repo", "ghp_fake_campaign")
+
+    def test_does_not_open_session_internally(self) -> None:
+        """#398: _fork_repo must NOT open link_auditor_pat_session itself.
+
+        The caller (n6_submit_pr) owns the PAT context. Helpers receive
+        the decrypted token as a parameter so the whole submission lives
+        inside one with-block (single decrypt + single heap copy).
+        """
+        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _fork_repo
+        from tests.fakes.http import FakeHTTPResponse
+
+        counter = _SessionEntryCounter()
+        fake_response = FakeHTTPResponse(
+            status_code=202,
+            body={"full_name": "martymcenroe/upstream-repo"},
+        )
         with (
             patch(
-                "gh_link_auditor.classic_pat.classic_pat_session",
-                side_effect=self._fake_classic_pat,
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=counter,
             ),
             patch("httpx.post", return_value=fake_response),
         ):
-            with pytest.raises(Exception):
-                _fork_repo("org", "repo")
+            _fork_repo("org", "repo", "ghp_fake_campaign")
 
-    def test_propagates_classic_pat_decryption_failure(self) -> None:
-        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _fork_repo
-
-        @contextmanager
-        def boom(*_a, **_kw):
-            raise RuntimeError("classic PAT unavailable")
-            yield  # unreachable
-
-        with patch(
-            "gh_link_auditor.classic_pat.classic_pat_session",
-            side_effect=boom,
-        ):
-            with pytest.raises(RuntimeError, match="classic PAT"):
-                _fork_repo("org", "repo")
+        assert counter.entries == 0, "helper opened a session it should not own"
 
 
 class TestCreatePr:
-    """Tests for _create_pr() — classic-PAT REST implementation (issue #185)."""
-
-    @staticmethod
-    @contextmanager
-    def _fake_classic_pat(token: str = "ghp_fake_classic"):
-        yield token
+    """Tests for _create_pr() — caller-provides-PAT (issue #398)."""
 
     def test_returns_url_and_number(self) -> None:
         from gh_link_auditor.pipeline.nodes.n6_submit_pr import _create_pr
@@ -448,18 +563,14 @@ class TestCreatePr:
                 "number": 42,
             },
         )
-        with (
-            patch(
-                "gh_link_auditor.classic_pat.classic_pat_session",
-                side_effect=self._fake_classic_pat,
-            ),
-            patch("httpx.post", return_value=fake_response) as mock_post,
-        ):
-            url, number = _create_pr("org", "repo", "user:branch", "main", "title", "body")
+        with patch("httpx.post", return_value=fake_response) as mock_post:
+            url, number = _create_pr("org", "repo", "user:branch", "main", "title", "body", "ghp_fake_campaign")
 
         assert url == "https://github.com/org/repo/pull/42"
         assert number == 42
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/org/repo/pulls"
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer ghp_fake_campaign"
         payload = mock_post.call_args.kwargs["json"]
         assert payload == {
             "title": "title",
@@ -473,15 +584,30 @@ class TestCreatePr:
         from tests.fakes.http import FakeHTTPResponse
 
         fake_response = FakeHTTPResponse(status_code=422, body={"message": "invalid"})
+        with patch("httpx.post", return_value=fake_response):
+            with pytest.raises(Exception):
+                _create_pr("org", "repo", "user:branch", "main", "t", "b", "ghp_fake_campaign")
+
+    def test_does_not_open_session_internally(self) -> None:
+        """#398: _create_pr must NOT open link_auditor_pat_session itself."""
+        from gh_link_auditor.pipeline.nodes.n6_submit_pr import _create_pr
+        from tests.fakes.http import FakeHTTPResponse
+
+        counter = _SessionEntryCounter()
+        fake_response = FakeHTTPResponse(
+            status_code=201,
+            body={"html_url": "https://github.com/org/repo/pull/42", "number": 42},
+        )
         with (
             patch(
-                "gh_link_auditor.classic_pat.classic_pat_session",
-                side_effect=self._fake_classic_pat,
+                "gh_link_auditor.pipeline.nodes.n6_submit_pr.link_auditor_pat_session",
+                side_effect=counter,
             ),
             patch("httpx.post", return_value=fake_response),
         ):
-            with pytest.raises(Exception):
-                _create_pr("org", "repo", "user:branch", "main", "t", "b")
+            _create_pr("org", "repo", "user:branch", "main", "t", "b", "ghp_fake_campaign")
+
+        assert counter.entries == 0, "helper opened a session it should not own"
 
 
 class TestCloneFork:

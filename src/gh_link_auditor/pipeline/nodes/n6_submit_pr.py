@@ -15,6 +15,7 @@ from pathlib import Path
 
 import httpx
 
+from gh_link_auditor.classic_pat import link_auditor_pat_session
 from gh_link_auditor.pipeline.state import FixPatch, PipelineState
 
 logger = logging.getLogger(__name__)
@@ -62,13 +63,13 @@ def _run_gh(args: list[str], cwd: str | None = None) -> subprocess.CompletedProc
         raise RuntimeError(msg) from exc
 
 
-def _fork_repo(owner: str, repo: str) -> str:
-    """Fork a repository via the GitHub REST API + classic PAT.
+def _fork_repo(owner: str, repo: str, pat: str) -> str:
+    """Fork a repository via the GitHub REST API.
 
-    The fine-grained PAT can't fork arbitrary external repos (issue #185),
-    so we route this call through the classic PAT in-process context
-    manager (ADR-0216). The PAT lives only in the heap during the `with`
-    block.
+    The caller (``n6_submit_pr``) holds the decrypted campaign PAT in a
+    single ``with link_auditor_pat_session()`` block and passes the
+    token in; this helper does NOT open any context manager itself. See
+    LLD-397-398 (issue #398) for the single-decrypt rationale.
 
     Idempotent: POST /forks against an already-forked repo returns the
     existing fork.
@@ -76,18 +77,16 @@ def _fork_repo(owner: str, repo: str) -> str:
     Args:
         owner: Upstream repository owner.
         repo: Repository name.
+        pat: Decrypted campaign PAT (``public_repo`` scope, #397).
 
     Returns:
         Fork full name from the API response, e.g. "martymcenroe/flask".
     """
-    from gh_link_auditor.classic_pat import classic_pat_session
-
-    with classic_pat_session() as pat:
-        r = httpx.post(
-            f"{_GH_API}/repos/{owner}/{repo}/forks",
-            headers={**_GH_API_HEADERS_BASE, "Authorization": f"Bearer {pat}"},
-            timeout=_GH_API_TIMEOUT_S,
-        )
+    r = httpx.post(
+        f"{_GH_API}/repos/{owner}/{repo}/forks",
+        headers={**_GH_API_HEADERS_BASE, "Authorization": f"Bearer {pat}"},
+        timeout=_GH_API_TIMEOUT_S,
+    )
     if r.status_code >= 400:
         msg = f"GitHub fork API failed for {owner}/{repo}: HTTP {r.status_code} — {r.text[:200]}"
         raise RuntimeError(msg)
@@ -101,12 +100,14 @@ def _create_pr(
     base: str,
     title: str,
     body: str,
+    pat: str,
 ) -> tuple[str, int]:
-    """Open a cross-fork PR via the GitHub REST API + classic PAT.
+    """Open a cross-fork PR via the GitHub REST API.
 
-    The fine-grained PAT can't open cross-fork PRs against arbitrary
-    external repos (issue #185), so this routes through the classic PAT
-    in-process context manager (ADR-0216).
+    The caller (``n6_submit_pr``) holds the decrypted campaign PAT in a
+    single ``with link_auditor_pat_session()`` block and passes the
+    token in; this helper does NOT open any context manager itself. See
+    LLD-397-398 (issue #398) for the single-decrypt rationale.
 
     Args:
         upstream_owner: Owner of the upstream (target) repo.
@@ -115,19 +116,17 @@ def _create_pr(
         base: Base branch on upstream (e.g. "main").
         title: PR title.
         body: PR body (Markdown).
+        pat: Decrypted campaign PAT (``public_repo`` scope, #397).
 
     Returns:
         Tuple of (html_url, pr_number) from the API response.
     """
-    from gh_link_auditor.classic_pat import classic_pat_session
-
-    with classic_pat_session() as pat:
-        r = httpx.post(
-            f"{_GH_API}/repos/{upstream_owner}/{upstream_repo}/pulls",
-            json={"title": title, "head": head, "base": base, "body": body},
-            headers={**_GH_API_HEADERS_BASE, "Authorization": f"Bearer {pat}"},
-            timeout=_GH_API_TIMEOUT_S,
-        )
+    r = httpx.post(
+        f"{_GH_API}/repos/{upstream_owner}/{upstream_repo}/pulls",
+        json={"title": title, "head": head, "base": base, "body": body},
+        headers={**_GH_API_HEADERS_BASE, "Authorization": f"Bearer {pat}"},
+        timeout=_GH_API_TIMEOUT_S,
+    )
     if r.status_code >= 400:
         msg = (
             f"GitHub PR-create API failed for {upstream_owner}/{upstream_repo} "
@@ -270,103 +269,109 @@ def n6_submit_pr(state: PipelineState) -> PipelineState:
         return state
 
     try:
-        # Step 1: Fork
-        fork_full_name = _fork_repo(repo_owner, repo_name_short)
-        logger.info("N6: Fork ready: %s", fork_full_name)
+        # Single classic-PAT session per submission (#398).
+        # Holds the campaign-scoped PAT (#397, public_repo only) in heap
+        # for the fork → clone → push → PR-create sequence. One pinentry
+        # prompt; one immutable-string copy in heap floating for GC.
+        with link_auditor_pat_session() as pat:
+            # Step 1: Fork
+            fork_full_name = _fork_repo(repo_owner, repo_name_short, pat)
+            logger.info("N6: Fork ready: %s", fork_full_name)
 
-        with tempfile.TemporaryDirectory(prefix="ghla-pr-") as tmp_dir:
-            work_dir = Path(tmp_dir)
+            with tempfile.TemporaryDirectory(prefix="ghla-pr-") as tmp_dir:
+                work_dir = Path(tmp_dir)
 
-            # Step 2: Clone fork
-            repo_dir = _clone_fork(fork_full_name, work_dir)
+                # Step 2: Clone fork
+                repo_dir = _clone_fork(fork_full_name, work_dir)
 
-            # Step 3: Create branch
-            branch_name = "fix/dead-links"
-            subprocess.run(
-                ["git", "checkout", "-b", branch_name],
-                cwd=str(repo_dir),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-            )
+                # Step 3: Create branch
+                branch_name = "fix/dead-links"
+                subprocess.run(
+                    ["git", "checkout", "-b", branch_name],
+                    cwd=str(repo_dir),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                )
 
-            # Step 4: Apply fixes
-            modified = _apply_fixes(repo_dir, fixes)
-            if not modified:
-                logger.warning("N6: No files were modified after applying fixes")
-                return state
+                # Step 4: Apply fixes
+                modified = _apply_fixes(repo_dir, fixes)
+                if not modified:
+                    logger.warning("N6: No files were modified after applying fixes")
+                    return state
 
-            # Step 5: Commit
-            subprocess.run(
-                ["git", "add"] + modified,
-                cwd=str(repo_dir),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-            )
-            commit_msg = _generate_commit_message(fixes)
-            subprocess.run(
-                ["git", "commit", "-m", commit_msg],
-                cwd=str(repo_dir),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-            )
+                # Step 5: Commit
+                subprocess.run(
+                    ["git", "add"] + modified,
+                    cwd=str(repo_dir),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                )
+                commit_msg = _generate_commit_message(fixes)
+                subprocess.run(
+                    ["git", "commit", "-m", commit_msg],
+                    cwd=str(repo_dir),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                )
 
-            # Step 6: Push to fork
-            subprocess.run(
-                ["git", "push", "origin", branch_name],
-                cwd=str(repo_dir),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-            )
+                # Step 6: Push to fork
+                subprocess.run(
+                    ["git", "push", "origin", branch_name],
+                    cwd=str(repo_dir),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                )
 
-            # Step 7: Generate PR title and body
-            from gh_link_auditor.pipeline.pr_message import (
-                generate_pr_body_from_fixes,
-                generate_pr_title_from_fixes,
-            )
+                # Step 7: Generate PR title and body
+                from gh_link_auditor.pipeline.pr_message import (
+                    generate_pr_body_from_fixes,
+                    generate_pr_title_from_fixes,
+                )
 
-            pr_title = generate_pr_title_from_fixes(fixes)
-            verdicts = state.get("reviewed_verdicts", [])
-            pr_body = generate_pr_body_from_fixes(fixes, verdicts)
+                pr_title = generate_pr_title_from_fixes(fixes)
+                verdicts = state.get("reviewed_verdicts", [])
+                pr_body = generate_pr_body_from_fixes(fixes, verdicts)
 
-            # Step 8: Create PR from fork → upstream (classic-PAT REST, #185)
-            default_branch = _get_default_branch(repo_owner, repo_name_short)
-            fork_owner = fork_full_name.split("/")[0]
+                # Step 8: Create PR (campaign PAT, #397/#398 — same `pat` as fork)
+                default_branch = _get_default_branch(repo_owner, repo_name_short)
+                fork_owner = fork_full_name.split("/")[0]
 
-            pr_url, pr_number = _create_pr(
-                upstream_owner=repo_owner,
-                upstream_repo=repo_name_short,
-                head=f"{fork_owner}:{branch_name}",
-                base=default_branch,
-                title=pr_title,
-                body=pr_body,
-            )
+                pr_url, pr_number = _create_pr(
+                    upstream_owner=repo_owner,
+                    upstream_repo=repo_name_short,
+                    head=f"{fork_owner}:{branch_name}",
+                    base=default_branch,
+                    title=pr_title,
+                    body=pr_body,
+                    pat=pat,
+                )
 
-            state["pr_url"] = pr_url
-            state["pr_number"] = pr_number
-            logger.info("N6: PR created: %s", pr_url)
+                state["pr_url"] = pr_url
+                state["pr_number"] = pr_number
+                logger.info("N6: PR created: %s", pr_url)
 
-            db_path = state.get("db_path")
-            if db_path:
-                from gh_link_auditor.pr_tracker import update_trust_on_submit
-                from gh_link_auditor.unified_db import UnifiedDatabase
+                db_path = state.get("db_path")
+                if db_path:
+                    from gh_link_auditor.pr_tracker import update_trust_on_submit
+                    from gh_link_auditor.unified_db import UnifiedDatabase
 
-                try:
-                    with UnifiedDatabase(db_path) as udb:
-                        update_trust_on_submit(udb, f"{repo_owner}/{repo_name_short}")
-                except Exception as trust_exc:
-                    logger.warning("N6: trust update skipped: %s", trust_exc)
+                    try:
+                        with UnifiedDatabase(db_path) as udb:
+                            update_trust_on_submit(udb, f"{repo_owner}/{repo_name_short}")
+                    except Exception as trust_exc:
+                        logger.warning("N6: trust update skipped: %s", trust_exc)
 
     except RuntimeError as exc:
         state["errors"] = state.get("errors", []) + [f"N6: {exc}"]
