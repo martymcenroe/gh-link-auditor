@@ -17,6 +17,7 @@ from enum import Enum
 from urllib.parse import quote, unquote, urlparse
 
 from gh_link_auditor.archive_client import ArchiveClient
+from gh_link_auditor.domain_rebrand import find_rebrand_target
 from gh_link_auditor.false_positives import PARKING_DOMAINS
 from gh_link_auditor.github_resolver import GitHubResolver
 from gh_link_auditor.redirect_resolver import RedirectResolver, SSRFBlocked
@@ -46,6 +47,7 @@ class InvestigationMethod(Enum):
     SITEMAP_SEARCH = "sitemap_search"
     WIKIPEDIA_SUGGEST = "wikipedia_suggest"
     GITHUB_API_REDIRECT = "github_api_redirect"
+    DOMAIN_REBRAND = "domain_rebrand"
     ARCHIVE_ONLY = "archive_only"
 
 
@@ -474,6 +476,36 @@ class LinkDetective:
                         log.append(f"GitHub redirect: {dead_url} -> {new_file_url}")
             except Exception as e:
                 log.append(f"GitHub resolution failed: {e}")
+
+        # 9.5. Domain-rebrand sunset table (#262).
+        # If the dead URL's host is in the sunset table (e.g. play.picoctf.org
+        # -> learn.cylabacademy.org), propose the rebranded URL as a
+        # candidate. The host's been retired or migrated, so the URL-level
+        # redirect resolver above can't recover the new URL on its own.
+        # verify_live: the redirect resolver verifies actual reachability of
+        # the rebranded target before we surface this as a high-confidence
+        # candidate; otherwise the sunset table itself can rot.
+        try:
+            rebrand_target = find_rebrand_target(dead_url)
+        except Exception as exc:  # noqa: BLE001
+            rebrand_target = None
+            log.append(f"Domain-rebrand lookup failed: {exc}")
+        if rebrand_target is not None:
+            verified = False
+            try:
+                verified = self._redirect_resolver.verify_live(rebrand_target)
+            except Exception as exc:  # noqa: BLE001
+                log.append(f"Domain-rebrand verify_live failed: {exc}")
+            similarity = 0.9 if verified else 0.5
+            candidates.append(
+                CandidateReplacement(
+                    url=rebrand_target,
+                    method=InvestigationMethod.DOMAIN_REBRAND,
+                    similarity_score=similarity,
+                    verified_live=verified,
+                )
+            )
+            log.append(f"Domain-rebrand candidate {rebrand_target} (verified_live={verified}, #262)")
 
         # 10. Archive-only fallback
         if archive_snapshot and not any(c.verified_live for c in candidates):
