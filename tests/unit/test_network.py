@@ -81,6 +81,69 @@ class TestCheckUrlSuccessHead:
         assert result["error"] is None
         assert result["url"] == "https://example.com"
         assert isinstance(result["response_time_ms"], int)
+        # #343: head_status_code populated on direct HEAD success; get_status_code None
+        assert result["head_status_code"] == 200
+        assert result["get_status_code"] is None
+
+
+class TestCheckUrlHeadStrictTracking:
+    """#343: When HEAD→GET fallback fires, both statuses are recorded on
+    the RequestResult so downstream code can detect HEAD-strict URLs
+    without re-probing."""
+
+    def test_head_403_get_200_records_both(self, no_retry_backoff_config):
+        """HEAD returns 403, GET fallback returns 200 — both recorded."""
+        call_count = [0]
+
+        def _urlopen_factory(req, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call is HEAD → 403
+                raise urllib.error.HTTPError(
+                    url="https://example.com",
+                    code=403,
+                    msg="Forbidden",
+                    hdrs=None,  # type: ignore[arg-type]
+                    fp=None,
+                )
+            # Second call is GET → 200
+            return _mock_urlopen_response(status=200)
+
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", side_effect=_urlopen_factory):
+            result = check_url(
+                "https://example.com",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] == "ok"
+        assert result["status_code"] == 200
+        assert result["method"] == "GET"
+        assert result["head_status_code"] == 403
+        assert result["get_status_code"] == 200
+
+    def test_both_404_records_both(self, no_retry_backoff_config):
+        """HEAD and GET both 404 (fallback attempted, both dead) — both
+        statuses recorded so downstream can see 'truly dead, not HEAD-strict'."""
+
+        def _urlopen_factory(req, **kwargs):
+            raise urllib.error.HTTPError(
+                url="https://example.com",
+                code=404,
+                msg="Not Found",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=None,
+            )
+
+        with mock.patch("gh_link_auditor.network.urllib.request.urlopen", side_effect=_urlopen_factory):
+            result = check_url(
+                "https://example.com/nope",
+                backoff_config=no_retry_backoff_config,
+            )
+
+        assert result["status"] != "ok"
+        assert result["status_code"] == 404
+        assert result["head_status_code"] == 404
+        assert result["get_status_code"] == 404
 
 
 # ---------------------------------------------------------------------------
@@ -1337,6 +1400,7 @@ class TestCheckUrlFullFlow:
         assert result["status"] == "ok"
         assert isinstance(result, dict)
         # Verify all required keys are present, including final_url (#315)
+        # and head_status_code/get_status_code (#343)
         expected_keys = {
             "url",
             "status",
@@ -1346,6 +1410,8 @@ class TestCheckUrlFullFlow:
             "retries",
             "error",
             "final_url",
+            "head_status_code",
+            "get_status_code",
         }
         assert set(result.keys()) == expected_keys
 

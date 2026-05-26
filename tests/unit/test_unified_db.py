@@ -1064,3 +1064,66 @@ class TestMigrationV8ToV9:
         with UnifiedDatabase(db_file) as db:
             row = db._conn.execute("SELECT version FROM schema_version").fetchone()
             assert row["version"] == SCHEMA_VERSION
+
+
+class TestMigrationV9ToV10:
+    """#343: head_status + get_status columns added to url_check_cache."""
+
+    def test_migrate_adds_head_status_and_get_status_columns(self, tmp_path):
+        db_file = str(tmp_path / "v9.db")
+        # Build a v9 database: open + close, then downgrade the version and
+        # drop the new columns so the next open triggers v9 -> v10.
+        with UnifiedDatabase(db_file) as db:
+            db._conn.execute("UPDATE schema_version SET version = 9")
+            # Rebuild url_check_cache without the new columns (simulating v9)
+            db._conn.execute("DROP TABLE IF EXISTS url_check_cache")
+            db._conn.execute(
+                """CREATE TABLE url_check_cache (
+                    url TEXT PRIMARY KEY,
+                    http_status INTEGER,
+                    final_url TEXT,
+                    is_bot_blocked INTEGER DEFAULT 0,
+                    retry_count INTEGER DEFAULT 0,
+                    last_checked_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )"""
+            )
+            db._conn.commit()
+
+        # Re-open: should run v9 -> v10 migration
+        with UnifiedDatabase(db_file) as db:
+            row = db._conn.execute("SELECT version FROM schema_version").fetchone()
+            assert row["version"] == SCHEMA_VERSION
+            cols = {r[1] for r in db._conn.execute("PRAGMA table_info(url_check_cache)").fetchall()}
+            assert "head_status" in cols
+            assert "get_status" in cols
+
+    def test_cache_url_check_persists_both_statuses(self, tmp_path):
+        db_file = str(tmp_path / "v10.db")
+        with UnifiedDatabase(db_file) as db:
+            db.cache_url_check(
+                url="https://x.example/page",
+                http_status=200,
+                final_url="https://x.example/page",
+                head_status=403,
+                get_status=200,
+            )
+            row = db.get_cached_url_check("https://x.example/page")
+            assert row is not None
+            assert row["http_status"] == 200
+            assert row["head_status"] == 403
+            assert row["get_status"] == 200
+
+    def test_cache_url_check_defaults_keep_old_callers_working(self, tmp_path):
+        db_file = str(tmp_path / "v10.db")
+        with UnifiedDatabase(db_file) as db:
+            # Old call shape (no head_status / get_status) must still work.
+            db.cache_url_check(
+                url="https://y.example/page",
+                http_status=200,
+                final_url=None,
+            )
+            row = db.get_cached_url_check("https://y.example/page")
+            assert row is not None
+            assert row["head_status"] is None
+            assert row["get_status"] is None
