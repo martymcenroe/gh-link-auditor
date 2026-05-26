@@ -323,6 +323,86 @@ class TestArchiveOnlyFallback:
 
 
 # ---------------------------------------------------------------------------
+# Domain-rebrand sunset table (#262)
+# ---------------------------------------------------------------------------
+
+
+class TestDomainRebrand:
+    def test_sunset_host_produces_domain_rebrand_candidate(self):
+        """play.picoctf.org is in the sunset table -> emit a DOMAIN_REBRAND
+        candidate even when nothing else surfaces."""
+        detective = _make_detective()
+        # No URL-level redirects, no archive, no heuristics, no GH redirect.
+        detective._redirect_resolver = FakeRedirectResolver()
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        report = detective.investigate("https://play.picoctf.org/challenges", "error")
+
+        rebrand = [
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.DOMAIN_REBRAND
+        ]
+        assert len(rebrand) == 1
+        assert rebrand[0].url == "https://learn.cylabacademy.org/challenges"
+        # No live verification stubbed -> not verified, similarity 0.5
+        assert rebrand[0].verified_live is False
+        assert rebrand[0].similarity_score == 0.5
+
+    def test_verified_live_rebrand_has_higher_similarity(self):
+        """When verify_live succeeds, the rebrand candidate is more
+        confident -- similarity 0.9 instead of 0.5."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver(
+            live_urls={"https://element.io/foo/room"},
+        )
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        report = detective.investigate("https://gitter.im/foo/room", "error")
+
+        rebrand = [
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.DOMAIN_REBRAND
+        ]
+        assert len(rebrand) == 1
+        assert rebrand[0].url == "https://element.io/foo/room"
+        assert rebrand[0].verified_live is True
+        assert rebrand[0].similarity_score == 0.9
+
+    def test_unknown_host_emits_no_rebrand(self):
+        """Hosts not in the sunset table produce no DOMAIN_REBRAND."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver()
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        report = detective.investigate("https://unknown-host.example/x", 404)
+
+        rebrand = [
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.DOMAIN_REBRAND
+        ]
+        assert rebrand == []
+
+    def test_shutdown_host_emits_no_rebrand(self):
+        """hipchat.com has no replacement_host -> no candidate URL can be
+        synthesized; we don't fake one up."""
+        detective = _make_detective()
+        detective._redirect_resolver = FakeRedirectResolver()
+        detective._archive_client = make_archive_miss()
+        detective._url_heuristic = FakeURLHeuristic()
+        detective._github_resolver = FakeGitHubResolver()
+
+        report = detective.investigate("https://hipchat.com/sign_in", "error")
+
+        rebrand = [
+            c for c in report.investigation.candidate_replacements if c.method == InvestigationMethod.DOMAIN_REBRAND
+        ]
+        assert rebrand == []
+
+
+# ---------------------------------------------------------------------------
 # URL heuristic with content similarity
 # ---------------------------------------------------------------------------
 
