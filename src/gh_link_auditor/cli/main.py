@@ -6,6 +6,7 @@ Provides the `ghla` command with subcommands.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import warnings
 
@@ -22,6 +23,32 @@ from gh_link_auditor.cli.rewrite_queue_cmd import build_rewrite_queue_parser  # 
 from gh_link_auditor.cli.run import build_run_parser  # noqa: E402
 
 
+def _configure_logging(level: int) -> None:
+    """Route library loggers to stderr so long-running commands stream
+    progress to the operator's console instead of going silent for hours.
+
+    Previously the CLI did not call logging.basicConfig at all, which
+    meant every logger.info(...) across bulk-scan, preflight, liveness,
+    investigation, etc. went to the default null handler. Multi-hour
+    runs appeared frozen even though work was happening.
+
+    force=True replaces any handler imported libraries may have
+    configured first (e.g. langchain). Without it, basicConfig would
+    be a no-op when handlers already exist.
+    """
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stderr,
+        force=True,
+    )
+    # Knock down third-party noise so the gh_link_auditor signal stays
+    # readable. -vv re-enables DEBUG on these.
+    for noisy in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the main argument parser.
 
@@ -31,6 +58,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ghla",
         description="gh-link-auditor: Dead link resolution pipeline",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity: -v = DEBUG from gh_link_auditor; -vv = DEBUG everywhere including httpx",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress INFO-level progress; only WARNING/ERROR are shown",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -60,6 +100,17 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.quiet:
+        _configure_logging(logging.WARNING)
+    elif args.verbose >= 2:
+        _configure_logging(logging.DEBUG)
+        for noisy in ("httpx", "httpcore", "urllib3"):
+            logging.getLogger(noisy).setLevel(logging.DEBUG)
+    elif args.verbose == 1:
+        _configure_logging(logging.DEBUG)
+    else:
+        _configure_logging(logging.INFO)
 
     if not args.command:
         parser.print_help()
