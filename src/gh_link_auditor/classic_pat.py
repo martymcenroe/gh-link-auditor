@@ -5,7 +5,7 @@ PAT cannot perform: forking arbitrary public repos and opening cross-fork
 PRs (see issue #185). It is least-privilege by design: ``public_repo`` scope
 only, no admin or workflow rights (see LLD-397-398, issue #397).
 
-The encrypted PAT lives at ``~/.secrets/link-auditor-pat.gpg`` and is
+The encrypted PAT lives at ``~/.secrets/link-auditor-classic-pat.gpg`` and is
 decrypted in-process by ``AssemblyZero/tools/_pat_session.py`` (ADR-0216).
 This module does NOT import from AssemblyZero at module-load time. The
 sys.path manipulation and underlying import are deferred until the
@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Iterator
 
 ASSEMBLYZERO_TOOLS = Path.home() / "Projects" / "AssemblyZero" / "tools"
-LINK_AUDITOR_PAT_PATH = Path.home() / ".secrets" / "link-auditor-pat.gpg"
+LINK_AUDITOR_PAT_PATH = Path.home() / ".secrets" / "link-auditor-classic-pat.gpg"
 
 
 @contextmanager

@@ -19,12 +19,12 @@ from gh_link_auditor.classic_pat import (
 
 
 def test_link_auditor_pat_path_is_in_secrets_dir() -> None:
-    """The campaign PAT lives at ~/.secrets/link-auditor-pat.gpg.
+    """The campaign PAT lives at ~/.secrets/link-auditor-classic-pat.gpg.
 
     Operators following the one-time setup in LLD-397-398 §5 will
     gpg-encrypt to this exact path. Drift here breaks every submission.
     """
-    assert LINK_AUDITOR_PAT_PATH == Path.home() / ".secrets" / "link-auditor-pat.gpg"
+    assert LINK_AUDITOR_PAT_PATH == Path.home() / ".secrets" / "link-auditor-classic-pat.gpg"
 
 
 def test_link_auditor_pat_path_is_separate_from_admin_classic_pat() -> None:
