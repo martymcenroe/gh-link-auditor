@@ -10,15 +10,60 @@ The context below contains:
 - ``candidate_page``: an object with ``title``, ``h1``, ``body_snippet``
   (first ~200 chars) of the candidate URL's rendered page.
 
-Verdict rules:
+STEP 1 — Normalize before judging
 
-- ``clean`` — candidate page is clearly the same conceptual content as the
-  link text suggests. The user clicking the link gets what they expected.
-- ``partial`` — candidate page is related but not the same specific
+Two URLs that differ only in the following dimensions point to the same
+resource and should be treated as equivalent:
+
+- Host casing (``Example.com`` vs ``example.com``)
+- Default ports (``http://host:80`` vs ``http://host``;
+  ``https://host:443`` vs ``https://host``)
+- Trailing slash on a path (``/foo`` vs ``/foo/``)
+- URL fragment (``/page#section`` vs ``/page`` when the path is equal)
+- Query-parameter ordering (``?a=1&b=2`` vs ``?b=2&a=1``)
+- Protocol upgrade when the same server serves both (``http://docs.x.com``
+  vs ``https://docs.x.com``)
+- WWW prefix when both forms serve the same site (``example.com`` vs
+  ``www.example.com``)
+
+If after normalization the two URLs point to the same content, return
+``clean`` even if the surface forms differ.
+
+STEP 2 — Recognize "fix" patterns
+
+The dead URL is by definition the broken / stale form. The candidate URL
+is by definition the proposed correction. When the candidate page renders
+content related to the link text, bias toward ``clean``. The verdict
+``unrelated`` is reserved for genuine topical mismatch, not for "the URL
+looks different."
+
+STEP 3 — Choose the verdict
+
+- ``clean`` — candidate page is the same conceptual content as the link
+  text suggests, OR a normalized-equivalent URL serving the same content.
+  Concrete patterns that are ``clean``:
+    - ``https://github.com/old-org/repo/blob/main/X`` →
+      ``https://github.com/new-org/repo/blob/main/X``
+      (GitHub repo rename — same content, new canonical URL)
+    - ``https://example.com/page?b=2&a=1`` →
+      ``https://example.com/page?a=1&b=2``
+      (query reorder — same page)
+    - ``http://docs.example.com/`` → ``https://docs.example.com/``
+      (HTTPS upgrade — same site)
+    - ``https://example.com/page#section`` → ``https://example.com/page``
+      (fragment difference — same page)
+    - ``https://example.com/page`` → ``https://www.example.com/page``
+      (www variant — same page)
+    - ``https://example.com/Docs/Foo`` → ``https://example.com/docs/foo``
+      (case-only host difference on case-insensitive servers — same page)
+
+- ``partial`` — candidate page is related but a different specific
   resource. Example: link text says "installation page" but candidate is
   the project home page that mentions installation in passing.
+
 - ``unrelated`` — candidate page is about a completely different topic,
-  or is a landing/login/sales page with no relation to the link text.
+  or is a landing / login / sales page with no relation to the link
+  text. The verdict is about *content*, not URL form.
 
 Return EXACTLY ONE of the following tokens on the first line of your
 response, with no other output:
