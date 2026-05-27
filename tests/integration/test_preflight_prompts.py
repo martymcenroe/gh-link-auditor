@@ -54,6 +54,29 @@ class TestContentEquivPromptRender:
         assert content == golden
         assert "single token" in content.lower() or "exactly one" in content.lower()
 
+    def test_prompt_has_url_normalization_step(self):
+        """#349: subagent must be told to normalize before judging.
+
+        Pinning the normalization-step header + two of its load-bearing
+        dimensions (trailing-slash, query-parameter ordering) catches a
+        future "simplify the prompt" PR that drops the section entirely.
+        """
+        content = Path("prompts/preflight/content_equiv.txt").read_text(encoding="utf-8")
+        assert "Normalize before judging" in content
+        assert "trailing slash" in content.lower()
+        assert "query-parameter" in content.lower() or "query parameter" in content.lower()
+
+    def test_prompt_has_github_org_rename_example(self):
+        """#349: explicit GitHub-org-rename example anchors the C5 verdict.
+
+        The 2026-05-26 act-now-coalition/covid-data-model preflight was
+        rejected because the subagent classified an org-rename redirect
+        as `unrelated`. The example is the regression test against that.
+        """
+        content = Path("prompts/preflight/content_equiv.txt").read_text(encoding="utf-8")
+        assert "GitHub repo rename" in content
+        assert "old-org" in content and "new-org" in content
+
 
 class TestRedirectTargetPromptRender:
     def test_prompt_file_exists_and_has_grammar_instructions(self, update_goldens):
