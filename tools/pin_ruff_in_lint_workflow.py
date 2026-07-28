@@ -48,7 +48,10 @@ from _pat_session import classic_pat_session  # noqa: E402
 
 REPO = "martymcenroe/gh-link-auditor"
 BASE_BRANCH = "main"
-BRANCH = "428-pin-ruff-ci"
+# Distinct from the branch that carries this script (428-pin-ruff-ci) — the
+# script must create a fresh branch for the workflow edit, not commit onto
+# its own PR branch.
+BRANCH = "428-pin-ruff-lint-yml"
 WORKFLOW_PATH = ".github/workflows/lint.yml"
 
 RUFF_VERSION = "0.16.0"
