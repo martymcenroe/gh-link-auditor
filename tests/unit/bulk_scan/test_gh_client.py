@@ -364,24 +364,33 @@ class TestStickyCooldown:
         """The whole point of #226: a 429 on one request must make the
         next _request call wait. We simulate the sibling-worker scenario
         by driving _request twice -- the second call must observe the
-        cooldown set by the first."""
+        cooldown set by the first.
+
+        #433: asserts the REQUESTED sleep recorded from a patched
+        ``time.sleep``, not measured wall-clock. The old form timed a real
+        sleep against the deadline set several statements earlier; on a
+        loaded CI runner the gap between ``_extend_cooldown`` and the
+        measured window consumed the deadline (observed 0.010s and 0.055s
+        against a 0.09s floor). Recording the request makes the test
+        deterministic and removes all real sleeping.
+        """
         client = _make_client(max_retries=1, base_backoff_s=0.05)
-        # First _request: 429 then 200 (so it consumes the cooldown directly)
-        # Second _request: 200 (would normally fire immediately, but the
-        # cooldown set by the first request still has time left).
+        slept: list[float] = []
         first_responses = [_make_response(429), _make_response(200)]
-        with patch.object(client._client, "request", side_effect=first_responses):
-            client.get("https://api.github.com/x")
-        # After the first call, the cooldown deadline is in the past
-        # (already-slept). Manually re-extend to simulate a sibling 429
-        # happening concurrently.
-        client._extend_cooldown(0.1)
-        # Now the next _request must wait at least the cooldown duration.
-        with patch.object(client._client, "request", return_value=_make_response(200)):
-            start = time.monotonic()
-            client.get("https://api.github.com/y")
-            elapsed = time.monotonic() - start
-        assert elapsed >= 0.09, f"sibling request did not honor cooldown: {elapsed:.3f}s"
+        with patch.object(time, "sleep", side_effect=slept.append):
+            # First _request: 429 then 200 -- extends the shared cooldown and
+            # "sleeps" (recorded) for its own retry.
+            with patch.object(client._client, "request", side_effect=first_responses):
+                client.get("https://api.github.com/x")
+            # Simulate a sibling 429 happening concurrently, then drop the
+            # first request's recorded sleeps so the assertion sees only the
+            # sibling's wait.
+            client._extend_cooldown(0.1)
+            slept.clear()
+            # The next _request must request a wait for ~the full cooldown.
+            with patch.object(client._client, "request", return_value=_make_response(200)):
+                client.get("https://api.github.com/y")
+        assert sum(slept) >= 0.09, f"sibling request did not honor cooldown: requested sleeps {slept}"
         assert client.total_cooldown_waits >= 1
         client.close()
 
