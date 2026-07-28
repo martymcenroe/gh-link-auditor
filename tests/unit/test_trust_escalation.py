@@ -675,6 +675,63 @@ class TestUpdateTrustOnMerge:
         assert trust["total_merges"] == 4
 
 
+class TestTrustBlacklistOrthogonality:
+    """Trust promotion and the blacklist are independent concerns (ADR-0001).
+
+    #333's acceptance proposed "merge events after blacklist -> ignored".
+    That coupling was deliberately NOT implemented: submission is blocked by
+    the blacklist TABLE at preflight hard gate #3 / n0 / batch engine, so a
+    promoted trust level cannot produce an unwanted PR. Meanwhile the common
+    blacklist reason (`unresponsive`, which expires) can be stale — a repo
+    that later merges our work has given us the strongest positive signal the
+    campaign can receive, and suppressing that would discard it.
+
+    These tests pin the decision so a future change has to argue with the ADR.
+    """
+
+    def test_merge_promotes_even_when_repo_blacklisted(self, db) -> None:
+        from gh_link_auditor.pr_tracker import _update_trust_on_merge
+
+        repo_url = "https://github.com/org/repo"
+        db.add_to_blacklist(repo_url=repo_url, reason="No response after 30 days", source="unresponsive")
+        db.update_repo_trust("org/repo", "tier1_pending", total_prs=1)
+
+        _update_trust_on_merge(db, "org/repo", datetime(2026, 3, 15, tzinfo=timezone.utc))
+
+        trust = db.get_repo_trust("org/repo")
+        assert trust["trust_level"] == "tier1_proven"
+        assert trust["total_merges"] == 1
+
+    def test_blacklist_still_blocks_submission_after_promotion(self, db) -> None:
+        """The safety property that makes the promotion harmless."""
+        from gh_link_auditor.pr_tracker import _update_trust_on_merge
+        from gh_link_auditor.preflight.gates import gate_blacklist
+
+        repo_url = "https://github.com/org/repo"
+        db.add_to_blacklist(repo_url=repo_url, reason="No response after 30 days", source="unresponsive")
+        _update_trust_on_merge(db, "org/repo", datetime(2026, 3, 15, tzinfo=timezone.utc))
+
+        assert db.get_repo_trust("org/repo")["trust_level"] == "tier1_proven"
+        result = gate_blacklist("org/repo", {"repo_url": repo_url}, db)
+        assert result.passed is False
+
+    def test_trust_is_blacklisted_column_has_no_readers(self) -> None:
+        """repo_trust.is_blacklisted is vestigial — the table is the truth.
+
+        Guards against a future reader binding enforcement to the column and
+        creating a second, drifting source of truth (ADR-0001).
+        """
+        import pathlib
+
+        src = pathlib.Path(__file__).resolve().parents[2] / "src"
+        readers = []
+        for py in src.rglob("*.py"):
+            for i, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
+                if 'trust["is_blacklisted"]' in line or "trust['is_blacklisted']" in line:
+                    readers.append(f"{py.name}:{i}")
+        assert not readers, f"repo_trust.is_blacklisted gained readers: {readers}"
+
+
 class TestUpdateTrustOnSubmit:
     """Tests for update_trust_on_submit() — issue #177."""
 
