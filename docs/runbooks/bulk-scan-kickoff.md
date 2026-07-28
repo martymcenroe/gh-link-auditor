@@ -1,5 +1,9 @@
 # Bulk Scan Kickoff Runbook
 
+> **Still current for the scan itself; not the place to start (2026-07-28).** Use this when you
+> need to generate NEW candidates at scale. If you just want to ship the candidates that
+> already exist, start at [`0000-start-here.md`](0000-start-here.md).
+
 One-time kickoff procedure for the unattended 7,500-repo Python doc scan (#218). Designed for the operator to fire before going to bed; runs unsupervised for ~5 days; deliverable is a ranked markdown report when you return.
 
 ---

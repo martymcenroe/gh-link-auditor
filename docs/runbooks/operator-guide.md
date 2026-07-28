@@ -1,5 +1,11 @@
 # Operator Guide: Supervising gh-link-auditor
 
+> **Superseded as procedure (2026-07-28).** This describes the single-repo pipeline run with
+> interactive HITL prompts, written 2026-05-22 — before preflight, the `--campaign-allowed`
+> gate, and the current campaign toolchain existed. Keep it for understanding how the
+> pipeline works internally; for what to actually run, start at
+> [`0000-start-here.md`](0000-start-here.md).
+
 Claude runs the pipeline. You supervise. This guide tells you what to watch for, when you need to make a decision, and what can go wrong.
 
 ---
