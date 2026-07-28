@@ -68,34 +68,41 @@ Mechanical validation automatically checks:
 # Pseudocode - NOT implementation
 from typing import TypedDict
 
+
 class RequestConfig(TypedDict):
     """Configuration for HTTP requests."""
-    timeout: float           # Request timeout in seconds (default: 10.0)
-    verify_ssl: bool         # Whether to verify SSL certificates (default: True)
-    user_agent: str          # User-Agent header value
+
+    timeout: float  # Request timeout in seconds (default: 10.0)
+    verify_ssl: bool  # Whether to verify SSL certificates (default: True)
+    user_agent: str  # User-Agent header value
+
 
 class BackoffConfig(TypedDict):
     """Configuration for retry backoff per 00007."""
-    base_delay: float        # Initial delay in seconds (default: 1.0)
-    max_delay: float         # Maximum delay ceiling (default: 30.0)
-    max_retries: int         # Maximum retry attempts (default: 2)
-    jitter_range: float      # Random jitter 0 to this value (default: 1.0)
+
+    base_delay: float  # Initial delay in seconds (default: 1.0)
+    max_delay: float  # Maximum delay ceiling (default: 30.0)
+    max_retries: int  # Maximum retry attempts (default: 2)
+    jitter_range: float  # Random jitter 0 to this value (default: 1.0)
+
 
 class RequestResult(TypedDict):
     """Result of an HTTP request."""
-    url: str                 # The requested URL
-    status: str              # ok, error, timeout, failed, disconnected, invalid
+
+    url: str  # The requested URL
+    status: str  # ok, error, timeout, failed, disconnected, invalid
     status_code: int | None  # HTTP status code or None
-    method: str              # HEAD or GET
+    method: str  # HEAD or GET
     response_time_ms: int | None  # Response time in milliseconds
-    retries: int             # Number of retries attempted
-    error: str | None        # Error description if not ok
+    retries: int  # Number of retries attempted
+    error: str | None  # Error description if not ok
 ```
 
 ### 2.4 Function Signatures
 
 ```python
 # Signatures only - implementation in source files
+
 
 def create_request_config(
     timeout: float = 10.0,
@@ -104,6 +111,7 @@ def create_request_config(
 ) -> RequestConfig:
     """Create a request configuration with sensible defaults."""
     ...
+
 
 def create_backoff_config(
     base_delay: float = 1.0,
@@ -114,6 +122,7 @@ def create_backoff_config(
     """Create a backoff configuration per standard 00007."""
     ...
 
+
 def calculate_backoff_delay(
     attempt: int,
     config: BackoffConfig,
@@ -122,14 +131,16 @@ def calculate_backoff_delay(
     """Calculate delay for a retry attempt with exponential backoff and jitter."""
     ...
 
+
 def should_retry(status_code: int | None, error_type: str | None) -> tuple[bool, bool]:
     """
     Determine if a request should be retried based on response.
-    
+
     Returns:
         (should_retry: bool, try_get_fallback: bool)
     """
     ...
+
 
 def check_url(
     url: str,
@@ -138,10 +149,11 @@ def check_url(
 ) -> RequestResult:
     """
     Check a single URL with retry logic and HEAD→GET fallback.
-    
+
     Implements the full request flow per standards 00007 and 00008.
     """
     ...
+
 
 def _make_request(
     url: str,
@@ -150,15 +162,17 @@ def _make_request(
 ) -> tuple[int | None, str | None, int | None]:
     """
     Make a single HTTP request (internal helper).
-    
+
     Returns:
         (status_code, error_type, response_time_ms)
     """
     ...
 
+
 def _create_ssl_context(verify: bool) -> ssl.SSLContext:
     """Create an SSL context with the specified verification setting."""
     ...
+
 
 def _parse_retry_after(header_value: str | None) -> int | None:
     """Parse Retry-After header value to seconds."""
@@ -578,6 +592,7 @@ def mock_external_service():
 # Unit Tests
 # -----------
 
+
 def test_id():
     """
     Test Description | Expected Behavior | Status
@@ -590,7 +605,7 @@ def test_id():
 
     # TDD: Assert
     # Verify test_id works correctly
-    assert False, 'TDD RED: test_id not implemented'
+    assert False, "TDD RED: test_id not implemented"
 
 
 def test_t010():
@@ -606,7 +621,7 @@ def test_t010():
 
     # TDD: Assert
     # Verify test_t010 works correctly
-    assert False, 'TDD RED: test_t010 not implemented'
+    assert False, "TDD RED: test_t010 not implemented"
 
 
 def test_t020():
@@ -621,7 +636,7 @@ def test_t020():
 
     # TDD: Assert
     # Verify test_t020 works correctly
-    assert False, 'TDD RED: test_t020 not implemented'
+    assert False, "TDD RED: test_t020 not implemented"
 
 
 def test_t030():
@@ -636,7 +651,7 @@ def test_t030():
 
     # TDD: Assert
     # Verify test_t030 works correctly
-    assert False, 'TDD RED: test_t030 not implemented'
+    assert False, "TDD RED: test_t030 not implemented"
 
 
 def test_t040():
@@ -651,7 +666,7 @@ def test_t040():
 
     # TDD: Assert
     # Verify test_t040 works correctly
-    assert False, 'TDD RED: test_t040 not implemented'
+    assert False, "TDD RED: test_t040 not implemented"
 
 
 def test_t050():
@@ -666,7 +681,7 @@ def test_t050():
 
     # TDD: Assert
     # Verify test_t050 works correctly
-    assert False, 'TDD RED: test_t050 not implemented'
+    assert False, "TDD RED: test_t050 not implemented"
 
 
 def test_t060():
@@ -681,7 +696,7 @@ def test_t060():
 
     # TDD: Assert
     # Verify test_t060 works correctly
-    assert False, 'TDD RED: test_t060 not implemented'
+    assert False, "TDD RED: test_t060 not implemented"
 
 
 def test_t070():
@@ -696,7 +711,7 @@ def test_t070():
 
     # TDD: Assert
     # Verify test_t070 works correctly
-    assert False, 'TDD RED: test_t070 not implemented'
+    assert False, "TDD RED: test_t070 not implemented"
 
 
 def test_t080():
@@ -711,7 +726,7 @@ def test_t080():
 
     # TDD: Assert
     # Verify test_t080 works correctly
-    assert False, 'TDD RED: test_t080 not implemented'
+    assert False, "TDD RED: test_t080 not implemented"
 
 
 def test_t090():
@@ -726,7 +741,7 @@ def test_t090():
 
     # TDD: Assert
     # Verify test_t090 works correctly
-    assert False, 'TDD RED: test_t090 not implemented'
+    assert False, "TDD RED: test_t090 not implemented"
 
 
 def test_t100():
@@ -741,7 +756,7 @@ def test_t100():
 
     # TDD: Assert
     # Verify test_t100 works correctly
-    assert False, 'TDD RED: test_t100 not implemented'
+    assert False, "TDD RED: test_t100 not implemented"
 
 
 def test_t110():
@@ -756,7 +771,7 @@ def test_t110():
 
     # TDD: Assert
     # Verify test_t110 works correctly
-    assert False, 'TDD RED: test_t110 not implemented'
+    assert False, "TDD RED: test_t110 not implemented"
 
 
 def test_t120():
@@ -771,7 +786,7 @@ def test_t120():
 
     # TDD: Assert
     # Verify test_t120 works correctly
-    assert False, 'TDD RED: test_t120 not implemented'
+    assert False, "TDD RED: test_t120 not implemented"
 
 
 def test_t130():
@@ -786,7 +801,7 @@ def test_t130():
 
     # TDD: Assert
     # Verify test_t130 works correctly
-    assert False, 'TDD RED: test_t130 not implemented'
+    assert False, "TDD RED: test_t130 not implemented"
 
 
 def test_t140():
@@ -801,7 +816,7 @@ def test_t140():
 
     # TDD: Assert
     # Verify test_t140 works correctly
-    assert False, 'TDD RED: test_t140 not implemented'
+    assert False, "TDD RED: test_t140 not implemented"
 
 
 def test_t150():
@@ -817,7 +832,7 @@ def test_t150():
 
     # TDD: Assert
     # Verify test_t150 works correctly
-    assert False, 'TDD RED: test_t150 not implemented'
+    assert False, "TDD RED: test_t150 not implemented"
 
 
 def test_010():
@@ -833,7 +848,7 @@ def test_010():
 
     # TDD: Assert
     # Verify test_010 works correctly
-    assert False, 'TDD RED: test_010 not implemented'
+    assert False, "TDD RED: test_010 not implemented"
 
 
 def test_020():
@@ -849,7 +864,7 @@ def test_020():
 
     # TDD: Assert
     # Verify test_020 works correctly
-    assert False, 'TDD RED: test_020 not implemented'
+    assert False, "TDD RED: test_020 not implemented"
 
 
 def test_030():
@@ -865,7 +880,7 @@ def test_030():
 
     # TDD: Assert
     # Verify test_030 works correctly
-    assert False, 'TDD RED: test_030 not implemented'
+    assert False, "TDD RED: test_030 not implemented"
 
 
 def test_040():
@@ -881,7 +896,7 @@ def test_040():
 
     # TDD: Assert
     # Verify test_040 works correctly
-    assert False, 'TDD RED: test_040 not implemented'
+    assert False, "TDD RED: test_040 not implemented"
 
 
 def test_050():
@@ -898,7 +913,7 @@ def test_050():
 
     # TDD: Assert
     # Verify test_050 works correctly
-    assert False, 'TDD RED: test_050 not implemented'
+    assert False, "TDD RED: test_050 not implemented"
 
 
 def test_060():
@@ -915,7 +930,7 @@ def test_060():
 
     # TDD: Assert
     # Verify test_060 works correctly
-    assert False, 'TDD RED: test_060 not implemented'
+    assert False, "TDD RED: test_060 not implemented"
 
 
 def test_070():
@@ -932,7 +947,7 @@ def test_070():
 
     # TDD: Assert
     # Verify test_070 works correctly
-    assert False, 'TDD RED: test_070 not implemented'
+    assert False, "TDD RED: test_070 not implemented"
 
 
 def test_080():
@@ -948,7 +963,7 @@ def test_080():
 
     # TDD: Assert
     # Verify test_080 works correctly
-    assert False, 'TDD RED: test_080 not implemented'
+    assert False, "TDD RED: test_080 not implemented"
 
 
 def test_090():
@@ -964,7 +979,7 @@ def test_090():
 
     # TDD: Assert
     # Verify test_090 works correctly
-    assert False, 'TDD RED: test_090 not implemented'
+    assert False, "TDD RED: test_090 not implemented"
 
 
 def test_100():
@@ -981,7 +996,7 @@ def test_100():
 
     # TDD: Assert
     # Verify test_100 works correctly
-    assert False, 'TDD RED: test_100 not implemented'
+    assert False, "TDD RED: test_100 not implemented"
 
 
 def test_110():
@@ -998,7 +1013,7 @@ def test_110():
 
     # TDD: Assert
     # Verify test_110 works correctly
-    assert False, 'TDD RED: test_110 not implemented'
+    assert False, "TDD RED: test_110 not implemented"
 
 
 def test_120():
@@ -1014,7 +1029,7 @@ def test_120():
 
     # TDD: Assert
     # Verify test_120 works correctly
-    assert False, 'TDD RED: test_120 not implemented'
+    assert False, "TDD RED: test_120 not implemented"
 
 
 def test_130():
@@ -1030,7 +1045,7 @@ def test_130():
 
     # TDD: Assert
     # Verify test_130 works correctly
-    assert False, 'TDD RED: test_130 not implemented'
+    assert False, "TDD RED: test_130 not implemented"
 
 
 def test_140():
@@ -1046,7 +1061,7 @@ def test_140():
 
     # TDD: Assert
     # Verify test_140 works correctly
-    assert False, 'TDD RED: test_140 not implemented'
+    assert False, "TDD RED: test_140 not implemented"
 
 
 def test_150():
@@ -1062,7 +1077,7 @@ def test_150():
 
     # TDD: Assert
     # Verify test_150 works correctly
-    assert False, 'TDD RED: test_150 not implemented'
+    assert False, "TDD RED: test_150 not implemented"
 
 
 def test_160(mock_external_service):
@@ -1078,11 +1093,7 @@ def test_160(mock_external_service):
 
     # TDD: Assert
     # Verify test_160 works correctly
-    assert False, 'TDD RED: test_160 not implemented'
-
-
-
-
+    assert False, "TDD RED: test_160 not implemented"
 ```
 
 ## Previously Implemented Files
@@ -1130,33 +1141,34 @@ from typing import TypedDict
 # Configuration data structures (LLD §2.3)
 # ---------------------------------------------------------------------------
 
+
 class RequestConfig(TypedDict):
     """Configuration for HTTP requests."""
 
-    timeout: float       # Request timeout in seconds (default: 10.0)
-    verify_ssl: bool     # Whether to verify SSL certificates (default: True)
-    user_agent: str      # User-Agent header value
+    timeout: float  # Request timeout in seconds (default: 10.0)
+    verify_ssl: bool  # Whether to verify SSL certificates (default: True)
+    user_agent: str  # User-Agent header value
 
 
 class BackoffConfig(TypedDict):
     """Configuration for retry backoff per standard 00007."""
 
-    base_delay: float    # Initial delay in seconds (default: 1.0)
-    max_delay: float     # Maximum delay ceiling (default: 30.0)
-    max_retries: int     # Maximum retry attempts (default: 2)
+    base_delay: float  # Initial delay in seconds (default: 1.0)
+    max_delay: float  # Maximum delay ceiling (default: 30.0)
+    max_retries: int  # Maximum retry attempts (default: 2)
     jitter_range: float  # Random jitter 0 to this value (default: 1.0)
 
 
 class RequestResult(TypedDict):
     """Result of an HTTP request, compatible with 00008 schema."""
 
-    url: str                     # The requested URL
-    status: str                  # ok, error, timeout, failed, disconnected, invalid
-    status_code: int | None      # HTTP status code or None
-    method: str                  # HEAD or GET
+    url: str  # The requested URL
+    status: str  # ok, error, timeout, failed, disconnected, invalid
+    status_code: int | None  # HTTP status code or None
+    method: str  # HEAD or GET
     response_time_ms: int | None  # Response time in milliseconds
-    retries: int                 # Number of retries attempted
-    error: str | None            # Error description if not ok
+    retries: int  # Number of retries attempted
+    error: str | None  # Error description if not ok
 
 
 # ---------------------------------------------------------------------------
@@ -1173,6 +1185,7 @@ _DEFAULT_USER_AGENT = (
 # ---------------------------------------------------------------------------
 # Factory functions (LLD §2.4)
 # ---------------------------------------------------------------------------
+
 
 def create_request_config(
     timeout: float = 10.0,
@@ -1225,6 +1238,7 @@ def create_backoff_config(
 # Backoff helpers (LLD §2.4)
 # ---------------------------------------------------------------------------
 
+
 def calculate_backoff_delay(
     attempt: int,
     config: BackoffConfig,
@@ -1249,7 +1263,7 @@ def calculate_backoff_delay(
         Delay in seconds before the next retry.
     """
     jitter = random.uniform(0.0, config["jitter_range"])  # noqa: S311
-    calculated = config["base_delay"] * (2 ** attempt) + jitter
+    calculated = config["base_delay"] * (2**attempt) + jitter
     if retry_after is not None:
         calculated = max(retry_after, calculated)
     return min(calculated, config["max_delay"])
@@ -1299,6 +1313,7 @@ def should_retry(status_code: int | None, error_type: str | None) -> tuple[bool,
 # ---------------------------------------------------------------------------
 # Internal helpers (LLD §2.4)
 # ---------------------------------------------------------------------------
+
 
 def _create_ssl_context(verify: bool) -> ssl.SSLContext:
     """Create an SSL context with the specified verification setting.
@@ -1408,6 +1423,7 @@ def _make_request(
 # Status mapping helpers
 # ---------------------------------------------------------------------------
 
+
 def _classify_status(status_code: int | None, error_type: str | None) -> str:
     """Map a response to a 00008-schema status string.
 
@@ -1467,6 +1483,7 @@ def _build_error_message(status_code: int | None, error_type: str | None) -> str
 # Public API (LLD §2.4 / §2.5)
 # ---------------------------------------------------------------------------
 
+
 def check_url(
     url: str,
     request_config: RequestConfig | None = None,
@@ -1503,7 +1520,9 @@ def check_url(
     # Use a while loop (per reviewer suggestion) for cleaner retry/fallback logic.
     while True:
         status_code, error_type, response_time_ms, retry_after_header = _make_request(
-            url, method, request_config,
+            url,
+            method,
+            request_config,
         )
 
         # Success — 2xx/3xx

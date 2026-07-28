@@ -71,25 +71,28 @@ Mechanical validation automatically checks:
 from enum import Enum
 from typing import TypedDict
 
+
 class PolicyKeyword(Enum):
-    NO_BOT = "no-bot"              # Bots not welcome
-    NO_PR = "no-pr"                # No automated PRs
-    TYPOS_WELCOME = "typos-welcome" # Explicitly welcomes typo fixes
+    NO_BOT = "no-bot"  # Bots not welcome
+    NO_PR = "no-pr"  # No automated PRs
+    TYPOS_WELCOME = "typos-welcome"  # Explicitly welcomes typo fixes
     SKIP_DOC_PRS = "skip-doc-prs"  # Skip documentation PRs
-    CONTACT_FIRST = "contact-first" # Contact maintainer before PR
+    CONTACT_FIRST = "contact-first"  # Contact maintainer before PR
+
 
 class PolicyCheckResult(TypedDict):
-    repo_url: str                  # Repository URL checked
-    contributing_found: bool       # Whether CONTRIBUTING.md exists
+    repo_url: str  # Repository URL checked
+    contributing_found: bool  # Whether CONTRIBUTING.md exists
     contributing_path: str | None  # Path to CONTRIBUTING.md if found
     keywords_found: list[PolicyKeyword]  # Keywords detected
-    is_blocked: bool               # True if bot should skip this repo
-    block_reason: str | None       # Reason for blocking if applicable
+    is_blocked: bool  # True if bot should skip this repo
+    block_reason: str | None  # Reason for blocking if applicable
+
 
 class PolicyStatus(Enum):
-    ALLOWED = "allowed"            # Repo allows bot contributions
-    BLOCKED = "policy-blacklisted" # Repo blocked by policy
-    UNKNOWN = "unknown"            # No policy file found
+    ALLOWED = "allowed"  # Repo allows bot contributions
+    BLOCKED = "policy-blacklisted"  # Repo blocked by policy
+    UNKNOWN = "unknown"  # No policy file found
 ```
 
 ### 2.4 Function Signatures
@@ -97,37 +100,42 @@ class PolicyStatus(Enum):
 ```python
 # Signatures only - implementation in source files
 
+
 async def check_repository_policy(repo_url: str, github_client: GitHubClient) -> PolicyCheckResult:
     """Check a repository's contribution policy before scanning.
-    
+
     Fetches CONTRIBUTING.md from the repo and analyzes for policy keywords.
     """
     ...
 
+
 async def fetch_contributing_file(repo_url: str, github_client: GitHubClient) -> str | None:
     """Fetch the CONTRIBUTING.md file content from a repository.
-    
+
     Returns file content if found, None if not present.
     """
     ...
 
+
 def parse_policy_keywords(content: str) -> list[PolicyKeyword]:
     """Parse CONTRIBUTING.md content for policy keywords.
-    
+
     Uses case-insensitive matching for defined keywords.
     """
     ...
 
+
 def determine_block_status(keywords: list[PolicyKeyword]) -> tuple[bool, str | None]:
     """Determine if repository should be blocked based on keywords found.
-    
+
     Returns (is_blocked, reason) tuple.
     """
     ...
 
+
 async def log_policy_result(result: PolicyCheckResult, db: DatabaseConnection) -> None:
     """Log the policy check result to the state database.
-    
+
     Records repo status including any blacklisting.
     """
     ...

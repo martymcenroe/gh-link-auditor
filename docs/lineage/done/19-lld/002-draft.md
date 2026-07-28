@@ -106,32 +106,35 @@ class TaskStatus(Enum):
 @dataclass
 class BatchConfig:
     """Configuration for a batch execution run."""
-    target_list_path: Path          # Path to Repo Scout output JSON
-    concurrency: int = 1            # Number of parallel workers (1 = sequential)
-    max_repos: int | None = None    # Cap on repos to process (None = all)
-    dry_run: bool = False           # If True, don't submit PRs
-    checkpoint_interval: int = 10   # Save state every N repos
+
+    target_list_path: Path  # Path to Repo Scout output JSON
+    concurrency: int = 1  # Number of parallel workers (1 = sequential)
+    max_repos: int | None = None  # Cap on repos to process (None = all)
+    dry_run: bool = False  # If True, don't submit PRs
+    checkpoint_interval: int = 10  # Save state every N repos
     clone_dir: Path = Path("/tmp/batch_clones")  # Where to clone repos
-    max_disk_gb: float = 10.0       # Disk budget for clones
+    max_disk_gb: float = 10.0  # Disk budget for clones
     token_file: Path | None = None  # Path to file containing tokens (one per line)
-    resume_from: Path | None = None # Path to checkpoint file to resume from
+    resume_from: Path | None = None  # Path to checkpoint file to resume from
 
 
 @dataclass
 class TokenState:
     """Tracks rate limit state for a single GitHub token."""
-    token: str                          # The token value (masked in logs)
-    remaining: int = 5000               # X-RateLimit-Remaining
-    reset_at: datetime | None = None    # X-RateLimit-Reset timestamp
+
+    token: str  # The token value (masked in logs)
+    remaining: int = 5000  # X-RateLimit-Remaining
+    reset_at: datetime | None = None  # X-RateLimit-Reset timestamp
     scopes: list[str] = field(default_factory=list)  # Validated scopes
-    is_valid: bool = True               # Set False on 401
+    is_valid: bool = True  # Set False on 401
 
 
 @dataclass
 class RepoTask:
     """A single repo to process in the batch."""
-    repo_full_name: str    # e.g., "owner/repo"
-    clone_url: str         # HTTPS clone URL
+
+    repo_full_name: str  # e.g., "owner/repo"
+    clone_url: str  # HTTPS clone URL
     status: TaskStatus = TaskStatus.PENDING
     error_message: str | None = None
     links_found: int = 0
@@ -146,10 +149,11 @@ class RepoTask:
 @dataclass
 class BatchState:
     """Serializable batch state for resumability."""
-    batch_id: str                              # UUID for this batch run
-    config: BatchConfig                        # Original config
+
+    batch_id: str  # UUID for this batch run
+    config: BatchConfig  # Original config
     tasks: list[RepoTask] = field(default_factory=list)
-    current_index: int = 0                     # Resume point
+    current_index: int = 0  # Resume point
     started_at: datetime | None = None
     last_checkpoint_at: datetime | None = None
     total_api_calls: int = 0
@@ -157,19 +161,21 @@ class BatchState:
 
 class RateLimitSnapshot(TypedDict):
     """Point-in-time rate limit state across all tokens."""
+
     total_remaining: int
     lowest_remaining: int
-    next_reset: str          # ISO timestamp
+    next_reset: str  # ISO timestamp
     backpressure_active: bool
 
 
 @dataclass
 class PROutcome:
     """Tracks the outcome of a submitted PR over time."""
+
     repo_full_name: str
     pr_url: str
     submitted_at: datetime
-    status: str = "open"        # open, merged, closed, rejected
+    status: str = "open"  # open, merged, closed, rejected
     merged_at: datetime | None = None
     closed_at: datetime | None = None
     rejection_reason: str | None = None
@@ -179,6 +185,7 @@ class PROutcome:
 @dataclass
 class RunReport:
     """Summary of a single batch run."""
+
     batch_id: str
     started_at: datetime
     completed_at: datetime
@@ -191,19 +198,20 @@ class RunReport:
     total_fixes_generated: int
     total_prs_submitted: int
     duration_seconds: float
-    errors: list[dict[str, str]]    # [{repo, error_message}]
+    errors: list[dict[str, str]]  # [{repo, error_message}]
 
 
 @dataclass
 class CampaignMetrics:
     """Aggregate metrics across multiple batch runs."""
+
     total_runs: int
     total_repos_processed: int
     total_prs_submitted: int
     total_prs_merged: int
     total_prs_rejected: int
     total_prs_open: int
-    acceptance_rate: float          # merged / (merged + rejected)
+    acceptance_rate: float  # merged / (merged + rejected)
     avg_time_to_merge_hours: float
     rejection_reasons: dict[str, int]  # reason -> count
 ```
@@ -213,20 +221,23 @@ class CampaignMetrics:
 ```python
 # === src/gh_link_auditor/batch/engine.py ===
 
+
 async def run_batch(config: BatchConfig) -> RunReport:
     """Execute the single-repo pipeline across all repos in the target list.
-    
+
     Manages concurrency, error isolation, checkpointing, and progress display.
     Returns a summary report of the batch run.
     """
     ...
 
+
 async def resume_batch(checkpoint_path: Path) -> RunReport:
     """Resume a batch run from a previously saved checkpoint.
-    
+
     Loads BatchState from disk, skips already-completed repos, and continues.
     """
     ...
+
 
 async def _process_single_repo(
     task: RepoTask,
@@ -235,19 +246,22 @@ async def _process_single_repo(
     config: BatchConfig,
 ) -> RepoTask:
     """Process one repo through the #22 pipeline with error isolation.
-    
+
     Catches all exceptions, records them in task.error_message, and returns
     the task with updated status. Never raises.
     """
     ...
 
+
 def _load_target_list(path: Path) -> list[RepoTask]:
     """Load and validate target repo list from Repo Scout JSON output."""
     ...
 
+
 def _save_checkpoint(state: BatchState, path: Path) -> None:
     """Atomically save batch state to disk for resumability."""
     ...
+
 
 def _load_checkpoint(path: Path) -> BatchState:
     """Load batch state from a checkpoint file."""
@@ -256,12 +270,13 @@ def _load_checkpoint(path: Path) -> BatchState:
 
 # === src/gh_link_auditor/batch/rate_limiter.py ===
 
+
 class AdaptiveRateLimiter:
     """Rate limiter that adapts based on GitHub API rate limit headers."""
 
     def __init__(self, low_watermark: int = 100, high_watermark: int = 1000) -> None:
         """Initialize with backpressure thresholds.
-        
+
         Args:
             low_watermark: Below this remaining count, apply maximum backpressure.
             high_watermark: Above this, no throttling applied.
@@ -282,6 +297,7 @@ class AdaptiveRateLimiter:
 
 
 # === src/gh_link_auditor/batch/token_manager.py ===
+
 
 class TokenManager:
     """Manages a pool of GitHub tokens with rotation and validation."""
@@ -309,6 +325,7 @@ class TokenManager:
 
 # === src/gh_link_auditor/batch/progress.py ===
 
+
 class BatchProgressTracker:
     """Tracks and displays real-time batch progress."""
 
@@ -322,7 +339,7 @@ class BatchProgressTracker:
 
     def display(self) -> str:
         """Return a formatted progress string for stderr.
-        
+
         Example: '347/2000 | 12 fixes | 3 PRs | 2 errors | ETA 1h23m'
         """
         ...
@@ -334,24 +351,24 @@ class BatchProgressTracker:
 
 # === src/gh_link_auditor/batch/cleanup.py ===
 
+
 async def cleanup_clone(clone_path: Path) -> None:
     """Delete a local clone directory."""
     ...
 
-async def cleanup_remote_branch(
-    repo_full_name: str, branch_name: str, token: str
-) -> bool:
+
+async def cleanup_remote_branch(repo_full_name: str, branch_name: str, token: str) -> bool:
     """Delete a remote branch via GitHub API after PR merge/close."""
     ...
 
-async def prune_stale_forks(
-    forks: list[str], token: str, max_age_days: int = 90
-) -> list[str]:
+
+async def prune_stale_forks(forks: list[str], token: str, max_age_days: int = 90) -> list[str]:
     """Identify and optionally delete forks where PRs were rejected or repos archived.
-    
+
     Returns list of pruned fork full names.
     """
     ...
+
 
 def check_disk_usage(clone_dir: Path, max_gb: float) -> tuple[float, bool]:
     """Return (current_usage_gb, is_over_limit)."""
@@ -359,6 +376,7 @@ def check_disk_usage(clone_dir: Path, max_gb: float) -> tuple[float, bool]:
 
 
 # === src/gh_link_auditor/metrics/collector.py ===
+
 
 class MetricsCollector:
     """Collects events during batch runs and persists metrics."""
@@ -382,21 +400,26 @@ class MetricsCollector:
 
 # === src/gh_link_auditor/metrics/reporter.py ===
 
+
 def generate_run_report(state: BatchState) -> RunReport:
     """Generate a RunReport from completed batch state."""
     ...
+
 
 def generate_campaign_metrics(db_path: Path) -> CampaignMetrics:
     """Aggregate metrics across all batch runs in the database."""
     ...
 
+
 def format_report_text(report: RunReport) -> str:
     """Format a RunReport as human-readable text for CLI output."""
     ...
 
+
 def format_report_json(report: RunReport) -> str:
     """Format a RunReport as JSON for machine consumption."""
     ...
+
 
 def format_campaign_text(metrics: CampaignMetrics) -> str:
     """Format CampaignMetrics as human-readable text."""
@@ -405,9 +428,11 @@ def format_campaign_text(metrics: CampaignMetrics) -> str:
 
 # === src/gh_link_auditor/cli/batch_cmd.py ===
 
+
 def register_batch_commands(parent_group) -> None:
     """Register batch subcommands onto the CLI."""
     ...
+
 
 # Subcommands:
 # batch run --target-list <path> [--concurrency N] [--dry-run] [--max-repos N]
@@ -418,9 +443,11 @@ def register_batch_commands(parent_group) -> None:
 
 # === src/gh_link_auditor/cli/metrics_cmd.py ===
 
+
 def register_metrics_commands(parent_group) -> None:
     """Register metrics subcommands onto the CLI."""
     ...
+
 
 # Subcommands:
 # metrics report --batch-id <id> [--format text|json]

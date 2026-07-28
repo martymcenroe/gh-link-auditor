@@ -86,29 +86,32 @@ from enum import Enum
 from typing import TypedDict
 from datetime import datetime
 
+
 class InteractionStatus(Enum):
-    SUBMITTED = "submitted"      # Fix PR submitted, awaiting review
-    MERGED = "merged"            # PR was merged
-    DENIED = "denied"            # PR was rejected by maintainer
+    SUBMITTED = "submitted"  # Fix PR submitted, awaiting review
+    MERGED = "merged"  # PR was merged
+    DENIED = "denied"  # PR was rejected by maintainer
     BLACKLISTED = "blacklisted"  # Repo/maintainer blocked future submissions
 
+
 class InteractionRecord(TypedDict):
-    id: int                      # Auto-increment primary key
-    repo_url: str                # Full GitHub repo URL
-    broken_url: str              # The broken URL that was fixed
-    status: InteractionStatus    # Current status of the interaction
-    created_at: datetime         # When the record was created
-    updated_at: datetime         # Last modification timestamp
-    pr_url: str | None           # PR URL if submitted
-    maintainer: str | None       # GitHub username of maintainer
-    notes: str | None            # Optional notes (e.g., denial reason)
+    id: int  # Auto-increment primary key
+    repo_url: str  # Full GitHub repo URL
+    broken_url: str  # The broken URL that was fixed
+    status: InteractionStatus  # Current status of the interaction
+    created_at: datetime  # When the record was created
+    updated_at: datetime  # Last modification timestamp
+    pr_url: str | None  # PR URL if submitted
+    maintainer: str | None  # GitHub username of maintainer
+    notes: str | None  # Optional notes (e.g., denial reason)
+
 
 class BlacklistEntry(TypedDict):
-    id: int                      # Auto-increment primary key
-    repo_url: str | None         # Specific repo, or None for maintainer-level
-    maintainer: str | None       # Maintainer username, or None for repo-level
-    reason: str                  # Why blacklisted
-    created_at: datetime         # When blacklisted
+    id: int  # Auto-increment primary key
+    repo_url: str | None  # Specific repo, or None for maintainer-level
+    maintainer: str | None  # Maintainer username, or None for repo-level
+    reason: str  # Why blacklisted
+    created_at: datetime  # When blacklisted
     expires_at: datetime | None  # Optional expiration (None = permanent)
 ```
 
@@ -117,17 +120,18 @@ class BlacklistEntry(TypedDict):
 ```python
 # Signatures only - implementation in source files
 
+
 class StateDatabase:
     """SQLite-based state database for tracking bot interactions."""
-    
+
     def __init__(self, db_path: str = "state.db") -> None:
         """Initialize database connection and create tables if needed."""
         ...
-    
+
     def close(self) -> None:
         """Close database connection."""
         ...
-    
+
     # Interaction Management
     def record_interaction(
         self,
@@ -140,7 +144,7 @@ class StateDatabase:
     ) -> int:
         """Record a new interaction. Returns the record ID."""
         ...
-    
+
     def update_interaction_status(
         self,
         record_id: int,
@@ -150,7 +154,7 @@ class StateDatabase:
     ) -> bool:
         """Update status of an existing interaction. Returns success."""
         ...
-    
+
     def get_interaction(
         self,
         repo_url: str,
@@ -158,7 +162,7 @@ class StateDatabase:
     ) -> InteractionRecord | None:
         """Get interaction record for a specific repo/URL combo."""
         ...
-    
+
     def has_been_submitted(
         self,
         repo_url: str,
@@ -166,7 +170,7 @@ class StateDatabase:
     ) -> bool:
         """Check if a fix has already been submitted for this URL."""
         ...
-    
+
     # Blacklist Management
     def add_to_blacklist(
         self,
@@ -177,14 +181,14 @@ class StateDatabase:
     ) -> int:
         """Add repo or maintainer to blacklist. Returns entry ID."""
         ...
-    
+
     def remove_from_blacklist(
         self,
         entry_id: int,
     ) -> bool:
         """Remove entry from blacklist. Returns success."""
         ...
-    
+
     def is_blacklisted(
         self,
         repo_url: str,
@@ -192,11 +196,11 @@ class StateDatabase:
     ) -> bool:
         """Check if repo or maintainer is blacklisted."""
         ...
-    
+
     def get_blacklist(self) -> list[BlacklistEntry]:
         """Get all active blacklist entries."""
         ...
-    
+
     # Query Helpers
     def can_submit_fix(
         self,
@@ -209,7 +213,7 @@ class StateDatabase:
         Returns (can_submit, reason) tuple.
         """
         ...
-    
+
     def get_stats(self) -> dict:
         """Get summary statistics of all interactions."""
         ...
@@ -665,6 +669,7 @@ def test_client():
 # Unit Tests
 # -----------
 
+
 def test_id():
     """
     Test Description | Expected Behavior | Status
@@ -677,7 +682,7 @@ def test_id():
 
     # TDD: Assert
     # Verify test_id works correctly
-    assert False, 'TDD RED: test_id not implemented'
+    assert False, "TDD RED: test_id not implemented"
 
 
 def test_t010(mock_external_service):
@@ -692,7 +697,7 @@ def test_t010(mock_external_service):
 
     # TDD: Assert
     # Verify test_t010 works correctly
-    assert False, 'TDD RED: test_t010 not implemented'
+    assert False, "TDD RED: test_t010 not implemented"
 
 
 def test_t020():
@@ -707,7 +712,7 @@ def test_t020():
 
     # TDD: Assert
     # Verify test_t020 works correctly
-    assert False, 'TDD RED: test_t020 not implemented'
+    assert False, "TDD RED: test_t020 not implemented"
 
 
 def test_t030():
@@ -722,7 +727,7 @@ def test_t030():
 
     # TDD: Assert
     # Verify test_t030 works correctly
-    assert False, 'TDD RED: test_t030 not implemented'
+    assert False, "TDD RED: test_t030 not implemented"
 
 
 def test_t040():
@@ -737,7 +742,7 @@ def test_t040():
 
     # TDD: Assert
     # Verify test_t040 works correctly
-    assert False, 'TDD RED: test_t040 not implemented'
+    assert False, "TDD RED: test_t040 not implemented"
 
 
 def test_t050():
@@ -752,7 +757,7 @@ def test_t050():
 
     # TDD: Assert
     # Verify test_t050 works correctly
-    assert False, 'TDD RED: test_t050 not implemented'
+    assert False, "TDD RED: test_t050 not implemented"
 
 
 def test_t060():
@@ -767,7 +772,7 @@ def test_t060():
 
     # TDD: Assert
     # Verify test_t060 works correctly
-    assert False, 'TDD RED: test_t060 not implemented'
+    assert False, "TDD RED: test_t060 not implemented"
 
 
 def test_t070():
@@ -782,7 +787,7 @@ def test_t070():
 
     # TDD: Assert
     # Verify test_t070 works correctly
-    assert False, 'TDD RED: test_t070 not implemented'
+    assert False, "TDD RED: test_t070 not implemented"
 
 
 def test_t080():
@@ -797,7 +802,7 @@ def test_t080():
 
     # TDD: Assert
     # Verify test_t080 works correctly
-    assert False, 'TDD RED: test_t080 not implemented'
+    assert False, "TDD RED: test_t080 not implemented"
 
 
 def test_t090():
@@ -812,7 +817,7 @@ def test_t090():
 
     # TDD: Assert
     # Verify test_t090 works correctly
-    assert False, 'TDD RED: test_t090 not implemented'
+    assert False, "TDD RED: test_t090 not implemented"
 
 
 def test_t100():
@@ -827,7 +832,7 @@ def test_t100():
 
     # TDD: Assert
     # Verify test_t100 works correctly
-    assert False, 'TDD RED: test_t100 not implemented'
+    assert False, "TDD RED: test_t100 not implemented"
 
 
 def test_t110():
@@ -842,7 +847,7 @@ def test_t110():
 
     # TDD: Assert
     # Verify test_t110 works correctly
-    assert False, 'TDD RED: test_t110 not implemented'
+    assert False, "TDD RED: test_t110 not implemented"
 
 
 def test_t120():
@@ -857,7 +862,7 @@ def test_t120():
 
     # TDD: Assert
     # Verify test_t120 works correctly
-    assert False, 'TDD RED: test_t120 not implemented'
+    assert False, "TDD RED: test_t120 not implemented"
 
 
 def test_t130():
@@ -872,7 +877,7 @@ def test_t130():
 
     # TDD: Assert
     # Verify test_t130 works correctly
-    assert False, 'TDD RED: test_t130 not implemented'
+    assert False, "TDD RED: test_t130 not implemented"
 
 
 def test_t140(mock_external_service):
@@ -887,7 +892,7 @@ def test_t140(mock_external_service):
 
     # TDD: Assert
     # Verify test_t140 works correctly
-    assert False, 'TDD RED: test_t140 not implemented'
+    assert False, "TDD RED: test_t140 not implemented"
 
 
 def test_010(mock_external_service):
@@ -903,7 +908,7 @@ def test_010(mock_external_service):
 
     # TDD: Assert
     # Verify test_010 works correctly
-    assert False, 'TDD RED: test_010 not implemented'
+    assert False, "TDD RED: test_010 not implemented"
 
 
 def test_020():
@@ -919,7 +924,7 @@ def test_020():
 
     # TDD: Assert
     # Verify test_020 works correctly
-    assert False, 'TDD RED: test_020 not implemented'
+    assert False, "TDD RED: test_020 not implemented"
 
 
 def test_030():
@@ -935,7 +940,7 @@ def test_030():
 
     # TDD: Assert
     # Verify test_030 works correctly
-    assert False, 'TDD RED: test_030 not implemented'
+    assert False, "TDD RED: test_030 not implemented"
 
 
 def test_040():
@@ -951,7 +956,7 @@ def test_040():
 
     # TDD: Assert
     # Verify test_040 works correctly
-    assert False, 'TDD RED: test_040 not implemented'
+    assert False, "TDD RED: test_040 not implemented"
 
 
 def test_050():
@@ -967,7 +972,7 @@ def test_050():
 
     # TDD: Assert
     # Verify test_050 works correctly
-    assert False, 'TDD RED: test_050 not implemented'
+    assert False, "TDD RED: test_050 not implemented"
 
 
 def test_060():
@@ -983,7 +988,7 @@ def test_060():
 
     # TDD: Assert
     # Verify test_060 works correctly
-    assert False, 'TDD RED: test_060 not implemented'
+    assert False, "TDD RED: test_060 not implemented"
 
 
 def test_070():
@@ -999,7 +1004,7 @@ def test_070():
 
     # TDD: Assert
     # Verify test_070 works correctly
-    assert False, 'TDD RED: test_070 not implemented'
+    assert False, "TDD RED: test_070 not implemented"
 
 
 def test_080():
@@ -1015,7 +1020,7 @@ def test_080():
 
     # TDD: Assert
     # Verify test_080 works correctly
-    assert False, 'TDD RED: test_080 not implemented'
+    assert False, "TDD RED: test_080 not implemented"
 
 
 def test_090():
@@ -1031,7 +1036,7 @@ def test_090():
 
     # TDD: Assert
     # Verify test_090 works correctly
-    assert False, 'TDD RED: test_090 not implemented'
+    assert False, "TDD RED: test_090 not implemented"
 
 
 def test_100():
@@ -1047,7 +1052,7 @@ def test_100():
 
     # TDD: Assert
     # Verify test_100 works correctly
-    assert False, 'TDD RED: test_100 not implemented'
+    assert False, "TDD RED: test_100 not implemented"
 
 
 def test_110():
@@ -1063,7 +1068,7 @@ def test_110():
 
     # TDD: Assert
     # Verify test_110 works correctly
-    assert False, 'TDD RED: test_110 not implemented'
+    assert False, "TDD RED: test_110 not implemented"
 
 
 def test_120():
@@ -1079,7 +1084,7 @@ def test_120():
 
     # TDD: Assert
     # Verify test_120 works correctly
-    assert False, 'TDD RED: test_120 not implemented'
+    assert False, "TDD RED: test_120 not implemented"
 
 
 def test_140():
@@ -1095,12 +1100,12 @@ def test_140():
 
     # TDD: Assert
     # Verify test_140 works correctly
-    assert False, 'TDD RED: test_140 not implemented'
-
+    assert False, "TDD RED: test_140 not implemented"
 
 
 # Integration Tests
 # -----------------
+
 
 @pytest.mark.integration
 def test_130(test_client):
@@ -1116,11 +1121,7 @@ def test_130(test_client):
 
     # TDD: Assert
     # Verify test_130 works correctly
-    assert False, 'TDD RED: test_130 not implemented'
-
-
-
-
+    assert False, "TDD RED: test_130 not implemented"
 ```
 
 ## Previously Implemented Files
@@ -1502,15 +1503,11 @@ class StateDatabase:
         stats: dict[str, Any] = {}
 
         # Total interactions
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS cnt FROM interactions"
-        ).fetchone()
+        row = self._conn.execute("SELECT COUNT(*) AS cnt FROM interactions").fetchone()
         stats["total_interactions"] = row["cnt"]
 
         # Counts by status
-        rows = self._conn.execute(
-            "SELECT status, COUNT(*) AS cnt FROM interactions GROUP BY status"
-        ).fetchall()
+        rows = self._conn.execute("SELECT status, COUNT(*) AS cnt FROM interactions GROUP BY status").fetchall()
         by_status: dict[str, int] = {}
         for r in rows:
             by_status[r["status"]] = r["cnt"]
@@ -1528,9 +1525,7 @@ class StateDatabase:
         stats["active_blacklist_entries"] = row["cnt"]
 
         # Total blacklist entries (including expired)
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS cnt FROM blacklist"
-        ).fetchone()
+        row = self._conn.execute("SELECT COUNT(*) AS cnt FROM blacklist").fetchone()
         stats["total_blacklist_entries"] = row["cnt"]
 
         return stats
@@ -1569,11 +1564,7 @@ def _row_to_blacklist(row: sqlite3.Row) -> BlacklistEntry:
         maintainer=row["maintainer"],
         reason=row["reason"],
         created_at=datetime.fromisoformat(row["created_at"]),
-        expires_at=(
-            datetime.fromisoformat(row["expires_at"])
-            if row["expires_at"] is not None
-            else None
-        ),
+        expires_at=(datetime.fromisoformat(row["expires_at"]) if row["expires_at"] is not None else None),
     )
 ```
 

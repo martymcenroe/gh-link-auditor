@@ -55,34 +55,41 @@ Mechanical validation automatically checks:
 # Pseudocode - NOT implementation
 from typing import TypedDict
 
+
 class RequestConfig(TypedDict):
     """Configuration for HTTP requests."""
-    timeout: float           # Request timeout in seconds (default: 10.0)
-    verify_ssl: bool         # Whether to verify SSL certificates (default: True)
-    user_agent: str          # User-Agent header value
+
+    timeout: float  # Request timeout in seconds (default: 10.0)
+    verify_ssl: bool  # Whether to verify SSL certificates (default: True)
+    user_agent: str  # User-Agent header value
+
 
 class BackoffConfig(TypedDict):
     """Configuration for retry backoff per 00007."""
-    base_delay: float        # Initial delay in seconds (default: 1.0)
-    max_delay: float         # Maximum delay ceiling (default: 30.0)
-    max_retries: int         # Maximum retry attempts (default: 2)
-    jitter_range: float      # Random jitter 0 to this value (default: 1.0)
+
+    base_delay: float  # Initial delay in seconds (default: 1.0)
+    max_delay: float  # Maximum delay ceiling (default: 30.0)
+    max_retries: int  # Maximum retry attempts (default: 2)
+    jitter_range: float  # Random jitter 0 to this value (default: 1.0)
+
 
 class RequestResult(TypedDict):
     """Result of an HTTP request."""
-    url: str                 # The requested URL
-    status: str              # ok, error, timeout, failed, disconnected, invalid
+
+    url: str  # The requested URL
+    status: str  # ok, error, timeout, failed, disconnected, invalid
     status_code: int | None  # HTTP status code or None
-    method: str              # HEAD or GET
+    method: str  # HEAD or GET
     response_time_ms: int | None  # Response time in milliseconds
-    retries: int             # Number of retries attempted
-    error: str | None        # Error description if not ok
+    retries: int  # Number of retries attempted
+    error: str | None  # Error description if not ok
 ```
 
 ### 2.4 Function Signatures
 
 ```python
 # Signatures only - implementation in source files
+
 
 def create_request_config(
     timeout: float = 10.0,
@@ -91,6 +98,7 @@ def create_request_config(
 ) -> RequestConfig:
     """Create a request configuration with sensible defaults."""
     ...
+
 
 def create_backoff_config(
     base_delay: float = 1.0,
@@ -101,6 +109,7 @@ def create_backoff_config(
     """Create a backoff configuration per standard 00007."""
     ...
 
+
 def calculate_backoff_delay(
     attempt: int,
     config: BackoffConfig,
@@ -109,14 +118,16 @@ def calculate_backoff_delay(
     """Calculate delay for a retry attempt with exponential backoff and jitter."""
     ...
 
+
 def should_retry(status_code: int | None, error_type: str | None) -> tuple[bool, bool]:
     """
     Determine if a request should be retried based on response.
-    
+
     Returns:
         (should_retry: bool, try_get_fallback: bool)
     """
     ...
+
 
 def check_url(
     url: str,
@@ -125,10 +136,11 @@ def check_url(
 ) -> RequestResult:
     """
     Check a single URL with retry logic and HEAD→GET fallback.
-    
+
     Implements the full request flow per standards 00007 and 00008.
     """
     ...
+
 
 def _make_request(
     url: str,
@@ -137,15 +149,17 @@ def _make_request(
 ) -> tuple[int | None, str | None, int | None]:
     """
     Make a single HTTP request (internal helper).
-    
+
     Returns:
         (status_code, error_type, response_time_ms)
     """
     ...
 
+
 def _create_ssl_context(verify: bool) -> ssl.SSLContext:
     """Create an SSL context with the specified verification setting."""
     ...
+
 
 def _parse_retry_after(header_value: str | None) -> int | None:
     """Parse Retry-After header value to seconds."""

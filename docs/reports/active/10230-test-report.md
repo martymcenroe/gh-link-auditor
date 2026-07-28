@@ -41,14 +41,14 @@ Direct unit tests for the reconstruction helper:
 
 ```python
 # Simulate crash mid-Stage-2: 3 URLs probed before crash, 3 not.
-for u in first_batch:                   # pre-seed cache as if pre-crash work landed
+for u in first_batch:  # pre-seed cache as if pre-crash work landed
     db.cache_url_check(u, http_status=200, ttl_hours=720)
 _seed_run_with_pending_urls(db, "r1", all_urls)
 with patch.object(liveness, "_probe_one", side_effect=_fake_probe) as p:
     out = runner.run_liveness(db, "r1")
-    assert p.call_count == 3                                   # only un-cached re-probed
+    assert p.call_count == 3  # only un-cached re-probed
     assert {c.args[0] for c in p.call_args_list} == set(all_urls) - set(first_batch)
-    assert set(out.keys()) == set(all_urls)                    # but full dict returned
+    assert set(out.keys()) == set(all_urls)  # but full dict returned
 ```
 
 This is exactly the production failure mode the issue was filed for. The test guarantees the fix holds.

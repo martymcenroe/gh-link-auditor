@@ -98,47 +98,52 @@ mypy = "^1.8"
 from enum import Enum
 from typing import TypedDict
 
+
 class LinkStatus(Enum):
     VALID = "valid"
-    BROKEN = "broken"          # 4xx/5xx response
-    TIMEOUT = "timeout"        # Request timed out
+    BROKEN = "broken"  # 4xx/5xx response
+    TIMEOUT = "timeout"  # Request timed out
     DNS_FAILURE = "dns_failure"
     REDIRECT_LOOP = "redirect_loop"
     SSL_ERROR = "ssl_error"
     UNKNOWN = "unknown"
 
+
 class LinkResult(TypedDict):
-    url: str                   # Original URL
-    status: LinkStatus         # Validation result
-    status_code: int | None    # HTTP status code if applicable
-    final_url: str | None      # After redirects
-    source_file: str           # File containing the link
-    line_number: int           # Line in source file
-    response_time_ms: int      # Request duration
+    url: str  # Original URL
+    status: LinkStatus  # Validation result
+    status_code: int | None  # HTTP status code if applicable
+    final_url: str | None  # After redirects
+    source_file: str  # File containing the link
+    line_number: int  # Line in source file
+    response_time_ms: int  # Request duration
+
 
 class PolicyConfig(TypedDict):
     commit_prefix: str | None  # e.g., "fix:", "docs:"
-    commit_scope: str | None   # e.g., "(links)", "(docs)"
-    closure_keyword: str       # e.g., "Fixes", "Closes"
-    pr_template: str | None    # PR body template if found
+    commit_scope: str | None  # e.g., "(links)", "(docs)"
+    closure_keyword: str  # e.g., "Fixes", "Closes"
+    pr_template: str | None  # PR body template if found
+
 
 class RepositoryTarget(TypedDict):
-    owner: str                 # GitHub username/org
-    repo: str                  # Repository name
-    url: str                   # Full GitHub URL
-    priority: int              # Processing order (lower = higher priority)
-    last_checked: str | None   # ISO timestamp
+    owner: str  # GitHub username/org
+    repo: str  # Repository name
+    url: str  # Full GitHub URL
+    priority: int  # Processing order (lower = higher priority)
+    last_checked: str | None  # ISO timestamp
+
 
 class PRRecord(TypedDict):
-    id: int                    # Auto-increment ID
-    target_repo: str           # owner/repo
-    pr_number: int             # GitHub PR number
-    pr_url: str                # Full PR URL
-    status: str                # open, merged, closed
-    links_fixed: int           # Count of links fixed
-    created_at: str            # ISO timestamp
-    updated_at: str            # ISO timestamp
-    merged_at: str | None      # ISO timestamp if merged
+    id: int  # Auto-increment ID
+    target_repo: str  # owner/repo
+    pr_number: int  # GitHub PR number
+    pr_url: str  # Full PR URL
+    status: str  # open, merged, closed
+    links_fixed: int  # Count of links fixed
+    created_at: str  # ISO timestamp
+    updated_at: str  # ISO timestamp
+    merged_at: str | None  # ISO timestamp if merged
 ```
 
 ### 2.4 Function Signatures
@@ -149,17 +154,18 @@ def extract_links_from_file(file_path: Path) -> list[tuple[str, int]]:
     """Extract all URLs from a file with line numbers."""
     ...
 
+
 async def validate_link(url: str, timeout: float = 10.0) -> LinkResult:
     """Validate a single URL and return detailed status."""
     ...
 
+
 async def check_repository_links(
-    repo_path: Path,
-    concurrency: int = 20,
-    file_patterns: list[str] | None = None
+    repo_path: Path, concurrency: int = 20, file_patterns: list[str] | None = None
 ) -> list[LinkResult]:
     """Check all links in a repository directory."""
     ...
+
 
 def generate_fix_report(results: list[LinkResult]) -> dict[str, list[LinkResult]]:
     """Group broken links by file for batch fixing."""
@@ -171,22 +177,18 @@ def fetch_contributing_file(owner: str, repo: str) -> str | None:
     """Fetch CONTRIBUTING.md content from GitHub API."""
     ...
 
+
 def parse_commit_conventions(content: str) -> PolicyConfig:
     """Extract commit message format from CONTRIBUTING.md."""
     ...
 
-def format_commit_message(
-    policy: PolicyConfig,
-    links_fixed: int,
-    files_modified: int
-) -> str:
+
+def format_commit_message(policy: PolicyConfig, links_fixed: int, files_modified: int) -> str:
     """Generate policy-adherent commit message."""
     ...
 
-def format_pr_body(
-    policy: PolicyConfig,
-    broken_links: list[LinkResult]
-) -> str:
+
+def format_pr_body(policy: PolicyConfig, broken_links: list[LinkResult]) -> str:
     """Generate PR description with link details."""
     ...
 
@@ -196,36 +198,28 @@ def fork_repository(owner: str, repo: str) -> str:
     """Fork repository to authenticated user's account."""
     ...
 
+
 def clone_repository(repo_url: str, target_path: Path) -> Repo:
     """Clone repository to local path."""
     ...
+
 
 def create_fix_branch(repo: Repo, branch_name: str) -> None:
     """Create and checkout a new branch for fixes."""
     ...
 
-def apply_link_fixes(
-    repo_path: Path,
-    broken_links: list[LinkResult],
-    fix_strategy: str = "remove"
-) -> list[str]:
+
+def apply_link_fixes(repo_path: Path, broken_links: list[LinkResult], fix_strategy: str = "remove") -> list[str]:
     """Apply fixes to broken links, return modified files."""
     ...
 
-def commit_changes(
-    repo: Repo,
-    files: list[str],
-    message: str
-) -> str:
+
+def commit_changes(repo: Repo, files: list[str], message: str) -> str:
     """Stage and commit changes, return commit SHA."""
     ...
 
-def push_and_create_pr(
-    repo: Repo,
-    branch: str,
-    pr_title: str,
-    pr_body: str
-) -> str:
+
+def push_and_create_pr(repo: Repo, branch: str, pr_title: str, pr_body: str) -> str:
     """Push branch and create PR via gh CLI, return PR URL."""
     ...
 
@@ -235,18 +229,14 @@ def load_target_repositories(source: Path | str) -> list[RepositoryTarget]:
     """Load target repository list from YAML or API."""
     ...
 
-async def process_repository(
-    target: RepositoryTarget,
-    work_dir: Path,
-    dry_run: bool = False
-) -> PRRecord | None:
+
+async def process_repository(target: RepositoryTarget, work_dir: Path, dry_run: bool = False) -> PRRecord | None:
     """Full workflow for a single repository."""
     ...
 
+
 async def run_pipeline(
-    targets: list[RepositoryTarget],
-    max_concurrent: int = 5,
-    dry_run: bool = False
+    targets: list[RepositoryTarget], max_concurrent: int = 5, dry_run: bool = False
 ) -> list[PRRecord]:
     """Process multiple repositories with concurrency control."""
     ...
@@ -257,17 +247,21 @@ def init_database(db_path: Path) -> None:
     """Initialize SQLite database with schema."""
     ...
 
+
 def record_pr(record: PRRecord) -> int:
     """Insert or update PR record, return ID."""
     ...
+
 
 def get_pr_status(target_repo: str) -> PRRecord | None:
     """Get latest PR record for a repository."""
     ...
 
+
 def update_pr_status(pr_id: int, status: str, merged_at: str | None = None) -> None:
     """Update PR status after checking GitHub."""
     ...
+
 
 def get_pending_prs() -> list[PRRecord]:
     """Get all PRs still in 'open' status."""
@@ -279,9 +273,11 @@ def calculate_acceptance_rate(days: int = 30) -> float:
     """Calculate PR acceptance rate over time period."""
     ...
 
+
 def generate_metrics_report() -> dict:
     """Generate comprehensive metrics summary."""
     ...
+
 
 def export_metrics_csv(output_path: Path) -> None:
     """Export metrics to CSV for analysis."""

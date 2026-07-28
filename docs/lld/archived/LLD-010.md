@@ -49,12 +49,14 @@ Mechanical validation automatically checks:
 # Pseudocode - NOT implementation
 from typing import TypedDict, Literal
 
+
 class Resolution(TypedDict):
     action: Literal["replace", "remove", "ignore", "keep"]
     new_url: str | None  # Only for "replace" action
     resolved_by: Literal["human", "llm"]
     resolved_at: str  # ISO 8601 timestamp
     note: str | None  # Optional user-provided note
+
 
 class HITLState(TypedDict):
     current_index: int  # Current position in broken links list
@@ -68,95 +70,107 @@ class HITLState(TypedDict):
 ```python
 # Signatures only - implementation in source files
 
+
 def run_hitl_console(results: list[dict]) -> list[dict]:
     """
     Main entry point for HITL resolution mode.
-    
+
     Filters results to broken links, presents interactive menu,
     and returns updated results with resolution data.
     """
     ...
 
+
 def filter_broken_links(results: list[dict]) -> list[dict]:
     """
     Extract only broken links (status != 'ok') from results.
-    
+
     Returns references to original result objects for in-place updates.
     """
     ...
 
+
 def display_link_info(link: dict, index: int, total: int) -> None:
     """
     Print formatted details about a broken link.
-    
+
     Shows URL, status, error, and file locations.
     """
     ...
+
 
 def display_menu() -> None:
     """Print the available action menu."""
     ...
 
+
 def get_user_action() -> str:
     """
     Prompt user for action input.
-    
+
     Returns lowercase single character or command string.
     """
     ...
 
+
 def prompt_replacement_url() -> str | None:
     """
     Prompt user to enter a replacement URL.
-    
+
     Returns validated URL or None if cancelled.
     """
     ...
 
+
 def prompt_note() -> str | None:
     """
     Prompt user for optional resolution note.
-    
+
     Returns note string or None if skipped.
     """
     ...
 
+
 def apply_resolution(link: dict, action: str, new_url: str | None, note: str | None) -> None:
     """
     Apply resolution data to a link result in-place.
-    
+
     Updates the 'resolution' field per JSON schema (00008).
     """
     ...
 
+
 def validate_url(url: str) -> bool:
     """
     Basic URL validation for replacement URLs.
-    
+
     Checks for valid http/https scheme and basic structure.
     """
     ...
 
+
 def save_results(results: list[dict], output_path: str) -> None:
     """
     Save current results to JSON file.
-    
+
     Writes full JSON report per schema (00008).
     """
     ...
 
+
 def handle_quit(modified: bool, results: list[dict]) -> bool:
     """
     Handle quit command with unsaved changes prompt.
-    
+
     Returns True if user confirms quit, False to continue.
     """
     ...
 
+
 def handle_signal_exit(results: list[dict], modified: bool) -> None:
     """
     Handle EOF (Ctrl+D) and KeyboardInterrupt (Ctrl+C) gracefully.
-    
+
     Saves partial results and exits cleanly.
     """
     ...

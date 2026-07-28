@@ -54,12 +54,12 @@ Mechanical validation automatically checks:
 ```python
 # Pseudocode - NOT implementation
 class LogConfig(TypedDict):
-    level: str           # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
-    log_dir: str         # Directory for log files
-    filename: str        # Log filename pattern
-    max_bytes: int       # Max size before rotation
-    backup_count: int    # Number of backup files to keep
-    console_enabled: bool # Whether to output to console
+    level: str  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    log_dir: str  # Directory for log files
+    filename: str  # Log filename pattern
+    max_bytes: int  # Max size before rotation
+    backup_count: int  # Number of backup files to keep
+    console_enabled: bool  # Whether to output to console
 ```
 
 ### 2.4 Function Signatures
@@ -75,26 +75,27 @@ def setup_logging(
 ) -> logging.Logger:
     """
     Configure and return a logger with console and/or file handlers.
-    
+
     Args:
         name: Logger name (usually module name)
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_dir: Directory for log files
         console: Enable console output
         file: Enable file output
-    
+
     Returns:
         Configured Logger instance
     """
     ...
 
+
 def get_logger(name: str) -> logging.Logger:
     """
     Get an existing logger by name.
-    
+
     Args:
         name: Logger name to retrieve
-    
+
     Returns:
         Logger instance (creates default if not exists)
     """

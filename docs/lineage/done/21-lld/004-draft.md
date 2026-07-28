@@ -86,58 +86,72 @@ Mechanical validation automatically checks:
 ```python
 # Pseudocode - NOT implementation
 
+
 class SignalScore(TypedDict):
     """Individual signal score with metadata."""
-    signal_name: str       # e.g., "redirect", "title_match"
-    raw_score: float       # 0.0-1.0 ratio
+
+    signal_name: str  # e.g., "redirect", "title_match"
+    raw_score: float  # 0.0-1.0 ratio
     weighted_score: float  # After weight applied
-    weight: int            # Weight used (e.g., 40)
+    weight: int  # Weight used (e.g., 40)
+
 
 class ScoringBreakdown(TypedDict):
     """All 5 signal scores for a candidate."""
-    redirect: float          # 0-40 (weighted)
-    title_match: float       # 0-25 (weighted)
-    content_similarity: float # 0-20 (weighted)
-    url_similarity: float    # 0-10 (weighted)
-    domain_match: float      # 0-5 (weighted)
+
+    redirect: float  # 0-40 (weighted)
+    title_match: float  # 0-25 (weighted)
+    content_similarity: float  # 0-20 (weighted)
+    url_similarity: float  # 0-10 (weighted)
+    domain_match: float  # 0-5 (weighted)
+
 
 class Verdict(TypedDict):
     """Verdict for a single dead link."""
-    dead_url: str                    # Original dead URL
-    verdict: str                     # AUTO-APPROVE | HUMAN-REVIEW | LOW-CONFIDENCE | INSUFFICIENT
-    confidence: int                  # 0-100 composite score
-    replacement_url: Optional[str]   # Best candidate URL or null
+
+    dead_url: str  # Original dead URL
+    verdict: str  # AUTO-APPROVE | HUMAN-REVIEW | LOW-CONFIDENCE | INSUFFICIENT
+    confidence: int  # 0-100 composite score
+    replacement_url: Optional[str]  # Best candidate URL or null
     scoring_breakdown: ScoringBreakdown
-    human_decision: Optional[str]    # null | "auto" | "approved" | "rejected" | "abandoned" | "keep_looking"
-    decided_at: Optional[str]        # ISO 8601 timestamp or null
+    human_decision: Optional[str]  # null | "auto" | "approved" | "rejected" | "abandoned" | "keep_looking"
+    decided_at: Optional[str]  # ISO 8601 timestamp or null
+
 
 class VerdictsFile(TypedDict):
     """Root structure of verdicts.json."""
-    generated_at: str      # ISO 8601 timestamp
-    source_report: str     # Path to forensic report
+
+    generated_at: str  # ISO 8601 timestamp
+    source_report: str  # Path to forensic report
     verdicts: List[Verdict]
+
 
 class SignalWeights(TypedDict):
     """Configurable signal weights."""
-    redirect: int          # Default: 40
-    title: int             # Default: 25
-    content: int           # Default: 20
-    url_path: int          # Default: 10
-    domain: int            # Default: 5
+
+    redirect: int  # Default: 40
+    title: int  # Default: 25
+    content: int  # Default: 20
+    url_path: int  # Default: 10
+    domain: int  # Default: 5
+
 
 class ForensicReportEntry(TypedDict):
     """Single dead link from Cheery's report (input format)."""
+
     dead_url: str
-    archived_url: str              # Wayback Machine URL
+    archived_url: str  # Wayback Machine URL
     archived_title: str
-    archived_content: str          # Plain text content
+    archived_content: str  # Plain text content
     investigation_method: str
     candidates: List[CandidateEntry]
 
+
 class CandidateEntry(TypedDict):
     """Candidate replacement URL from forensic report."""
+
     url: str
-    source: str            # e.g., "wayback_redirect", "search", "domain_crawl"
+    source: str  # e.g., "wayback_redirect", "search", "domain_crawl"
 ```
 
 ### 2.4 Function Signatures
@@ -148,105 +162,128 @@ def get_default_weights() -> SignalWeights:
     """Return default signal weights (redirect=40, title=25, content=20, url_path=10, domain=5)."""
     ...
 
+
 def load_weights(config_path: Optional[Path] = None) -> SignalWeights:
     """Load weights from config file or return defaults."""
     ...
+
 
 # src/slant/scorer.py
 def score_report(report_path: Path, weights: Optional[SignalWeights] = None) -> VerdictsFile:
     """Load forensic report and produce verdicts for all dead links."""
     ...
 
+
 def score_dead_link(entry: ForensicReportEntry, weights: SignalWeights) -> Verdict:
     """Score all candidates for a single dead link and return best verdict."""
     ...
 
-def score_candidate(dead_url: str, candidate: CandidateEntry, archived_title: str, 
-                    archived_content: str, weights: SignalWeights) -> Tuple[float, ScoringBreakdown]:
+
+def score_candidate(
+    dead_url: str, candidate: CandidateEntry, archived_title: str, archived_content: str, weights: SignalWeights
+) -> Tuple[float, ScoringBreakdown]:
     """Compute composite score and breakdown for a single candidate."""
     ...
+
 
 def map_confidence_to_tier(confidence: int) -> str:
     """Map 0-100 score to verdict tier (AUTO-APPROVE, HUMAN-REVIEW, LOW-CONFIDENCE, INSUFFICIENT)."""
     ...
 
+
 def write_verdicts(verdicts: VerdictsFile, output_path: Path) -> None:
     """Write verdicts to JSON file with validation. Uses atomic write via temp file + rename."""
     ...
+
 
 # src/slant/signals/redirect.py
 def check_redirect(dead_url: str, candidate_url: str, timeout: float = 10.0) -> float:
     """Check if dead URL redirects to candidate. Returns 0.0-1.0 ratio. Returns 0.0 on timeout/error."""
     ...
 
+
 # src/slant/signals/title.py
 def match_title(candidate_url: str, archived_title: str, timeout: float = 10.0) -> float:
     """Fetch candidate page title, compare to archived. Returns 0.0-1.0 ratio."""
     ...
 
+
 def extract_title(html: str) -> str:
     """Extract <title> text from HTML."""
     ...
+
 
 # src/slant/signals/content.py
 def compare_content(candidate_url: str, archived_content: str, timeout: float = 10.0) -> float:
     """Fetch candidate, strip HTML, compare to archived content. Returns 0.0-1.0 ratio. Returns 0.0 on error."""
     ...
 
+
 def strip_html(html: str) -> str:
     """Remove HTML tags, return plain text."""
     ...
+
 
 # src/slant/signals/url_path.py
 def compare_url_paths(dead_url: str, candidate_url: str) -> float:
     """Compare URL path components. Returns 0.0-1.0 ratio."""
     ...
 
+
 # src/slant/signals/domain.py
 def match_domain(dead_url: str, candidate_url: str) -> float:
     """Compare domains. Returns 1.0 for exact match, 0.0 otherwise."""
     ...
+
 
 # src/slant/dashboard.py
 def start_dashboard(verdicts_path: Path, port: int = 8913) -> None:
     """Start HITL dashboard HTTP server."""
     ...
 
+
 class SlantRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler for dashboard."""
-    
+
     def do_GET(self) -> None:
         """Handle GET requests (/, /api/next)."""
         ...
-    
+
     def do_POST(self) -> None:
         """Handle POST requests (/api/decide)."""
         ...
+
 
 def render_dashboard_html(verdict: Verdict) -> str:
     """Generate dashboard HTML for a single review item. Displays fallback text when iframe fails."""
     ...
 
+
 def render_summary_html(verdicts: VerdictsFile) -> str:
     """Generate summary HTML when all items decided."""
     ...
+
 
 def validate_decision(decision: str) -> bool:
     """Validate decision value against allowed set."""
     ...
 
+
 def update_verdict_file(verdicts_path: Path, dead_url: str, decision: str) -> None:
     """Update verdict in file with human decision and timestamp. Uses atomic write."""
     ...
+
 
 # src/slant/cli.py
 def main() -> int:
     """Main CLI entry point."""
     ...
 
+
 def cmd_score(args: argparse.Namespace) -> int:
     """Handle 'score' subcommand."""
     ...
+
 
 def cmd_dashboard(args: argparse.Namespace) -> int:
     """Handle 'dashboard' subcommand."""

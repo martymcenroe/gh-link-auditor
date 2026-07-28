@@ -81,43 +81,49 @@ from enum import Enum
 from typing import TypedDict, Optional
 from datetime import datetime
 
+
 class DiscoverySource(Enum):
     AWESOME_LIST = "awesome_list"
     STARRED_REPO = "starred_repo"
     LLM_SUGGESTION = "llm_suggestion"
 
+
 class RepositoryRecord(TypedDict):
-    owner: str                          # GitHub owner/org
-    name: str                           # Repository name
-    full_name: str                       # "owner/name" format
-    url: str                            # Full GitHub URL
-    description: Optional[str]          # Repo description
-    stars: Optional[int]                # Star count at discovery time
-    sources: list[DiscoverySource]      # How this repo was found
-    discovered_at: datetime             # When first discovered
-    metadata: dict                      # Source-specific metadata
+    owner: str  # GitHub owner/org
+    name: str  # Repository name
+    full_name: str  # "owner/name" format
+    url: str  # Full GitHub URL
+    description: Optional[str]  # Repo description
+    stars: Optional[int]  # Star count at discovery time
+    sources: list[DiscoverySource]  # How this repo was found
+    discovered_at: datetime  # When first discovered
+    metadata: dict  # Source-specific metadata
+
 
 class AwesomeListSource(TypedDict):
-    url: str                            # URL of Awesome list repo
-    section: Optional[str]              # Section heading where found
-    
+    url: str  # URL of Awesome list repo
+    section: Optional[str]  # Section heading where found
+
+
 class StarWalkerSource(TypedDict):
-    root_user: str                      # Starting user
-    path: list[str]                     # Traversal path (e.g., ["user1", "user2"])
-    depth: int                          # Traversal depth when found
+    root_user: str  # Starting user
+    path: list[str]  # Traversal path (e.g., ["user1", "user2"])
+    depth: int  # Traversal depth when found
+
 
 class LLMSuggestionSource(TypedDict):
-    keywords: list[str]                 # Keywords used for suggestion
-    model: str                          # LLM model used
-    confidence: Optional[float]         # Model's confidence if available
+    keywords: list[str]  # Keywords used for suggestion
+    model: str  # LLM model used
+    confidence: Optional[float]  # Model's confidence if available
+
 
 class ScoutConfig(TypedDict):
-    github_token: str                   # GitHub API token
-    llm_api_key: Optional[str]          # LLM API key
-    max_star_depth: int                 # Max depth for star walking (default: 2)
-    rate_limit_delay: float             # Seconds between API calls
-    output_path: str                    # Output file path
-    output_format: str                  # "json" | "jsonl" | "txt"
+    github_token: str  # GitHub API token
+    llm_api_key: Optional[str]  # LLM API key
+    max_star_depth: int  # Max depth for star walking (default: 2)
+    rate_limit_delay: float  # Seconds between API calls
+    output_path: str  # Output file path
+    output_format: str  # "json" | "jsonl" | "txt"
 ```
 
 ### 2.4 Function Signatures
@@ -128,104 +134,93 @@ def parse_awesome_list(url: str) -> list[RepositoryRecord]:
     """Fetch and parse an Awesome list for GitHub repo links."""
     ...
 
+
 def extract_github_links(markdown_content: str) -> list[tuple[str, str | None]]:
     """Extract (url, section) tuples from markdown content."""
     ...
+
 
 def normalize_github_url(url: str) -> str | None:
     """Normalize various GitHub URL formats to owner/repo."""
     ...
 
+
 # ===== star_walker.py =====
 async def walk_starred_repos(
-    root_user: str,
-    github_client: GitHubClient,
-    max_depth: int = 2,
-    visited: set[str] | None = None
+    root_user: str, github_client: GitHubClient, max_depth: int = 2, visited: set[str] | None = None
 ) -> AsyncGenerator[RepositoryRecord, None]:
     """Recursively traverse starred repos up to max_depth."""
     ...
 
-async def get_user_starred(
-    username: str,
-    github_client: GitHubClient
-) -> list[RepositoryRecord]:
+
+async def get_user_starred(username: str, github_client: GitHubClient) -> list[RepositoryRecord]:
     """Get all starred repos for a single user."""
     ...
 
+
 # ===== llm_brainstormer.py =====
 async def suggest_repos(
-    keywords: list[str],
-    existing_repos: list[str],
-    model: str = "claude-3-5-sonnet-20241022"
+    keywords: list[str], existing_repos: list[str], model: str = "claude-3-5-sonnet-20241022"
 ) -> list[RepositoryRecord]:
     """Use LLM to suggest relevant repos based on keywords."""
     ...
 
-def build_suggestion_prompt(
-    keywords: list[str],
-    existing_repos: list[str]
-) -> str:
+
+def build_suggestion_prompt(keywords: list[str], existing_repos: list[str]) -> str:
     """Build the prompt for LLM repo suggestions."""
     ...
 
-async def validate_suggestions(
-    suggestions: list[str],
-    github_client: GitHubClient
-) -> list[RepositoryRecord]:
+
+async def validate_suggestions(suggestions: list[str], github_client: GitHubClient) -> list[RepositoryRecord]:
     """Validate that suggested repos actually exist on GitHub."""
     ...
 
+
 # ===== aggregator.py =====
-def deduplicate_repos(
-    repos: list[RepositoryRecord]
-) -> list[RepositoryRecord]:
+def deduplicate_repos(repos: list[RepositoryRecord]) -> list[RepositoryRecord]:
     """Merge duplicate repos, combining their source metadata."""
     ...
 
-def merge_sources(
-    existing: RepositoryRecord,
-    new: RepositoryRecord
-) -> RepositoryRecord:
+
+def merge_sources(existing: RepositoryRecord, new: RepositoryRecord) -> RepositoryRecord:
     """Merge source information when same repo found multiple times."""
     ...
 
-def sort_by_relevance(
-    repos: list[RepositoryRecord]
-) -> list[RepositoryRecord]:
+
+def sort_by_relevance(repos: list[RepositoryRecord]) -> list[RepositoryRecord]:
     """Sort repos by number of sources and star count."""
     ...
+
 
 # ===== github_client.py =====
 class GitHubClient:
     def __init__(self, token: str, rate_limit_delay: float = 1.0):
         """Initialize with auth token and rate limiting."""
         ...
-    
+
     async def get_repo(self, owner: str, name: str) -> RepositoryRecord | None:
         """Fetch repository details."""
         ...
-    
+
     async def get_starred(self, username: str) -> list[RepositoryRecord]:
         """Fetch user's starred repositories."""
         ...
-    
+
     async def repo_exists(self, full_name: str) -> bool:
         """Check if a repository exists."""
         ...
 
+
 # ===== output_writer.py =====
-def write_output(
-    repos: list[RepositoryRecord],
-    output_path: str,
-    format: str = "json"
-) -> int:
+def write_output(repos: list[RepositoryRecord], output_path: str, format: str = "json") -> int:
     """Write deduplicated repos to file. Returns count written."""
     ...
+
 
 def format_for_docfix_bot(repos: list[RepositoryRecord]) -> list[str]:
     """Format repos as simple owner/repo list for Doc-Fix Bot."""
     ...
+
 
 # ===== cli.py =====
 def scout(
@@ -234,7 +229,7 @@ def scout(
     keywords: list[str] = typer.Option(None),
     star_depth: int = typer.Option(2),
     output: str = typer.Option("targets.json"),
-    output_format: str = typer.Option("json")
+    output_format: str = typer.Option("json"),
 ) -> None:
     """Main CLI entry point for Repo Scout."""
     ...

@@ -65,29 +65,32 @@ from enum import Enum
 from typing import TypedDict
 from datetime import datetime
 
+
 class InteractionStatus(Enum):
-    SUBMITTED = "submitted"      # Fix PR submitted, awaiting review
-    MERGED = "merged"            # PR was merged
-    DENIED = "denied"            # PR was rejected by maintainer
+    SUBMITTED = "submitted"  # Fix PR submitted, awaiting review
+    MERGED = "merged"  # PR was merged
+    DENIED = "denied"  # PR was rejected by maintainer
     BLACKLISTED = "blacklisted"  # Repo/maintainer blocked future submissions
 
+
 class InteractionRecord(TypedDict):
-    id: int                      # Auto-increment primary key
-    repo_url: str                # Full GitHub repo URL
-    broken_url: str              # The broken URL that was fixed
-    status: InteractionStatus    # Current status of the interaction
-    created_at: datetime         # When the record was created
-    updated_at: datetime         # Last modification timestamp
-    pr_url: str | None           # PR URL if submitted
-    maintainer: str | None       # GitHub username of maintainer
-    notes: str | None            # Optional notes (e.g., denial reason)
+    id: int  # Auto-increment primary key
+    repo_url: str  # Full GitHub repo URL
+    broken_url: str  # The broken URL that was fixed
+    status: InteractionStatus  # Current status of the interaction
+    created_at: datetime  # When the record was created
+    updated_at: datetime  # Last modification timestamp
+    pr_url: str | None  # PR URL if submitted
+    maintainer: str | None  # GitHub username of maintainer
+    notes: str | None  # Optional notes (e.g., denial reason)
+
 
 class BlacklistEntry(TypedDict):
-    id: int                      # Auto-increment primary key
-    repo_url: str | None         # Specific repo, or None for maintainer-level
-    maintainer: str | None       # Maintainer username, or None for repo-level
-    reason: str                  # Why blacklisted
-    created_at: datetime         # When blacklisted
+    id: int  # Auto-increment primary key
+    repo_url: str | None  # Specific repo, or None for maintainer-level
+    maintainer: str | None  # Maintainer username, or None for repo-level
+    reason: str  # Why blacklisted
+    created_at: datetime  # When blacklisted
     expires_at: datetime | None  # Optional expiration (None = permanent)
 ```
 
@@ -96,17 +99,18 @@ class BlacklistEntry(TypedDict):
 ```python
 # Signatures only - implementation in source files
 
+
 class StateDatabase:
     """SQLite-based state database for tracking bot interactions."""
-    
+
     def __init__(self, db_path: str = "state.db") -> None:
         """Initialize database connection and create tables if needed."""
         ...
-    
+
     def close(self) -> None:
         """Close database connection."""
         ...
-    
+
     # Interaction Management
     def record_interaction(
         self,
@@ -119,7 +123,7 @@ class StateDatabase:
     ) -> int:
         """Record a new interaction. Returns the record ID."""
         ...
-    
+
     def update_interaction_status(
         self,
         record_id: int,
@@ -129,7 +133,7 @@ class StateDatabase:
     ) -> bool:
         """Update status of an existing interaction. Returns success."""
         ...
-    
+
     def get_interaction(
         self,
         repo_url: str,
@@ -137,7 +141,7 @@ class StateDatabase:
     ) -> InteractionRecord | None:
         """Get interaction record for a specific repo/URL combo."""
         ...
-    
+
     def has_been_submitted(
         self,
         repo_url: str,
@@ -145,7 +149,7 @@ class StateDatabase:
     ) -> bool:
         """Check if a fix has already been submitted for this URL."""
         ...
-    
+
     # Blacklist Management
     def add_to_blacklist(
         self,
@@ -156,14 +160,14 @@ class StateDatabase:
     ) -> int:
         """Add repo or maintainer to blacklist. Returns entry ID."""
         ...
-    
+
     def remove_from_blacklist(
         self,
         entry_id: int,
     ) -> bool:
         """Remove entry from blacklist. Returns success."""
         ...
-    
+
     def is_blacklisted(
         self,
         repo_url: str,
@@ -171,11 +175,11 @@ class StateDatabase:
     ) -> bool:
         """Check if repo or maintainer is blacklisted."""
         ...
-    
+
     def get_blacklist(self) -> list[BlacklistEntry]:
         """Get all active blacklist entries."""
         ...
-    
+
     # Query Helpers
     def can_submit_fix(
         self,
@@ -188,7 +192,7 @@ class StateDatabase:
         Returns (can_submit, reason) tuple.
         """
         ...
-    
+
     def get_stats(self) -> dict:
         """Get summary statistics of all interactions."""
         ...
