@@ -86,29 +86,32 @@ from enum import Enum
 from typing import TypedDict
 from datetime import datetime
 
+
 class InteractionStatus(Enum):
-    SUBMITTED = "submitted"      # Fix PR submitted, awaiting review
-    MERGED = "merged"            # PR was merged
-    DENIED = "denied"            # PR was rejected by maintainer
+    SUBMITTED = "submitted"  # Fix PR submitted, awaiting review
+    MERGED = "merged"  # PR was merged
+    DENIED = "denied"  # PR was rejected by maintainer
     BLACKLISTED = "blacklisted"  # Repo/maintainer blocked future submissions
 
+
 class InteractionRecord(TypedDict):
-    id: int                      # Auto-increment primary key
-    repo_url: str                # Full GitHub repo URL
-    broken_url: str              # The broken URL that was fixed
-    status: InteractionStatus    # Current status of the interaction
-    created_at: datetime         # When the record was created
-    updated_at: datetime         # Last modification timestamp
-    pr_url: str | None           # PR URL if submitted
-    maintainer: str | None       # GitHub username of maintainer
-    notes: str | None            # Optional notes (e.g., denial reason)
+    id: int  # Auto-increment primary key
+    repo_url: str  # Full GitHub repo URL
+    broken_url: str  # The broken URL that was fixed
+    status: InteractionStatus  # Current status of the interaction
+    created_at: datetime  # When the record was created
+    updated_at: datetime  # Last modification timestamp
+    pr_url: str | None  # PR URL if submitted
+    maintainer: str | None  # GitHub username of maintainer
+    notes: str | None  # Optional notes (e.g., denial reason)
+
 
 class BlacklistEntry(TypedDict):
-    id: int                      # Auto-increment primary key
-    repo_url: str | None         # Specific repo, or None for maintainer-level
-    maintainer: str | None       # Maintainer username, or None for repo-level
-    reason: str                  # Why blacklisted
-    created_at: datetime         # When blacklisted
+    id: int  # Auto-increment primary key
+    repo_url: str | None  # Specific repo, or None for maintainer-level
+    maintainer: str | None  # Maintainer username, or None for repo-level
+    reason: str  # Why blacklisted
+    created_at: datetime  # When blacklisted
     expires_at: datetime | None  # Optional expiration (None = permanent)
 ```
 
@@ -117,17 +120,18 @@ class BlacklistEntry(TypedDict):
 ```python
 # Signatures only - implementation in source files
 
+
 class StateDatabase:
     """SQLite-based state database for tracking bot interactions."""
-    
+
     def __init__(self, db_path: str = "state.db") -> None:
         """Initialize database connection and create tables if needed."""
         ...
-    
+
     def close(self) -> None:
         """Close database connection."""
         ...
-    
+
     # Interaction Management
     def record_interaction(
         self,
@@ -140,7 +144,7 @@ class StateDatabase:
     ) -> int:
         """Record a new interaction. Returns the record ID."""
         ...
-    
+
     def update_interaction_status(
         self,
         record_id: int,
@@ -150,7 +154,7 @@ class StateDatabase:
     ) -> bool:
         """Update status of an existing interaction. Returns success."""
         ...
-    
+
     def get_interaction(
         self,
         repo_url: str,
@@ -158,7 +162,7 @@ class StateDatabase:
     ) -> InteractionRecord | None:
         """Get interaction record for a specific repo/URL combo."""
         ...
-    
+
     def has_been_submitted(
         self,
         repo_url: str,
@@ -166,7 +170,7 @@ class StateDatabase:
     ) -> bool:
         """Check if a fix has already been submitted for this URL."""
         ...
-    
+
     # Blacklist Management
     def add_to_blacklist(
         self,
@@ -177,14 +181,14 @@ class StateDatabase:
     ) -> int:
         """Add repo or maintainer to blacklist. Returns entry ID."""
         ...
-    
+
     def remove_from_blacklist(
         self,
         entry_id: int,
     ) -> bool:
         """Remove entry from blacklist. Returns success."""
         ...
-    
+
     def is_blacklisted(
         self,
         repo_url: str,
@@ -192,11 +196,11 @@ class StateDatabase:
     ) -> bool:
         """Check if repo or maintainer is blacklisted."""
         ...
-    
+
     def get_blacklist(self) -> list[BlacklistEntry]:
         """Get all active blacklist entries."""
         ...
-    
+
     # Query Helpers
     def can_submit_fix(
         self,
@@ -209,7 +213,7 @@ class StateDatabase:
         Returns (can_submit, reason) tuple.
         """
         ...
-    
+
     def get_stats(self) -> dict:
         """Get summary statistics of all interactions."""
         ...
@@ -665,6 +669,7 @@ def test_client():
 # Unit Tests
 # -----------
 
+
 def test_id():
     """
     Test Description | Expected Behavior | Status
@@ -677,7 +682,7 @@ def test_id():
 
     # TDD: Assert
     # Verify test_id works correctly
-    assert False, 'TDD RED: test_id not implemented'
+    assert False, "TDD RED: test_id not implemented"
 
 
 def test_t010(mock_external_service):
@@ -692,7 +697,7 @@ def test_t010(mock_external_service):
 
     # TDD: Assert
     # Verify test_t010 works correctly
-    assert False, 'TDD RED: test_t010 not implemented'
+    assert False, "TDD RED: test_t010 not implemented"
 
 
 def test_t020():
@@ -707,7 +712,7 @@ def test_t020():
 
     # TDD: Assert
     # Verify test_t020 works correctly
-    assert False, 'TDD RED: test_t020 not implemented'
+    assert False, "TDD RED: test_t020 not implemented"
 
 
 def test_t030():
@@ -722,7 +727,7 @@ def test_t030():
 
     # TDD: Assert
     # Verify test_t030 works correctly
-    assert False, 'TDD RED: test_t030 not implemented'
+    assert False, "TDD RED: test_t030 not implemented"
 
 
 def test_t040():
@@ -737,7 +742,7 @@ def test_t040():
 
     # TDD: Assert
     # Verify test_t040 works correctly
-    assert False, 'TDD RED: test_t040 not implemented'
+    assert False, "TDD RED: test_t040 not implemented"
 
 
 def test_t050():
@@ -752,7 +757,7 @@ def test_t050():
 
     # TDD: Assert
     # Verify test_t050 works correctly
-    assert False, 'TDD RED: test_t050 not implemented'
+    assert False, "TDD RED: test_t050 not implemented"
 
 
 def test_t060():
@@ -767,7 +772,7 @@ def test_t060():
 
     # TDD: Assert
     # Verify test_t060 works correctly
-    assert False, 'TDD RED: test_t060 not implemented'
+    assert False, "TDD RED: test_t060 not implemented"
 
 
 def test_t070():
@@ -782,7 +787,7 @@ def test_t070():
 
     # TDD: Assert
     # Verify test_t070 works correctly
-    assert False, 'TDD RED: test_t070 not implemented'
+    assert False, "TDD RED: test_t070 not implemented"
 
 
 def test_t080():
@@ -797,7 +802,7 @@ def test_t080():
 
     # TDD: Assert
     # Verify test_t080 works correctly
-    assert False, 'TDD RED: test_t080 not implemented'
+    assert False, "TDD RED: test_t080 not implemented"
 
 
 def test_t090():
@@ -812,7 +817,7 @@ def test_t090():
 
     # TDD: Assert
     # Verify test_t090 works correctly
-    assert False, 'TDD RED: test_t090 not implemented'
+    assert False, "TDD RED: test_t090 not implemented"
 
 
 def test_t100():
@@ -827,7 +832,7 @@ def test_t100():
 
     # TDD: Assert
     # Verify test_t100 works correctly
-    assert False, 'TDD RED: test_t100 not implemented'
+    assert False, "TDD RED: test_t100 not implemented"
 
 
 def test_t110():
@@ -842,7 +847,7 @@ def test_t110():
 
     # TDD: Assert
     # Verify test_t110 works correctly
-    assert False, 'TDD RED: test_t110 not implemented'
+    assert False, "TDD RED: test_t110 not implemented"
 
 
 def test_t120():
@@ -857,7 +862,7 @@ def test_t120():
 
     # TDD: Assert
     # Verify test_t120 works correctly
-    assert False, 'TDD RED: test_t120 not implemented'
+    assert False, "TDD RED: test_t120 not implemented"
 
 
 def test_t130():
@@ -872,7 +877,7 @@ def test_t130():
 
     # TDD: Assert
     # Verify test_t130 works correctly
-    assert False, 'TDD RED: test_t130 not implemented'
+    assert False, "TDD RED: test_t130 not implemented"
 
 
 def test_t140(mock_external_service):
@@ -887,7 +892,7 @@ def test_t140(mock_external_service):
 
     # TDD: Assert
     # Verify test_t140 works correctly
-    assert False, 'TDD RED: test_t140 not implemented'
+    assert False, "TDD RED: test_t140 not implemented"
 
 
 def test_010(mock_external_service):
@@ -903,7 +908,7 @@ def test_010(mock_external_service):
 
     # TDD: Assert
     # Verify test_010 works correctly
-    assert False, 'TDD RED: test_010 not implemented'
+    assert False, "TDD RED: test_010 not implemented"
 
 
 def test_020():
@@ -919,7 +924,7 @@ def test_020():
 
     # TDD: Assert
     # Verify test_020 works correctly
-    assert False, 'TDD RED: test_020 not implemented'
+    assert False, "TDD RED: test_020 not implemented"
 
 
 def test_030():
@@ -935,7 +940,7 @@ def test_030():
 
     # TDD: Assert
     # Verify test_030 works correctly
-    assert False, 'TDD RED: test_030 not implemented'
+    assert False, "TDD RED: test_030 not implemented"
 
 
 def test_040():
@@ -951,7 +956,7 @@ def test_040():
 
     # TDD: Assert
     # Verify test_040 works correctly
-    assert False, 'TDD RED: test_040 not implemented'
+    assert False, "TDD RED: test_040 not implemented"
 
 
 def test_050():
@@ -967,7 +972,7 @@ def test_050():
 
     # TDD: Assert
     # Verify test_050 works correctly
-    assert False, 'TDD RED: test_050 not implemented'
+    assert False, "TDD RED: test_050 not implemented"
 
 
 def test_060():
@@ -983,7 +988,7 @@ def test_060():
 
     # TDD: Assert
     # Verify test_060 works correctly
-    assert False, 'TDD RED: test_060 not implemented'
+    assert False, "TDD RED: test_060 not implemented"
 
 
 def test_070():
@@ -999,7 +1004,7 @@ def test_070():
 
     # TDD: Assert
     # Verify test_070 works correctly
-    assert False, 'TDD RED: test_070 not implemented'
+    assert False, "TDD RED: test_070 not implemented"
 
 
 def test_080():
@@ -1015,7 +1020,7 @@ def test_080():
 
     # TDD: Assert
     # Verify test_080 works correctly
-    assert False, 'TDD RED: test_080 not implemented'
+    assert False, "TDD RED: test_080 not implemented"
 
 
 def test_090():
@@ -1031,7 +1036,7 @@ def test_090():
 
     # TDD: Assert
     # Verify test_090 works correctly
-    assert False, 'TDD RED: test_090 not implemented'
+    assert False, "TDD RED: test_090 not implemented"
 
 
 def test_100():
@@ -1047,7 +1052,7 @@ def test_100():
 
     # TDD: Assert
     # Verify test_100 works correctly
-    assert False, 'TDD RED: test_100 not implemented'
+    assert False, "TDD RED: test_100 not implemented"
 
 
 def test_110():
@@ -1063,7 +1068,7 @@ def test_110():
 
     # TDD: Assert
     # Verify test_110 works correctly
-    assert False, 'TDD RED: test_110 not implemented'
+    assert False, "TDD RED: test_110 not implemented"
 
 
 def test_120():
@@ -1079,7 +1084,7 @@ def test_120():
 
     # TDD: Assert
     # Verify test_120 works correctly
-    assert False, 'TDD RED: test_120 not implemented'
+    assert False, "TDD RED: test_120 not implemented"
 
 
 def test_140():
@@ -1095,12 +1100,12 @@ def test_140():
 
     # TDD: Assert
     # Verify test_140 works correctly
-    assert False, 'TDD RED: test_140 not implemented'
-
+    assert False, "TDD RED: test_140 not implemented"
 
 
 # Integration Tests
 # -----------------
+
 
 @pytest.mark.integration
 def test_130(test_client):
@@ -1116,11 +1121,7 @@ def test_130(test_client):
 
     # TDD: Assert
     # Verify test_130 works correctly
-    assert False, 'TDD RED: test_130 not implemented'
-
-
-
-
+    assert False, "TDD RED: test_130 not implemented"
 ```
 
 ## Previously Implemented Files
@@ -1312,16 +1313,16 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-class InteractionStatus(str, Enum):
 
+class InteractionStatus(str, Enum):
     """Status of a bot interaction with a repository."""
 
-class InteractionRecord(BaseModel):
 
+class InteractionRecord(BaseModel):
     """Record of a bot interaction (fix submission) with a repository."""
 
-class BlacklistEntry(BaseModel):
 
+class BlacklistEntry(BaseModel):
     """Entry in the maintainer/repo blacklist."""
 ```
 
@@ -1395,12 +1396,7 @@ def test_create_database():
     with StateDatabase(":memory:") as db:
         conn = db._conn
         # Verify tables exist
-        tables = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-        }
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         assert "interactions" in tables
         assert "blacklist" in tables
         assert "schema_version" in tables
@@ -1411,23 +1407,28 @@ def test_create_database_schema_columns():
     with StateDatabase(":memory:") as db:
         conn = db._conn
 
-        interaction_cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(interactions)").fetchall()
-        }
+        interaction_cols = {row[1] for row in conn.execute("PRAGMA table_info(interactions)").fetchall()}
         for col in (
-            "id", "repo_url", "broken_url", "status",
-            "created_at", "updated_at", "pr_url", "maintainer", "notes",
+            "id",
+            "repo_url",
+            "broken_url",
+            "status",
+            "created_at",
+            "updated_at",
+            "pr_url",
+            "maintainer",
+            "notes",
         ):
             assert col in interaction_cols, f"Missing column: {col}"
 
-        blacklist_cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(blacklist)").fetchall()
-        }
+        blacklist_cols = {row[1] for row in conn.execute("PRAGMA table_info(blacklist)").fetchall()}
         for col in (
-            "id", "repo_url", "maintainer", "reason",
-            "created_at", "expires_at",
+            "id",
+            "repo_url",
+            "maintainer",
+            "reason",
+            "created_at",
+            "expires_at",
         ):
             assert col in blacklist_cols, f"Missing column: {col}"
 
@@ -1436,17 +1437,11 @@ def test_create_database_indexes():
     """T010 extended: expected indexes exist."""
     with StateDatabase(":memory:") as db:
         conn = db._conn
-        indexes = {
-            row[1]
-            for row in conn.execute("PRAGMA index_list(interactions)").fetchall()
-        }
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(interactions)").fetchall()}
         assert "idx_interactions_repo_url" in indexes
         assert "idx_interactions_maintainer" in indexes
 
-        indexes_bl = {
-            row[1]
-            for row in conn.execute("PRAGMA index_list(blacklist)").fetchall()
-        }
+        indexes_bl = {row[1] for row in conn.execute("PRAGMA index_list(blacklist)").fetchall()}
         assert "idx_blacklist_repo" in indexes_bl
         assert "idx_blacklist_maintainer" in indexes_bl
 
@@ -1478,9 +1473,7 @@ def test_record_interaction(db):
     assert record_id > 0
 
     # Verify retrievable
-    record = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert record is not None
     assert record.id == record_id
     assert record.repo_url == "https://github.com/owner/repo"
@@ -1499,9 +1492,7 @@ def test_record_interaction_minimal(db):
         status=InteractionStatus.SUBMITTED,
     )
     assert isinstance(record_id, int)
-    record = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert record is not None
     assert record.pr_url is None
     assert record.maintainer is None
@@ -1515,9 +1506,7 @@ def test_record_interaction_timestamps(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    record = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert record is not None
     assert record.created_at is not None
     assert record.updated_at is not None
@@ -1537,9 +1526,7 @@ def test_has_been_submitted_true(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    assert db.has_been_submitted(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    ) is True
+    assert db.has_been_submitted("https://github.com/owner/repo", "https://example.com/broken") is True
 
 
 # ---------------------------------------------------------------------------
@@ -1549,9 +1536,7 @@ def test_has_been_submitted_true(db):
 
 def test_has_been_submitted_false(db):
     """T040: Returns False for a new repo+url pair."""
-    assert db.has_been_submitted(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    ) is False
+    assert db.has_been_submitted("https://github.com/owner/repo", "https://example.com/broken") is False
 
 
 def test_has_been_submitted_different_url(db):
@@ -1561,9 +1546,7 @@ def test_has_been_submitted_different_url(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    assert db.has_been_submitted(
-        "https://github.com/owner/repo", "https://example.com/other"
-    ) is False
+    assert db.has_been_submitted("https://github.com/owner/repo", "https://example.com/other") is False
 
 
 def test_has_been_submitted_different_repo(db):
@@ -1573,9 +1556,7 @@ def test_has_been_submitted_different_repo(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    assert db.has_been_submitted(
-        "https://github.com/other/repo", "https://example.com/broken"
-    ) is False
+    assert db.has_been_submitted("https://github.com/other/repo", "https://example.com/broken") is False
 
 
 # ---------------------------------------------------------------------------
@@ -1590,9 +1571,7 @@ def test_update_interaction_status(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    before = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    before = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert before is not None
 
     # Small delay to ensure updated_at changes
@@ -1601,9 +1580,7 @@ def test_update_interaction_status(db):
     success = db.update_interaction_status(record_id, InteractionStatus.MERGED)
     assert success is True
 
-    after = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    after = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert after is not None
     assert after.status == InteractionStatus.MERGED
     assert after.updated_at > before.updated_at
@@ -1625,9 +1602,7 @@ def test_update_interaction_status_with_fields(db):
     )
     assert success is True
 
-    record = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert record is not None
     assert record.status == InteractionStatus.DENIED
     assert record.pr_url == "https://github.com/owner/repo/pull/99"
@@ -1712,15 +1687,11 @@ def test_is_blacklisted_maintainer(db):
         reason="Requested no contact",
     )
     # Any repo with this maintainer should be blocked
-    assert db.is_blacklisted(
-        "https://github.com/any/repo", maintainer="blocked_user"
-    ) is True
+    assert db.is_blacklisted("https://github.com/any/repo", maintainer="blocked_user") is True
     # Without specifying maintainer, repo itself is not blacklisted
     assert db.is_blacklisted("https://github.com/any/repo") is False
     # Different maintainer is fine
-    assert db.is_blacklisted(
-        "https://github.com/any/repo", maintainer="other_user"
-    ) is False
+    assert db.is_blacklisted("https://github.com/any/repo", maintainer="other_user") is False
 
 
 # ---------------------------------------------------------------------------
@@ -1930,22 +1901,16 @@ def test_database_persistence(tmp_path):
 
     # Reopen and verify
     with StateDatabase(db_file) as db:
-        record = db.get_interaction(
-            "https://github.com/owner/repo", "https://example.com/broken"
-        )
+        record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
         assert record is not None
         assert record.id == record_id
         assert record.status == InteractionStatus.SUBMITTED
         assert record.pr_url == "https://github.com/owner/repo/pull/1"
         assert record.maintainer == "alice"
 
-        assert db.is_blacklisted(
-            "https://github.com/any/repo", maintainer="blocked_user"
-        ) is True
+        assert db.is_blacklisted("https://github.com/any/repo", maintainer="blocked_user") is True
 
-        assert db.has_been_submitted(
-            "https://github.com/owner/repo", "https://example.com/broken"
-        ) is True
+        assert db.has_been_submitted("https://github.com/owner/repo", "https://example.com/broken") is True
 
 
 # ---------------------------------------------------------------------------
@@ -1995,9 +1960,7 @@ def test_020_record_new_interaction(db):
     assert record_id is not None
     assert isinstance(record_id, int)
 
-    record = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert record is not None
     assert record.id == record_id
 
@@ -2014,9 +1977,7 @@ def test_030_detect_submitted_url(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    assert db.has_been_submitted(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    ) is True
+    assert db.has_been_submitted("https://github.com/owner/repo", "https://example.com/broken") is True
 
 
 # ---------------------------------------------------------------------------
@@ -2026,9 +1987,7 @@ def test_030_detect_submitted_url(db):
 
 def test_040_allow_new_url(db):
     """040: Allow new URL – False, no false positives (REQ-2)."""
-    assert db.has_been_submitted(
-        "https://github.com/owner/repo", "https://example.com/new"
-    ) is False
+    assert db.has_been_submitted("https://github.com/owner/repo", "https://example.com/new") is False
 
 
 # ---------------------------------------------------------------------------
@@ -2043,17 +2002,13 @@ def test_050_update_status_to_merged(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    before = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    before = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert before is not None
 
     time.sleep(0.05)
 
     db.update_interaction_status(record_id, InteractionStatus.MERGED)
-    after = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    after = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert after is not None
     assert after.status == InteractionStatus.MERGED
     assert after.updated_at > before.updated_at
@@ -2198,12 +2153,8 @@ def test_130_close_and_reopen(tmp_path):
         )
 
     with StateDatabase(db_file) as db:
-        assert db.has_been_submitted(
-            "https://github.com/owner/repo", "https://example.com/broken"
-        ) is True
-        record = db.get_interaction(
-            "https://github.com/owner/repo", "https://example.com/broken"
-        )
+        assert db.has_been_submitted("https://github.com/owner/repo", "https://example.com/broken") is True
+        record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
         assert record is not None
         assert record.status == InteractionStatus.SUBMITTED
 
@@ -2279,9 +2230,7 @@ def test_remove_from_blacklist_nonexistent(db):
 
 def test_get_interaction_returns_none(db):
     """Verify get_interaction returns None for missing record."""
-    result = db.get_interaction(
-        "https://github.com/nonexistent/repo", "https://example.com/nope"
-    )
+    result = db.get_interaction("https://github.com/nonexistent/repo", "https://example.com/nope")
     assert result is None
 
 
@@ -2299,9 +2248,7 @@ def test_get_interaction_returns_latest(db):
         status=InteractionStatus.DENIED,
         notes="Second attempt",
     )
-    record = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert record is not None
     assert record.status == InteractionStatus.DENIED
     assert record.notes == "Second attempt"
@@ -2329,9 +2276,7 @@ def test_interaction_record_model(db):
         broken_url="https://example.com/broken",
         status=InteractionStatus.SUBMITTED,
     )
-    record = db.get_interaction(
-        "https://github.com/owner/repo", "https://example.com/broken"
-    )
+    record = db.get_interaction("https://github.com/owner/repo", "https://example.com/broken")
     assert isinstance(record, InteractionRecord)
 
 
@@ -2359,14 +2304,10 @@ def test_blacklist_checks_both_repo_and_maintainer(db):
     assert db.is_blacklisted("https://github.com/blocked/repo") is True
 
     # Maintainer-level block on a different repo
-    assert db.is_blacklisted(
-        "https://github.com/clean/repo", maintainer="blocked_user"
-    ) is True
+    assert db.is_blacklisted("https://github.com/clean/repo", maintainer="blocked_user") is True
 
     # Clean repo + clean maintainer
-    assert db.is_blacklisted(
-        "https://github.com/clean/repo", maintainer="clean_user"
-    ) is False
+    assert db.is_blacklisted("https://github.com/clean/repo", maintainer="clean_user") is False
 ```
 
 ## Output Format

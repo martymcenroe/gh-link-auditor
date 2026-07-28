@@ -36,7 +36,7 @@ storage.create_run(db, "bulk-20260514T042627Z", 5, {})
 storage.create_run(db, "bulk-20260514T030834Z", 5, {})
 # operator typos:
 rc = _cmd_start(args_with(run_id="bulk-20260514T042627"))
-assert "bulk-20260514T042627Z" in stderr   # the Z-sibling is suggested
+assert "bulk-20260514T042627Z" in stderr  # the Z-sibling is suggested
 ```
 
 ## Results

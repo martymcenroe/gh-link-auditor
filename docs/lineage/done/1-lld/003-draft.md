@@ -54,11 +54,11 @@ Mechanical validation automatically checks:
 ```python
 # Pseudocode - NOT implementation
 class LinkCheckResult(TypedDict):
-    url: str              # The URL that was checked
-    status_code: int      # Final HTTP status code
-    method_used: str      # "HEAD" or "GET" - which method succeeded
-    fallback_used: bool   # True if GET fallback was needed
-    error: str | None     # Error message if check failed
+    url: str  # The URL that was checked
+    status_code: int  # Final HTTP status code
+    method_used: str  # "HEAD" or "GET" - which method succeeded
+    fallback_used: bool  # True if GET fallback was needed
+    error: str | None  # Error message if check failed
 ```
 
 ### 2.4 Function Signatures
@@ -68,32 +68,34 @@ class LinkCheckResult(TypedDict):
 def check_link_with_fallback(url: str, timeout: int = 10) -> LinkCheckResult:
     """
     Check a URL using HEAD request, falling back to GET on 403/405.
-    
+
     Args:
         url: The URL to validate
         timeout: Request timeout in seconds
-        
+
     Returns:
         LinkCheckResult with status and method information
     """
     ...
 
+
 def should_fallback_to_get(status_code: int) -> bool:
     """
     Determine if a HEAD response warrants a GET fallback.
-    
+
     Args:
         status_code: HTTP status code from HEAD request
-        
+
     Returns:
         True if status_code is 403 or 405
     """
     ...
 
+
 def log_fallback_attempt(url: str, head_status: int) -> None:
     """
     Log when a GET fallback is being attempted.
-    
+
     Args:
         url: The URL being checked
         head_status: The HEAD status code that triggered fallback

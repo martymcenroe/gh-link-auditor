@@ -21,7 +21,7 @@ Categorical skip for Stack Exchange network URLs at N1's pre-check layer. SE URL
 ```python
 ALWAYS_ALIVE_DOMAINS = {
     "stackoverflow.com",
-    "stackexchange.com",   # plus every *.stackexchange.com subdomain
+    "stackexchange.com",  # plus every *.stackexchange.com subdomain
     "serverfault.com",
     "superuser.com",
     "askubuntu.com",

@@ -88,112 +88,127 @@ tiktoken = "^0.6.0"
 ```python
 # Pseudocode - NOT implementation
 
+
 class DeadLink(TypedDict):
     """A single dead link discovered during scan."""
-    url: str                    # The broken URL
-    source_file: str            # File containing the link
-    line_number: int            # Line number in source file
-    link_text: str              # Anchor text of the link
-    http_status: int | None     # HTTP status code (None if DNS failure)
-    error_type: str             # "http_error", "dns_error", "timeout", etc.
+
+    url: str  # The broken URL
+    source_file: str  # File containing the link
+    line_number: int  # Line number in source file
+    link_text: str  # Anchor text of the link
+    http_status: int | None  # HTTP status code (None if DNS failure)
+    error_type: str  # "http_error", "dns_error", "timeout", etc.
+
 
 class ReplacementCandidate(TypedDict):
     """A potential replacement URL for a dead link."""
-    url: str                    # The candidate replacement URL
-    source: str                 # How found: "wayback", "search", "redirect", "domain_change"
-    title: str | None           # Page title if retrieved
-    snippet: str | None         # Content snippet for context
+
+    url: str  # The candidate replacement URL
+    source: str  # How found: "wayback", "search", "redirect", "domain_change"
+    title: str | None  # Page title if retrieved
+    snippet: str | None  # Content snippet for context
+
 
 class Verdict(TypedDict):
     """Mr. Slant's judgment on a replacement candidate."""
-    dead_link: DeadLink         # The original dead link
+
+    dead_link: DeadLink  # The original dead link
     candidate: ReplacementCandidate | None  # Best candidate (None if no good option)
-    confidence: float           # 0.0-1.0 confidence score
-    reasoning: str              # Explanation of the judgment
-    approved: bool | None       # None until human review (if needed)
+    confidence: float  # 0.0-1.0 confidence score
+    reasoning: str  # Explanation of the judgment
+    approved: bool | None  # None until human review (if needed)
+
 
 class FixPatch(TypedDict):
     """A generated fix for a dead link."""
-    source_file: str            # File to patch
-    original_url: str           # URL being replaced
-    replacement_url: str        # New URL
-    unified_diff: str           # Git-style unified diff
+
+    source_file: str  # File to patch
+    original_url: str  # URL being replaced
+    replacement_url: str  # New URL
+    unified_diff: str  # Git-style unified diff
+
 
 class CostRecord(TypedDict):
     """Cost tracking for a single LLM call."""
-    node: str                   # Which node made the call
-    model: str                  # Model used
-    input_tokens: int           # Prompt tokens
-    output_tokens: int          # Completion tokens
-    estimated_cost_usd: float   # Estimated cost in USD
-    timestamp: str              # ISO 8601 timestamp
+
+    node: str  # Which node made the call
+    model: str  # Model used
+    input_tokens: int  # Prompt tokens
+    output_tokens: int  # Completion tokens
+    estimated_cost_usd: float  # Estimated cost in USD
+    timestamp: str  # ISO 8601 timestamp
+
 
 class PipelineState(TypedDict):
     """Complete state passed between pipeline nodes."""
+
     # Input
-    target: str                         # Repo URL or local path
+    target: str  # Repo URL or local path
     target_type: Literal["url", "local"]  # Type of target
-    repo_name: str                      # Extracted repo name (org/repo or dir name)
-    
+    repo_name: str  # Extracted repo name (org/repo or dir name)
+
     # Configuration
-    max_links: int                      # Circuit breaker threshold
-    max_cost_usd: float                 # Cost limit
-    confidence_threshold: float         # Min confidence for auto-approval
-    dry_run: bool                       # Skip N4/N5 if True
-    verbose: bool                       # Detailed logging
-    
+    max_links: int  # Circuit breaker threshold
+    max_cost_usd: float  # Cost limit
+    confidence_threshold: float  # Min confidence for auto-approval
+    dry_run: bool  # Skip N4/N5 if True
+    verbose: bool  # Detailed logging
+
     # N0 Output
-    doc_files: list[str]                # List of documentation file paths
-    
+    doc_files: list[str]  # List of documentation file paths
+
     # N1 Output
-    dead_links: list[DeadLink]          # All dead links found
-    scan_complete: bool                 # Whether scan finished
-    
+    dead_links: list[DeadLink]  # All dead links found
+    scan_complete: bool  # Whether scan finished
+
     # Circuit Breaker
-    circuit_breaker_triggered: bool     # True if too many dead links
-    
+    circuit_breaker_triggered: bool  # True if too many dead links
+
     # N2 Output
     candidates: dict[str, list[ReplacementCandidate]]  # URL -> candidates
-    
+
     # N3 Output
-    verdicts: list[Verdict]             # All judgments
-    
+    verdicts: list[Verdict]  # All judgments
+
     # N4 Output (human review)
-    reviewed_verdicts: list[Verdict]    # Verdicts after human review
-    
+    reviewed_verdicts: list[Verdict]  # Verdicts after human review
+
     # N5 Output
-    fixes: list[FixPatch]               # Generated patches
-    
+    fixes: list[FixPatch]  # Generated patches
+
     # Cost Tracking
-    cost_records: list[CostRecord]      # All LLM costs
-    total_cost_usd: float               # Running total
-    cost_limit_reached: bool            # True if max_cost exceeded
-    
+    cost_records: list[CostRecord]  # All LLM costs
+    total_cost_usd: float  # Running total
+    cost_limit_reached: bool  # True if max_cost exceeded
+
     # Error Handling
-    errors: list[str]                   # Error messages
-    partial_results: bool               # True if halted mid-run
-    
+    errors: list[str]  # Error messages
+    partial_results: bool  # True if halted mid-run
+
     # Persistence
-    run_id: str                         # UUID for this pipeline run
-    db_path: str                        # Path to SQLite state database
+    run_id: str  # UUID for this pipeline run
+    db_path: str  # Path to SQLite state database
+
 
 class PipelineRunRecord(TypedDict):
     """Database record for a pipeline run."""
-    run_id: str                 # UUID
-    target: str                 # Original target input
-    started_at: str             # ISO 8601 timestamp
-    completed_at: str | None    # ISO 8601 timestamp or None if incomplete
-    status: str                 # "running", "completed", "failed", "halted"
-    exit_code: int | None       # Exit code when done
-    total_cost_usd: float       # Final cost
-    dead_links_found: int       # Count from N1
-    fixes_generated: int        # Count from N5
+
+    run_id: str  # UUID
+    target: str  # Original target input
+    started_at: str  # ISO 8601 timestamp
+    completed_at: str | None  # ISO 8601 timestamp or None if incomplete
+    status: str  # "running", "completed", "failed", "halted"
+    exit_code: int | None  # Exit code when done
+    total_cost_usd: float  # Final cost
+    dead_links_found: int  # Count from N1
+    fixes_generated: int  # Count from N5
 ```
 
 ### 2.4 Function Signatures
 
 ```python
 # ============= src/ghla/pipeline/state.py =============
+
 
 def create_initial_state(
     target: str,
@@ -207,95 +222,121 @@ def create_initial_state(
     """Create initial pipeline state from CLI inputs."""
     ...
 
+
 def persist_state(state: PipelineState, node_name: str) -> None:
     """Persist current state to SQLite after node completion."""
     ...
+
 
 def load_state(run_id: str, db_path: str) -> PipelineState | None:
     """Load state from previous run for resumption."""
     ...
 
+
 # ============= src/ghla/pipeline/graph.py =============
+
 
 def build_pipeline_graph() -> StateGraph:
     """Construct the LangGraph StateGraph with all nodes and edges."""
     ...
 
+
 def should_trigger_circuit_breaker(state: PipelineState) -> bool:
     """Check if dead link count exceeds max_links threshold."""
     ...
+
 
 def should_route_to_human_review(state: PipelineState) -> bool:
     """Check if any verdicts have confidence below threshold."""
     ...
 
+
 def run_pipeline(state: PipelineState) -> PipelineState:
     """Execute the full pipeline and return final state."""
     ...
 
+
 # ============= src/ghla/pipeline/nodes/n0_load_target.py =============
+
 
 def validate_target(target: str) -> tuple[str, Literal["url", "local"]]:
     """Validate target is a valid repo URL or local path. Returns normalized target and type."""
     ...
 
+
 def extract_repo_name(target: str, target_type: str) -> str:
     """Extract repo name from URL (org/repo) or local path (dir name)."""
     ...
+
 
 def list_documentation_files(target: str, target_type: str) -> list[str]:
     """List all documentation files (.md, .rst, .txt, .adoc) in target."""
     ...
 
+
 def n0_load_target(state: PipelineState) -> PipelineState:
     """N0 node: Load and validate target repository."""
     ...
 
+
 # ============= src/ghla/pipeline/nodes/n1_scan.py =============
+
 
 def run_link_scan(doc_files: list[str], target: str, target_type: str) -> list[DeadLink]:
     """Execute link scanning on documentation files. Wraps check_links.py."""
     ...
 
+
 def parse_scan_output(json_output: str) -> list[DeadLink]:
     """Parse check_links.py JSON output into DeadLink objects."""
     ...
+
 
 def n1_scan(state: PipelineState) -> PipelineState:
     """N1 node: Scan for dead links (Lu-Tze)."""
     ...
 
+
 # ============= src/ghla/pipeline/nodes/n2_investigate.py =============
+
 
 def search_wayback_machine(url: str) -> ReplacementCandidate | None:
     """Search Internet Archive Wayback Machine for archived version."""
     ...
 
+
 def search_web(url: str, link_text: str) -> list[ReplacementCandidate]:
     """Search web for potential replacement URLs."""
     ...
+
 
 def check_redirects(url: str) -> ReplacementCandidate | None:
     """Check if URL redirects to a new location."""
     ...
 
+
 def investigate_dead_link(dead_link: DeadLink) -> list[ReplacementCandidate]:
     """Investigate a single dead link for replacement candidates (Cheery)."""
     ...
+
 
 def n2_investigate(state: PipelineState) -> PipelineState:
     """N2 node: Investigate dead links for replacements (Cheery)."""
     ...
 
+
 # ============= src/ghla/pipeline/nodes/n3_judge.py =============
+
 
 def build_judgment_prompt(dead_link: DeadLink, candidates: list[ReplacementCandidate]) -> str:
     """Build prompt for LLM to judge replacement candidates."""
     ...
 
+
 def parse_judgment_response(response: str) -> tuple[ReplacementCandidate | None, float, str]:
     """Parse LLM response into (best_candidate, confidence, reasoning)."""
     ...
+
 
 def judge_candidates(
     dead_link: DeadLink,
@@ -306,25 +347,32 @@ def judge_candidates(
     """Judge replacement candidates for a dead link (Mr. Slant)."""
     ...
 
+
 def n3_judge(state: PipelineState) -> PipelineState:
     """N3 node: Judge replacement candidates (Mr. Slant)."""
     ...
 
+
 # ============= src/ghla/pipeline/nodes/n4_human_review.py =============
+
 
 def format_verdict_for_review(verdict: Verdict) -> str:
     """Format a verdict for terminal display."""
     ...
 
+
 def prompt_user_approval(verdict: Verdict) -> bool:
     """Interactive prompt for user to approve/reject a verdict."""
     ...
+
 
 def n4_human_review(state: PipelineState) -> PipelineState:
     """N4 node: Terminal-based human review for low-confidence verdicts."""
     ...
 
+
 # ============= src/ghla/pipeline/nodes/n5_generate_fix.py =============
+
 
 def generate_unified_diff(
     file_path: str,
@@ -334,27 +382,31 @@ def generate_unified_diff(
     """Generate unified diff for a single URL replacement."""
     ...
 
+
 def write_fix_patch(fix: FixPatch, output_dir: Path) -> Path:
     """Write fix patch to output directory."""
     ...
+
 
 def n5_generate_fix(state: PipelineState) -> PipelineState:
     """N5 node: Generate fix patches for approved replacements."""
     ...
 
+
 # ============= src/ghla/pipeline/cost_tracker.py =============
+
 
 class CostTracker:
     """Track LLM costs and enforce cost limits."""
-    
+
     def __init__(self, max_cost_usd: float, model: str = "gpt-4o-mini"):
         """Initialize cost tracker with limit and model."""
         ...
-    
+
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Estimate cost for given token counts."""
         ...
-    
+
     def record_call(
         self,
         node: str,
@@ -363,37 +415,42 @@ class CostTracker:
     ) -> CostRecord:
         """Record an LLM call and update running total."""
         ...
-    
+
     def check_limit(self) -> bool:
         """Check if cost limit has been reached."""
         ...
-    
+
     def get_total(self) -> float:
         """Get current total cost."""
         ...
-    
+
     def format_status(self) -> str:
         """Format cost status for display: '[cost] $X.XX / $Y.YY limit'"""
         ...
+
 
 def count_tokens(text: str, model: str = "gpt-4o-mini") -> int:
     """Count tokens in text using tiktoken."""
     ...
 
+
 # ============= src/ghla/pipeline/circuit_breaker.py =============
+
 
 class CircuitBreaker:
     """Circuit breaker for pipeline cost and volume controls."""
-    
+
     def __init__(self, max_links: int = 50):
         """Initialize circuit breaker with link threshold."""
         ...
-    
+
     def check_link_count(self, dead_links: list[DeadLink]) -> tuple[bool, str]:
         """Check if dead link count exceeds threshold. Returns (triggered, message)."""
         ...
 
+
 # ============= src/ghla/cli/run.py =============
+
 
 @click.command()
 @click.argument("target")

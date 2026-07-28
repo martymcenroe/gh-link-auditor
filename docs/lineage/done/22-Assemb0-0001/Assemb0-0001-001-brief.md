@@ -39,11 +39,11 @@ The ultimate goal: **earn GitHub contribution credit** by systematically finding
 class PipelineState(TypedDict):
     target_repo: str
     target_files: list[str]
-    scan_results: list[dict]        # Per 00008 schema
-    forensic_reports: list[dict]    # Cheery's output
-    verdicts: list[dict]            # Mr. Slant's output
-    human_decisions: list[dict]     # HITL results
-    approved_fixes: list[dict]      # Ready to PR
+    scan_results: list[dict]  # Per 00008 schema
+    forensic_reports: list[dict]  # Cheery's output
+    verdicts: list[dict]  # Mr. Slant's output
+    human_decisions: list[dict]  # HITL results
+    approved_fixes: list[dict]  # Ready to PR
     pr_url: str | None
     campaign_stats: dict
 ```

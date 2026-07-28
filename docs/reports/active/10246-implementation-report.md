@@ -14,6 +14,7 @@ Stub `asyncio.sleep` with `monkeypatch` so `acquire()` returns immediately while
 async def _fake_sleep(seconds: float) -> None:
     sleeps.append(seconds)
 
+
 monkeypatch.setattr(
     "gh_link_auditor.batch.rate_limiter.asyncio.sleep",
     _fake_sleep,

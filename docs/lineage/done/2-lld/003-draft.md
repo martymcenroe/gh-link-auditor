@@ -98,38 +98,43 @@ tinydb = "^4.8"             # Lightweight JSON database for state
 from typing import TypedDict, Literal
 from datetime import datetime
 
+
 class TargetRepository(TypedDict):
-    owner: str                    # GitHub org/user
-    repo: str                     # Repository name
-    priority: int                 # 1-10, higher = scan first
-    last_scanned: datetime | None # Track scan recency
-    enabled: bool                 # Allow disabling without removal
+    owner: str  # GitHub org/user
+    repo: str  # Repository name
+    priority: int  # 1-10, higher = scan first
+    last_scanned: datetime | None  # Track scan recency
+    enabled: bool  # Allow disabling without removal
+
 
 class BrokenLink(TypedDict):
-    source_file: str              # File containing the link
-    line_number: int              # Line where link appears
-    original_url: str             # The broken URL
-    status_code: int              # HTTP status (404, 403, etc.)
-    suggested_fix: str | None     # Suggested replacement URL
-    fix_confidence: float         # 0.0-1.0, how confident in fix
+    source_file: str  # File containing the link
+    line_number: int  # Line where link appears
+    original_url: str  # The broken URL
+    status_code: int  # HTTP status (404, 403, etc.)
+    suggested_fix: str | None  # Suggested replacement URL
+    fix_confidence: float  # 0.0-1.0, how confident in fix
+
 
 class ScanResult(TypedDict):
     repository: TargetRepository
     scan_time: datetime
     broken_links: list[BrokenLink]
-    error: str | None             # If scan failed
+    error: str | None  # If scan failed
     files_scanned: int
     links_checked: int
 
+
 class PRSubmission(TypedDict):
     repository: TargetRepository
-    branch_name: str              # fix/broken-link-readme-1234
-    pr_number: int | None         # Assigned after creation
+    branch_name: str  # fix/broken-link-readme-1234
+    pr_number: int | None  # Assigned after creation
     pr_url: str | None
     status: Literal["pending", "submitted", "merged", "closed", "rejected"]
     broken_links_fixed: list[BrokenLink]
     submitted_at: datetime
-    
+
+
 class BotState(TypedDict):
     last_run: datetime
     total_prs_submitted: int
@@ -146,79 +151,91 @@ def load_targets(config_path: Path) -> list[TargetRepository]:
     """Load and validate repository targets from YAML."""
     ...
 
+
 def prioritize_targets(targets: list[TargetRepository]) -> list[TargetRepository]:
     """Sort targets by priority and recency of last scan."""
     ...
 
+
 def update_scan_timestamp(target: TargetRepository, state_store: StateStore) -> None:
     """Mark repository as recently scanned."""
     ...
+
 
 # link_scanner.py
 async def scan_repository(target: TargetRepository, config: BotConfig) -> ScanResult:
     """Scan a single repository for broken links."""
     ...
 
+
 async def check_link(url: str, session: httpx.AsyncClient) -> tuple[int, str | None]:
     """Check if a URL is accessible, handle anti-bot responses."""
     ...
+
 
 def extract_links_from_markdown(content: str) -> list[tuple[str, int]]:
     """Extract all links from markdown content with line numbers."""
     ...
 
+
 def suggest_fix(broken_url: str, context: str) -> tuple[str | None, float]:
     """Attempt to suggest a fix for the broken link."""
     ...
 
+
 # git_workflow.py
 async def execute_fix_workflow(
-    target: TargetRepository,
-    broken_links: list[BrokenLink],
-    config: BotConfig
+    target: TargetRepository, broken_links: list[BrokenLink], config: BotConfig
 ) -> PRSubmission:
     """Execute the 9-step Git workflow to submit a fix PR."""
     ...
+
 
 def create_branch_name(target: TargetRepository, issue_context: str) -> str:
     """Generate branch name following convention."""
     ...
 
+
 def generate_commit_message(broken_links: list[BrokenLink]) -> str:
     """Generate conventional commit message."""
     ...
+
 
 # pr_generator.py
 def generate_pr_body(broken_links: list[BrokenLink], config: BotConfig) -> str:
     """Generate PR description from template."""
     ...
 
+
 def generate_pr_title(broken_links: list[BrokenLink]) -> str:
     """Generate concise PR title."""
     ...
+
 
 # state_store.py
 class StateStore:
     def __init__(self, db_path: Path) -> None:
         """Initialize TinyDB-backed state store."""
         ...
-    
+
     def record_pr_submission(self, submission: PRSubmission) -> None:
         """Track submitted PR to avoid duplicates."""
         ...
-    
+
     def was_link_already_fixed(self, target: TargetRepository, url: str) -> bool:
         """Check if we've already submitted a fix for this link."""
         ...
-    
+
     def get_daily_pr_count(self) -> int:
         """Count PRs submitted today for rate limiting."""
         ...
+
 
 # scheduler.py
 async def run_daily_scan(config: BotConfig, state: StateStore) -> list[PRSubmission]:
     """Main entry point for daily execution."""
     ...
+
 
 def should_continue(state: StateStore, config: BotConfig) -> bool:
     """Check if we've hit daily limits."""

@@ -77,6 +77,7 @@ from typing import TypedDict, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+
 class InvestigationMethod(Enum):
     REDIRECT_CHAIN = "redirect_chain"
     URL_MUTATION = "url_mutation"
@@ -84,39 +85,44 @@ class InvestigationMethod(Enum):
     GITHUB_API_REDIRECT = "github_api_redirect"
     ARCHIVE_ONLY = "archive_only"
 
+
 @dataclass
 class CandidateReplacement:
-    url: str                           # Candidate replacement URL
-    method: InvestigationMethod        # How this candidate was discovered
-    similarity_score: float            # 0.0-1.0 confidence score
-    verified_live: bool                # Whether URL returns 2xx
+    url: str  # Candidate replacement URL
+    method: InvestigationMethod  # How this candidate was discovered
+    similarity_score: float  # 0.0-1.0 confidence score
+    verified_live: bool  # Whether URL returns 2xx
+
 
 @dataclass
 class Investigation:
-    archive_snapshot: Optional[str]    # Wayback Machine URL or None
-    archive_title: Optional[str]       # Extracted page title or None
+    archive_snapshot: Optional[str]  # Wayback Machine URL or None
+    archive_title: Optional[str]  # Extracted page title or None
     archive_content_summary: Optional[str]  # First 500 chars of content
     candidate_replacements: list[CandidateReplacement]  # Sorted by score desc
-    investigation_log: list[str]       # Audit trail of each step
+    investigation_log: list[str]  # Audit trail of each step
+
 
 @dataclass
 class ForensicReport:
-    dead_url: str                      # Original dead URL
-    http_status: int | str             # HTTP status code or error type
-    investigation: Investigation       # Investigation results
+    dead_url: str  # Original dead URL
+    http_status: int | str  # HTTP status code or error type
+    investigation: Investigation  # Investigation results
+
 
 class CDXResponse(TypedDict):
-    url: str                           # Original URL
-    timestamp: str                     # Archive timestamp (YYYYMMDDHHmmss)
-    original: str                      # Original URL
-    mimetype: str                      # Content type
-    statuscode: str                    # HTTP status at capture time
-    digest: str                        # Content digest
-    length: str                        # Response length
+    url: str  # Original URL
+    timestamp: str  # Archive timestamp (YYYYMMDDHHmmss)
+    original: str  # Original URL
+    mimetype: str  # Content type
+    statuscode: str  # HTTP status at capture time
+    digest: str  # Content digest
+    length: str  # Response length
+
 
 class SSRFDenylistEntry(TypedDict):
-    network: str                       # CIDR notation
-    description: str                   # Human-readable description
+    network: str  # CIDR notation
+    description: str  # Human-readable description
 ```
 
 ### 2.4 Function Signatures
@@ -127,68 +133,73 @@ class LinkDetective:
     def __init__(self, state_db: StateDatabase, backoff: BackoffStrategy) -> None:
         """Initialize with state database for caching and backoff strategy."""
         ...
-    
+
     def investigate(self, dead_url: str, http_status: int | str) -> ForensicReport:
         """Orchestrate investigation pipeline and return forensic report."""
         ...
-    
+
     def _check_cache(self, dead_url: str) -> Optional[ForensicReport]:
         """Return cached report if URL was previously investigated."""
         ...
-    
+
     def _cache_result(self, report: ForensicReport) -> None:
         """Store investigation result in state database."""
         ...
+
 
 # src/gh_link_auditor/archive_client.py
 class ArchiveClient:
     def __init__(self, backoff: BackoffStrategy) -> None:
         """Initialize with backoff strategy for rate limiting."""
         ...
-    
+
     def get_latest_snapshot(self, url: str) -> Optional[CDXResponse]:
         """Query CDX API for most recent snapshot of URL."""
         ...
-    
+
     def fetch_snapshot_content(self, snapshot_url: str) -> Optional[str]:
         """Fetch HTML content from Wayback Machine snapshot."""
         ...
-    
+
     def extract_title(self, html: str) -> Optional[str]:
         """Extract <title> from HTML using BS4 or regex fallback."""
         ...
-    
+
     def extract_content_summary(self, html: str, max_chars: int = 500) -> Optional[str]:
         """Extract first N chars of visible text content."""
         ...
 
+
 # src/gh_link_auditor/redirect_resolver.py
 class RedirectResolver:
     MAX_REDIRECTS: int = 10
-    
+
     def __init__(self, backoff: BackoffStrategy) -> None:
         """Initialize with backoff strategy for rate limiting."""
         ...
-    
+
     def follow_redirects(self, url: str) -> tuple[Optional[str], list[str]]:
         """Follow redirect chain, return (final_url, chain_log) or (None, log)."""
         ...
-    
+
     def test_url_mutations(self, url: str) -> list[tuple[str, str]]:
         """Test common URL mutations, return list of (live_url, mutation_type)."""
         ...
-    
+
     def verify_live(self, url: str) -> bool:
         """Check if URL returns 2xx status code."""
         ...
-    
+
     def _validate_not_private_ip(self, hostname: str) -> bool:
         """Resolve hostname and validate against SSRF denylist. Raises SSRFBlocked."""
         ...
 
+
 class SSRFBlocked(Exception):
     """Raised when a URL resolves to a private/reserved IP range."""
+
     pass
+
 
 # src/gh_link_auditor/url_heuristic.py
 class URLHeuristic:
@@ -198,55 +209,58 @@ class URLHeuristic:
         "/guide/": ["/guides/"],
         "/tutorial/": ["/tutorials/"],
     }
-    
+
     def __init__(self, backoff: BackoffStrategy) -> None:
         """Initialize with backoff strategy for rate limiting."""
         ...
-    
+
     def generate_candidates(self, domain: str, title: str, original_path: str) -> list[str]:
         """Generate candidate URLs from domain + slugified title + path patterns."""
         ...
-    
+
     def probe_candidates(self, candidates: list[str], max_results: int = 3) -> list[str]:
         """Probe candidates for liveness, return up to max_results live URLs."""
         ...
-    
+
     def slugify(self, title: str) -> str:
         """Convert title to kebab-case slug."""
         ...
-    
+
     def _generate_version_variants(self, path: str) -> list[str]:
         """Generate /v1/ -> /v2/, /v3/, /latest/ variants."""
         ...
 
+
 # src/gh_link_auditor/github_resolver.py
 class GitHubResolver:
     GITHUB_DOMAINS: set[str] = {"github.com", "raw.githubusercontent.com"}
-    
+
     def __init__(self, backoff: BackoffStrategy, token: Optional[str] = None) -> None:
         """Initialize with backoff strategy and optional auth token."""
         ...
-    
+
     def is_github_url(self, url: str) -> bool:
         """Check if URL is a GitHub URL."""
         ...
-    
+
     def resolve_repo_redirect(self, owner: str, repo: str) -> Optional[str]:
         """Query GitHub API to detect repo rename/transfer."""
         ...
-    
+
     def reconstruct_file_url(self, original_url: str, new_repo_url: str) -> str:
         """Reconstruct full file URL from new repo location."""
         ...
-    
+
     def _parse_github_url(self, url: str) -> tuple[str, str, Optional[str]]:
         """Parse GitHub URL into (owner, repo, file_path)."""
         ...
+
 
 # src/gh_link_auditor/similarity.py
 def compute_similarity(text_a: str, text_b: str) -> float:
     """Compute text similarity score (0.0-1.0) using SequenceMatcher."""
     ...
+
 
 def normalize_text(text: str) -> str:
     """Normalize text for comparison (lowercase, strip whitespace, etc.)."""

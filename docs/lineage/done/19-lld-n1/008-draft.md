@@ -102,66 +102,73 @@ from enum import Enum
 from typing import TypedDict
 import ipaddress
 
+
 class LinkStatus(Enum):
     VALID = "valid"
-    BROKEN = "broken"          # 4xx/5xx response
-    TIMEOUT = "timeout"        # Request timed out
+    BROKEN = "broken"  # 4xx/5xx response
+    TIMEOUT = "timeout"  # Request timed out
     DNS_FAILURE = "dns_failure"
     REDIRECT_LOOP = "redirect_loop"
     SSL_ERROR = "ssl_error"
     SSRF_BLOCKED = "ssrf_blocked"  # Private/reserved IP blocked
     UNKNOWN = "unknown"
 
+
 class LinkResult(TypedDict):
-    url: str                   # Original URL
-    status: LinkStatus         # Validation result
-    status_code: int | None    # HTTP status code if applicable
-    final_url: str | None      # After redirects
-    source_file: str           # File containing the link
-    line_number: int           # Line in source file
-    response_time_ms: int      # Request duration
+    url: str  # Original URL
+    status: LinkStatus  # Validation result
+    status_code: int | None  # HTTP status code if applicable
+    final_url: str | None  # After redirects
+    source_file: str  # File containing the link
+    line_number: int  # Line in source file
+    response_time_ms: int  # Request duration
+
 
 class PolicyConfig(TypedDict):
     commit_prefix: str | None  # e.g., "fix:", "docs:"
-    commit_scope: str | None   # e.g., "(links)", "(docs)"
-    closure_keyword: str       # e.g., "Fixes", "Closes"
-    pr_template: str | None    # PR body template if found
+    commit_scope: str | None  # e.g., "(links)", "(docs)"
+    closure_keyword: str  # e.g., "Fixes", "Closes"
+    pr_template: str | None  # PR body template if found
+
 
 class RepositoryTarget(TypedDict):
-    owner: str                 # GitHub username/org
-    repo: str                  # Repository name
-    url: str                   # Full GitHub URL
-    priority: int              # Processing order (lower = higher priority)
-    last_checked: str | None   # ISO timestamp
+    owner: str  # GitHub username/org
+    repo: str  # Repository name
+    url: str  # Full GitHub URL
+    priority: int  # Processing order (lower = higher priority)
+    last_checked: str | None  # ISO timestamp
+
 
 class PRRecord(TypedDict):
-    id: int                    # Auto-increment ID
-    target_repo: str           # owner/repo
-    pr_number: int             # GitHub PR number
-    pr_url: str                # Full PR URL
-    status: str                # open, merged, closed
-    links_fixed: int           # Count of links fixed
-    created_at: str            # ISO timestamp
-    updated_at: str            # ISO timestamp
-    merged_at: str | None      # ISO timestamp if merged
+    id: int  # Auto-increment ID
+    target_repo: str  # owner/repo
+    pr_number: int  # GitHub PR number
+    pr_url: str  # Full PR URL
+    status: str  # open, merged, closed
+    links_fixed: int  # Count of links fixed
+    created_at: str  # ISO timestamp
+    updated_at: str  # ISO timestamp
+    merged_at: str | None  # ISO timestamp if merged
+
 
 class BlocklistEntry(TypedDict):
-    owner: str                 # GitHub username/org
-    repo: str                  # Repository name (or "*" for all)
-    reason: str                # Why blocklisted
-    added_at: str              # ISO timestamp
+    owner: str  # GitHub username/org
+    repo: str  # Repository name (or "*" for all)
+    reason: str  # Why blocklisted
+    added_at: str  # ISO timestamp
+
 
 # SSRF Protection - RFC 1918 and reserved ranges
 PRIVATE_IP_RANGES: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
     ipaddress.IPv4Network("10.0.0.0/8"),
     ipaddress.IPv4Network("172.16.0.0/12"),
     ipaddress.IPv4Network("192.168.0.0/16"),
-    ipaddress.IPv4Network("127.0.0.0/8"),       # Loopback
-    ipaddress.IPv4Network("169.254.0.0/16"),    # Link-local
-    ipaddress.IPv4Network("0.0.0.0/8"),         # Current network
-    ipaddress.IPv6Network("::1/128"),           # IPv6 loopback
-    ipaddress.IPv6Network("fc00::/7"),          # IPv6 unique local
-    ipaddress.IPv6Network("fe80::/10"),         # IPv6 link-local
+    ipaddress.IPv4Network("127.0.0.0/8"),  # Loopback
+    ipaddress.IPv4Network("169.254.0.0/16"),  # Link-local
+    ipaddress.IPv4Network("0.0.0.0/8"),  # Current network
+    ipaddress.IPv6Network("::1/128"),  # IPv6 loopback
+    ipaddress.IPv6Network("fc00::/7"),  # IPv6 unique local
+    ipaddress.IPv6Network("fe80::/10"),  # IPv6 link-local
 ]
 ```
 
@@ -173,6 +180,7 @@ def is_private_ip(ip_address: str) -> bool:
     """Check if IP address is in private/reserved ranges (RFC 1918, loopback, etc.)."""
     ...
 
+
 def resolve_and_validate_url(url: str) -> tuple[bool, str | None]:
     """
     Resolve URL hostname and validate it's not a private IP.
@@ -180,6 +188,7 @@ def resolve_and_validate_url(url: str) -> tuple[bool, str | None]:
     Blocks: localhost, 127.x.x.x, 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 169.254.x.x
     """
     ...
+
 
 def validate_url_safety(url: str) -> LinkResult | None:
     """
@@ -194,6 +203,7 @@ def extract_links_from_file(file_path: Path) -> list[tuple[str, int]]:
     """Extract all URLs from a file with line numbers."""
     ...
 
+
 async def validate_link(url: str, timeout: float = 10.0) -> LinkResult:
     """
     Validate a single URL and return detailed status.
@@ -201,13 +211,13 @@ async def validate_link(url: str, timeout: float = 10.0) -> LinkResult:
     """
     ...
 
+
 async def check_repository_links(
-    repo_path: Path,
-    concurrency: int = 20,
-    file_patterns: list[str] | None = None
+    repo_path: Path, concurrency: int = 20, file_patterns: list[str] | None = None
 ) -> list[LinkResult]:
     """Check all links in a repository directory."""
     ...
+
 
 def generate_fix_report(results: list[LinkResult]) -> dict[str, list[LinkResult]]:
     """Group broken links by file for batch fixing."""
@@ -219,22 +229,18 @@ def fetch_contributing_file(owner: str, repo: str) -> str | None:
     """Fetch CONTRIBUTING.md content from GitHub API."""
     ...
 
+
 def parse_commit_conventions(content: str) -> PolicyConfig:
     """Extract commit message format from CONTRIBUTING.md."""
     ...
 
-def format_commit_message(
-    policy: PolicyConfig,
-    links_fixed: int,
-    files_modified: int
-) -> str:
+
+def format_commit_message(policy: PolicyConfig, links_fixed: int, files_modified: int) -> str:
     """Generate policy-adherent commit message."""
     ...
 
-def format_pr_body(
-    policy: PolicyConfig,
-    broken_links: list[LinkResult]
-) -> str:
+
+def format_pr_body(policy: PolicyConfig, broken_links: list[LinkResult]) -> str:
     """Generate PR description with link details."""
     ...
 
@@ -244,12 +250,14 @@ def fork_repository(owner: str, repo: str) -> str:
     """Fork repository to authenticated user's account."""
     ...
 
+
 def clone_repository(repo_url: str, target_path: Path) -> Repo:
     """
     Clone repository to local path.
     SAFETY: target_path MUST be within project worktree (./.pipeline_work/).
     """
     ...
+
 
 def get_pipeline_work_dir() -> Path:
     """
@@ -259,39 +267,28 @@ def get_pipeline_work_dir() -> Path:
     """
     ...
 
+
 def create_fix_branch(repo: Repo, branch_name: str) -> None:
     """Create and checkout a new branch for fixes."""
     ...
 
-def apply_link_fixes(
-    repo_path: Path,
-    broken_links: list[LinkResult],
-    fix_strategy: str = "remove"
-) -> list[str]:
+
+def apply_link_fixes(repo_path: Path, broken_links: list[LinkResult], fix_strategy: str = "remove") -> list[str]:
     """Apply fixes to broken links, return modified files."""
     ...
 
-def commit_changes(
-    repo: Repo,
-    files: list[str],
-    message: str
-) -> str:
+
+def commit_changes(repo: Repo, files: list[str], message: str) -> str:
     """Stage and commit changes, return commit SHA."""
     ...
 
-def push_and_create_pr(
-    repo: Repo,
-    branch: str,
-    pr_title: str,
-    pr_body: str
-) -> str:
+
+def push_and_create_pr(repo: Repo, branch: str, pr_title: str, pr_body: str) -> str:
     """Push branch and create PR via gh CLI, return PR URL."""
     ...
 
-def cleanup_forks(
-    max_age_days: int = 30,
-    confirm_destructive: bool = False
-) -> list[str]:
+
+def cleanup_forks(max_age_days: int = 30, confirm_destructive: bool = False) -> list[str]:
     """
     Delete old forks from merged PRs, return list of deleted repos.
     SAFETY: Requires confirm_destructive=True or --confirm-destructive-cleanup CLI flag.
@@ -305,40 +302,33 @@ def load_target_repositories(source: Path | str) -> list[RepositoryTarget]:
     """Load target repository list from YAML or API."""
     ...
 
+
 def load_blocklist(source: Path) -> list[BlocklistEntry]:
     """Load blocklist of opted-out repositories."""
     ...
+
 
 def is_blocklisted(target: RepositoryTarget, blocklist: list[BlocklistEntry]) -> bool:
     """Check if target repository is in blocklist."""
     ...
 
-async def process_repository(
-    target: RepositoryTarget,
-    work_dir: Path,
-    dry_run: bool = False
-) -> PRRecord | None:
+
+async def process_repository(target: RepositoryTarget, work_dir: Path, dry_run: bool = False) -> PRRecord | None:
     """
     Full workflow for a single repository.
     SAFETY: work_dir must be within project worktree (validated by get_pipeline_work_dir()).
     """
     ...
 
+
 async def run_pipeline(
-    targets: list[RepositoryTarget],
-    max_concurrent: int = 5,
-    dry_run: bool = False
+    targets: list[RepositoryTarget], max_concurrent: int = 5, dry_run: bool = False
 ) -> list[PRRecord]:
     """Process multiple repositories with concurrency control."""
     ...
 
-async def rate_limited_request(
-    func: Callable,
-    *args,
-    max_retries: int = 3,
-    base_delay: float = 1.0,
-    **kwargs
-) -> Any:
+
+async def rate_limited_request(func: Callable, *args, max_retries: int = 3, base_delay: float = 1.0, **kwargs) -> Any:
     """Execute function with exponential backoff on rate limit errors."""
     ...
 
@@ -348,21 +338,26 @@ def init_database(db_path: Path) -> None:
     """Initialize SQLite database with schema."""
     ...
 
+
 def record_pr(record: PRRecord) -> int:
     """Insert or update PR record, return ID."""
     ...
+
 
 def get_pr_status(target_repo: str) -> PRRecord | None:
     """Get latest PR record for a repository."""
     ...
 
+
 def update_pr_status(pr_id: int, status: str, merged_at: str | None = None) -> None:
     """Update PR status after checking GitHub."""
     ...
 
+
 def get_pending_prs() -> list[PRRecord]:
     """Get all PRs still in 'open' status."""
     ...
+
 
 def is_recently_processed(target_repo: str, cooldown_hours: int = 24) -> bool:
     """Check if repository was processed within cooldown period (idempotency)."""
@@ -374,13 +369,16 @@ def calculate_acceptance_rate(days: int = 30) -> float:
     """Calculate PR acceptance rate over time period."""
     ...
 
+
 def calculate_average_time_to_merge(days: int = 30) -> float:
     """Calculate average time from PR creation to merge in hours."""
     ...
 
+
 def generate_metrics_report() -> dict:
     """Generate comprehensive metrics summary."""
     ...
+
 
 def export_metrics_csv(output_path: Path) -> None:
     """Export metrics to CSV for analysis."""

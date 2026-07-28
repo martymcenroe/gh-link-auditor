@@ -104,38 +104,43 @@ from typing import TypedDict, Literal
 from datetime import datetime
 from ipaddress import IPv4Address, IPv6Address
 
+
 class TargetRepository(TypedDict):
-    owner: str                    # GitHub org/user
-    repo: str                     # Repository name
-    priority: int                 # 1-10, higher = scan first
-    last_scanned: datetime | None # Track scan recency
-    enabled: bool                 # Allow disabling without removal
+    owner: str  # GitHub org/user
+    repo: str  # Repository name
+    priority: int  # 1-10, higher = scan first
+    last_scanned: datetime | None  # Track scan recency
+    enabled: bool  # Allow disabling without removal
+
 
 class BrokenLink(TypedDict):
-    source_file: str              # File containing the link
-    line_number: int              # Line where link appears
-    original_url: str             # The broken URL
-    status_code: int              # HTTP status (404, 403, etc.)
-    suggested_fix: str | None     # Suggested replacement URL
-    fix_confidence: float         # 0.0-1.0, how confident in fix
+    source_file: str  # File containing the link
+    line_number: int  # Line where link appears
+    original_url: str  # The broken URL
+    status_code: int  # HTTP status (404, 403, etc.)
+    suggested_fix: str | None  # Suggested replacement URL
+    fix_confidence: float  # 0.0-1.0, how confident in fix
+
 
 class ScanResult(TypedDict):
     repository: TargetRepository
     scan_time: datetime
     broken_links: list[BrokenLink]
-    error: str | None             # If scan failed
+    error: str | None  # If scan failed
     files_scanned: int
     links_checked: int
 
+
 class PRSubmission(TypedDict):
     repository: TargetRepository
-    branch_name: str              # fix/broken-link-readme-1234
-    pr_number: int | None         # Assigned after creation
+    branch_name: str  # fix/broken-link-readme-1234
+    pr_number: int | None  # Assigned after creation
     pr_url: str | None
     status: Literal["pending", "submitted", "merged", "closed", "rejected"]
     broken_links_fixed: list[BrokenLink]
     submitted_at: datetime
-    
+
+
 class BotState(TypedDict):
     last_run: datetime
     total_prs_submitted: int
@@ -143,10 +148,11 @@ class BotState(TypedDict):
     scan_history: list[ScanResult]
     pr_submissions: list[PRSubmission]
 
+
 class URLValidationResult(TypedDict):
-    url: str                      # Original URL
-    is_safe: bool                 # True if safe to request
-    resolved_ip: str | None       # Resolved IP address
+    url: str  # Original URL
+    is_safe: bool  # True if safe to request
+    resolved_ip: str | None  # Resolved IP address
     rejection_reason: str | None  # Why it was rejected (if unsafe)
 ```
 
@@ -158,27 +164,32 @@ def load_targets(config_path: Path) -> list[TargetRepository]:
     """Load and validate repository targets from YAML."""
     ...
 
+
 def prioritize_targets(targets: list[TargetRepository]) -> list[TargetRepository]:
     """Sort targets by priority and recency of last scan."""
     ...
+
 
 def update_scan_timestamp(target: TargetRepository, state_store: StateStore) -> None:
     """Mark repository as recently scanned."""
     ...
 
+
 def check_contributing_md(repo_path: Path) -> bool:
     """Check if CONTRIBUTING.md exists and allows bot contributions."""
     ...
+
 
 def is_blocklisted(target: TargetRepository, blocklist_path: Path) -> bool:
     """Check if repository is in manual blocklist."""
     ...
 
+
 # url_validator.py (NEW - addresses SSRF vulnerability)
 def validate_ip_safety(url: str) -> URLValidationResult:
     """
     Resolve URL hostname and verify it does not point to private/local IP ranges.
-    
+
     Blocked ranges:
     - 127.0.0.0/8 (loopback)
     - 10.0.0.0/8 (private)
@@ -190,14 +201,17 @@ def validate_ip_safety(url: str) -> URLValidationResult:
     """
     ...
 
+
 def is_private_ip(ip: IPv4Address | IPv6Address) -> bool:
     """Check if IP address is in a private/local range."""
     ...
+
 
 # link_scanner.py
 async def scan_repository(target: TargetRepository, config: BotConfig, work_dir: Path) -> ScanResult:
     """Scan a single repository for broken links. Work_dir must be a temp directory."""
     ...
+
 
 async def check_link(url: str, session: httpx.AsyncClient) -> tuple[int, str | None]:
     """
@@ -206,20 +220,20 @@ async def check_link(url: str, session: httpx.AsyncClient) -> tuple[int, str | N
     """
     ...
 
+
 def extract_links_from_markdown(content: str) -> list[tuple[str, int]]:
     """Extract all links from markdown content with line numbers."""
     ...
+
 
 def suggest_fix(broken_url: str, context: str) -> tuple[str | None, float]:
     """Attempt to suggest a fix for the broken link."""
     ...
 
+
 # git_workflow.py
 async def execute_fix_workflow(
-    target: TargetRepository,
-    broken_links: list[BrokenLink],
-    config: BotConfig,
-    work_dir: Path
+    target: TargetRepository, broken_links: list[BrokenLink], config: BotConfig, work_dir: Path
 ) -> PRSubmission:
     """
     Execute the 9-step Git workflow to submit a fix PR.
@@ -227,13 +241,16 @@ async def execute_fix_workflow(
     """
     ...
 
+
 def create_branch_name(target: TargetRepository, issue_context: str) -> str:
     """Generate branch name following convention."""
     ...
 
+
 def generate_commit_message(broken_links: list[BrokenLink]) -> str:
     """Generate conventional commit message."""
     ...
+
 
 def clone_repository(target: TargetRepository, work_dir: Path, shallow: bool = True) -> Path:
     """
@@ -242,58 +259,66 @@ def clone_repository(target: TargetRepository, work_dir: Path, shallow: bool = T
     """
     ...
 
+
 # pr_generator.py
 def generate_pr_body(broken_links: list[BrokenLink], config: BotConfig) -> str:
     """Generate PR description from template."""
     ...
 
+
 def generate_pr_title(broken_links: list[BrokenLink]) -> str:
     """Generate concise PR title."""
     ...
+
 
 # state_store.py
 class StateStore:
     def __init__(self, db_path: Path) -> None:
         """Initialize TinyDB-backed state store."""
         ...
-    
+
     def record_pr_submission(self, submission: PRSubmission) -> None:
         """Track submitted PR to avoid duplicates."""
         ...
-    
+
     def was_link_already_fixed(self, target: TargetRepository, url: str) -> bool:
         """Check if we've already submitted a fix for this link."""
         ...
-    
+
     def get_daily_pr_count(self) -> int:
         """Count PRs submitted today for rate limiting."""
         ...
-    
+
     def get_hourly_api_count(self) -> int:
         """Count API calls this hour for rate limiting (500/hour limit)."""
         ...
-    
+
     def increment_api_count(self) -> None:
         """Track API call for rate limiting."""
         ...
+
 
 # scheduler.py
 async def run_daily_scan(config: BotConfig, state: StateStore) -> list[PRSubmission]:
     """Main entry point for daily execution."""
     ...
 
+
 def should_continue(state: StateStore, config: BotConfig) -> bool:
     """Check if we've hit daily limits."""
     ...
+
 
 # config.py
 def configure_logging(config: BotConfig) -> structlog.BoundLogger:
     """Configure structured logging for all operations."""
     ...
 
+
 def get_user_agent(config: BotConfig) -> str:
     """Return custom User-Agent string with contact URL."""
     ...
+
 
 def get_http_timeout(config: BotConfig) -> float:
     """Return HTTP read timeout (default: 10 seconds)."""

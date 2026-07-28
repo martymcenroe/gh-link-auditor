@@ -175,17 +175,17 @@ Wire the entire gh-link-auditor pipeline under LangGraph — from target repo in
 class PipelineState(TypedDict):
     target_repo: str
     target_files: list[str]
-    repo_policy: dict               # CONTRIBUTING.md parse results
-    scan_results: list[dict]        # Per 00008 schema
-    forensic_reports: list[dict]    # Cheery's output
-    verdicts: list[dict]            # Mr. Slant's output
-    human_decisions: list[dict]     # HITL results
-    approved_fixes: list[dict]      # Ready to PR
+    repo_policy: dict  # CONTRIBUTING.md parse results
+    scan_results: list[dict]  # Per 00008 schema
+    forensic_reports: list[dict]  # Cheery's output
+    verdicts: list[dict]  # Mr. Slant's output
+    human_decisions: list[dict]  # HITL results
+    approved_fixes: list[dict]  # Ready to PR
     pr_url: str | None
     campaign_stats: dict
-    error: str | None               # Pipeline-level error capture
-    links_total_found: int          # Total dead links before circuit breaker
-    links_processed: int            # Dead links actually processed (≤ max-links)
+    error: str | None  # Pipeline-level error capture
+    links_total_found: int  # Total dead links before circuit breaker
+    links_processed: int  # Dead links actually processed (≤ max-links)
 ```
 
 ### Node Table

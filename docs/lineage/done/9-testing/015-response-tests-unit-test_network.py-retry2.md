@@ -39,6 +39,7 @@ from gh_link_auditor.network import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def default_request_config() -> RequestConfig:
     """Provide a default request configuration for tests."""
@@ -75,6 +76,7 @@ def _mock_urlopen_response(status: int = 200, headers: dict | None = None):
 # T010 / 010: Successful HEAD request returns structured result (REQ-1)
 # ---------------------------------------------------------------------------
 
+
 class TestCheckUrlSuccessHead:
     """T010 / 010: Returns ok status for 200 response."""
 
@@ -100,6 +102,7 @@ class TestCheckUrlSuccessHead:
 # T020 / 020: Redirect response treated as success (REQ-1)
 # ---------------------------------------------------------------------------
 
+
 class TestCheckUrlRedirect:
     """T020 / 020: Returns ok status for 301/302."""
 
@@ -121,13 +124,18 @@ class TestCheckUrlRedirect:
 # T030 / 030: Not found response returns error immediately (REQ-6)
 # ---------------------------------------------------------------------------
 
+
 class TestCheckUrlNotFound:
     """T030 / 030: Returns error status for 404 with no retry."""
 
     def test_check_url_not_found(self):
         """404 returns error immediately without retry."""
         http_error = urllib.error.HTTPError(
-            "https://example.com/missing", 404, "Not Found", {}, None,
+            "https://example.com/missing",
+            404,
+            "Not Found",
+            {},
+            None,
         )
         with mock.patch("gh_link_auditor.network.urllib.request.urlopen", side_effect=http_error):
             result = check_url("https://example.com/missing")
@@ -142,13 +150,18 @@ class TestCheckUrlNotFound:
 # T040 / 040: Server error response categorized correctly (REQ-6)
 # ---------------------------------------------------------------------------
 
+
 class TestCheckUrlServerError:
     """T040 / 040: Returns error status for 500."""
 
     def test_check_url_server_error(self):
         """500 returns error status."""
         http_error = urllib.error.HTTPError(
-            "https://example.com/error", 500, "Internal Server Error", {}, None,
+            "https://example.com/error",
+            500,
+            "Internal Server Error",
+            {},
+            None,
         )
         with mock.patch("gh_link_auditor.network.urllib.request.urlopen", side_effect=http_error):
             result = check_url(
@@ -164,13 +177,18 @@ class TestCheckUrlServerError:
 # T050 / 050: HEAD blocked 405 triggers GET fallback (REQ-3)
 # ---------------------------------------------------------------------------
 
+
 class TestHeadToGetFallback405:
     """T050 / 050: Falls back to GET on 405, then succeeds."""
 
     def test_head_to_get_fallback_405(self, no_retry_backoff_config):
         """405 on HEAD triggers GET fallback; returns ok on GET 200."""
         http_error_405 = urllib.error.HTTPError(
-            "https://example.com", 405, "Method Not Allowed", {}, None,
+            "https://example.com",
+            405,
+            "Method Not Allowed",
+            {},
+            None,
         )
         mock_resp_200 = _mock_urlopen_response(status=200)
 
@@ -200,13 +218,18 @@ class TestHeadToGetFallback405:
 # T060 / 060: HEAD blocked 403 triggers GET fallback (REQ-3)
 # ---------------------------------------------------------------------------
 
+
 class TestHeadToGetFallback403:
     """T060 / 060: Falls back to GET on 403, then succeeds."""
 
     def test_head_to_get_fallback_403(self, no_retry_backoff_config):
         """403 on HEAD triggers GET fallback; returns ok on GET 200."""
         http_error_403 = urllib.error.HTTPError(
-            "https://example.com", 403, "Forbidden", {}, None,
+            "https://example.com",
+            403,
+            "Forbidden",
+            {},
+            None,
         )
         mock_resp_200 = _mock_urlopen_response(status=200)
 
@@ -231,6 +254,7 @@ class TestHeadToGetFallback403:
 # T070 / 070: Rate limited 429 triggers exponential backoff retry (REQ-2)
 # ---------------------------------------------------------------------------
 
+
 class TestRetryOn429:
     """T070 / 070: Retries with backoff on 429, eventually succeeds."""
 
@@ -240,7 +264,11 @@ class TestRetryOn429:
         headers_429.get = lambda key, default=None: None
 
         http_error_429 = urllib.error.HTTPError(
-            "https://example.com", 429, "Too Many Requests", headers_429, None,
+            "https://example.com",
+            429,
+            "Too Many Requests",
+            headers_429,
+            None,
         )
         mock_resp_200 = _mock_urlopen_response(status=200)
 
@@ -270,6 +298,7 @@ class TestRetryOn429:
 # T080 / 080: Retry-After header honored on 429 response (REQ-4)
 # ---------------------------------------------------------------------------
 
+
 class TestRetryRespectsRetryAfter:
     """T080 / 080: Uses Retry-After header value."""
 
@@ -279,7 +308,11 @@ class TestRetryRespectsRetryAfter:
         headers_429.get = lambda key, default=None: "5" if key == "Retry-After" else default
 
         http_error_429 = urllib.error.HTTPError(
-            "https://example.com", 429, "Too Many Requests", headers_429, None,
+            "https://example.com",
+            429,
+            "Too Many Requests",
+            headers_429,
+            None,
         )
         mock_resp_200 = _mock_urlopen_response(status=200)
 
@@ -312,6 +345,7 @@ class TestRetryRespectsRetryAfter:
 # T090 / 090: Request timeout returns timeout status (REQ-6)
 # ---------------------------------------------------------------------------
 
+
 class TestTimeoutHandling:
     """T090 / 090: Returns timeout status."""
 
@@ -334,6 +368,7 @@ class TestTimeoutHandling:
 # ---------------------------------------------------------------------------
 # T100 / 100: Connection reset returns disconnected status (REQ-6)
 # ---------------------------------------------------------------------------
+
 
 class TestConnectionReset:
     """T100 / 100: Returns disconnected status."""
@@ -359,6 +394,7 @@ class TestConnectionReset:
 # T110 / 110: DNS failure returns failed status without retry (REQ-6)
 # ---------------------------------------------------------------------------
 
+
 class TestDnsFailure:
     """T110 / 110: Returns failed status, no retry."""
 
@@ -379,6 +415,7 @@ class TestDnsFailure:
 # ---------------------------------------------------------------------------
 # T120 / 120: Backoff calculation uses exponential with jitter (REQ-2)
 # ---------------------------------------------------------------------------
+
 
 class TestBackoffCalculation:
     """T120 / 120: Correct exponential + jitter."""
@@ -431,6 +468,7 @@ class TestBackoffCalculation:
 # T130 / 130: Max retries limit enforced (REQ-2)
 # ---------------------------------------------------------------------------
 
+
 class TestMaxRetriesHonored:
     """T130 / 130: Stops after max_retries."""
 
@@ -440,7 +478,11 @@ class TestMaxRetriesHonored:
         headers_429.get = lambda key, default=None: None
 
         http_error_429 = urllib.error.HTTPError(
-            "https://example.com", 429, "Too Many Requests", headers_429, None,
+            "https://example.com",
+            429,
+            "Too Many Requests",
+            headers_429,
+            None,
         )
 
         call_count = 0
@@ -470,6 +512,7 @@ class TestMaxRetriesHonored:
 # T140 / 140: Custom User-Agent configuration applied (REQ-5)
 # ---------------------------------------------------------------------------
 
+
 class TestCustomUserAgent:
     """T140 / 140: Sends configured User-Agent."""
 
@@ -496,6 +539,7 @@ class TestCustomUserAgent:
 # ---------------------------------------------------------------------------
 # T150 / 150: SSL verification configuration respected (REQ-5)
 # ---------------------------------------------------------------------------
+
 
 class TestSslVerificationConfigurable:
     """T150 / 150: Respects verify_ssl setting."""
@@ -532,6 +576,7 @@ class TestSslVerificationConfigurable:
 # 160: Module uses only stdlib dependencies (REQ-7)
 # ---------------------------------------------------------------------------
 
+
 class TestStdlibOnly:
     """160: No external imports in the network module."""
 
@@ -559,6 +604,7 @@ class TestStdlibOnly:
 # ---------------------------------------------------------------------------
 # Additional tests for _parse_retry_after
 # ---------------------------------------------------------------------------
+
 
 class TestParseRetryAfter:
     """Tests for the _parse_retry_after helper."""
@@ -591,6 +637,7 @@ class TestParseRetryAfter:
 # ---------------------------------------------------------------------------
 # Additional tests for should_retry
 # ---------------------------------------------------------------------------
+
 
 class TestShouldRetry:
     """Tests for the should_retry decision function."""
@@ -648,6 +695,7 @@ class TestShouldRetry:
 # Additional tests for create_request_config / create_backoff_config
 # ---------------------------------------------------------------------------
 
+
 class TestConfigFactories:
     """Tests for configuration factory functions."""
 
@@ -687,6 +735,7 @@ class TestConfigFactories:
 # Test for _make_request with socket.timeout directly
 # ---------------------------------------------------------------------------
 
+
 class TestMakeRequestEdgeCases:
     """Edge case tests for _make_request."""
 
@@ -698,7 +747,9 @@ class TestMakeRequestEdgeCases:
             side_effect=socket.timeout("timed out"),
         ):
             status_code, error_type, response_time_ms, retry_after = _make_request(
-                "https://example.com", "HEAD", config,
+                "https://example.com",
+                "HEAD",
+                config,
             )
 
         assert status_code is None
@@ -713,7 +764,9 @@ class TestMakeRequestEdgeCases:
             side_effect=BrokenPipeError("Broken pipe"),
         ):
             status_code, error_type, response_time_ms, retry_after = _make_request(
-                "https://example.com", "HEAD", config,
+                "https://example.com",
+                "HEAD",
+                config,
             )
 
         assert status_code is None
@@ -727,7 +780,9 @@ class TestMakeRequestEdgeCases:
             side_effect=RuntimeError("Something unexpected"),
         ):
             status_code, error_type, response_time_ms, retry_after = _make_request(
-                "https://example.com", "HEAD", config,
+                "https://example.com",
+                "HEAD",
+                config,
             )
 
         assert status_code is None
@@ -737,6 +792,7 @@ class TestMakeRequestEdgeCases:
 # ---------------------------------------------------------------------------
 # Integration-style test: full check_url flow with retry + fallback
 # ---------------------------------------------------------------------------
+
 
 class TestCheckUrlFullFlow:
     """Integration-style tests for the full check_url flow."""
@@ -757,12 +813,20 @@ class TestCheckUrlFullFlow:
             if call_count == 1:
                 # First call: HEAD → 429
                 raise urllib.error.HTTPError(
-                    "https://example.com", 429, "Too Many", headers_429, None,
+                    "https://example.com",
+                    429,
+                    "Too Many",
+                    headers_429,
+                    None,
                 )
             if call_count == 2 and method == "HEAD":
                 # Second call: HEAD → 405
                 raise urllib.error.HTTPError(
-                    "https://example.com", 405, "Not Allowed", {}, None,
+                    "https://example.com",
+                    405,
+                    "Not Allowed",
+                    {},
+                    None,
                 )
             # Third call: GET → 200
             return _mock_urlopen_response(status=200)
@@ -783,7 +847,11 @@ class TestCheckUrlFullFlow:
 
         def side_effect(*args, **kwargs):
             raise urllib.error.HTTPError(
-                "https://example.com", 503, "Service Unavailable", headers_503, None,
+                "https://example.com",
+                503,
+                "Service Unavailable",
+                headers_503,
+                None,
             )
 
         backoff = create_backoff_config(base_delay=0.01, max_retries=1, jitter_range=0.0)
