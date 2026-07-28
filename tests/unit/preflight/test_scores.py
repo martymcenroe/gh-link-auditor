@@ -329,6 +329,39 @@ class TestScoreC5:
         )
         assert result.points_awarded == 0
 
+    def test_c5_passes_dead_url_to_subagent(self, db):
+        """#407: the prompt's URL-pair normalization rules need the dead URL."""
+        fake = FakeSubagent.configure(default=SubagentVerdict.CLEAN)
+        score_c5_content_equivalence(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=fake,
+            landing_fetch=lambda url: {"title": "OK", "h1": "X", "body_snippet": "ok"},
+            prompt_path="ignored.txt",
+        )
+        assert fake.calls[0].context["dead_url"] == "https://dead.example/x"
+
+    def test_c5_passes_candidate_page_not_landing_page(self, db):
+        """#407: context keys must match the prompt's documented contract exactly.
+
+        The exact-set assertion pins the prompt-context contract; golden-file
+        tests catch prompt drift but not context drift (lesson 2026-05-27).
+        """
+        fake = FakeSubagent.configure(default=SubagentVerdict.CLEAN)
+        landing = {"title": "OK", "h1": "X", "body_snippet": "ok"}
+        score_c5_content_equivalence(
+            "owner/r",
+            _candidate(),
+            db,
+            subagent=fake,
+            landing_fetch=lambda url: dict(landing),
+            prompt_path="ignored.txt",
+        )
+        ctx = fake.calls[0].context
+        assert set(ctx) == {"dead_url", "candidate_url", "link_text", "candidate_page"}
+        assert ctx["candidate_page"] == landing
+
 
 class TestScoreC5FastPath:
     """Fast-path equivalence checks should short-circuit to 15/15 without
