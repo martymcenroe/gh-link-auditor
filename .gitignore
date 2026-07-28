@@ -66,3 +66,4 @@ docs/private/
 # Preflight reports — machine-generated per candidate, not for git (#286)
 data/preflight-reports/*
 !data/preflight-reports/.gitkeep
+.claude/worktrees/
