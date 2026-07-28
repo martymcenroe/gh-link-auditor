@@ -1,5 +1,10 @@
 # First Live Audit Runbook
 
+> **Completed one-time procedure (2026-07-28).** This was the "we have never run a real
+> campaign" walkthrough. That moment has passed: 4 PRs submitted, 3 merged. It also predates
+> preflight and the current toolchain. For what to run now, start at
+> [`0000-start-here.md`](0000-start-here.md).
+
 This is the one-time "we've never actually run a real campaign" runbook. Use it when you sit down tomorrow morning. The general operator reference is [`operator-guide.md`](operator-guide.md); this one is specifically for the first end-to-end run that submits a real PR to a real upstream repo.
 
 **Reminder of the operating model:** Claude runs the pipeline. You watch, decide, and review. The HITL prompts at N4 are the only place you type into a console.
