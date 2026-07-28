@@ -9,6 +9,7 @@ from unittest.mock import patch
 from gh_link_auditor.bulk_scan import storage
 from gh_link_auditor.cli.bulk_scan_cmd import (
     _cmd_list_runs,
+    _cmd_reconcile,
     _cmd_report,
     _cmd_start,
     _cmd_status,
@@ -345,3 +346,56 @@ class TestSuggestRunIds:
                 storage.create_run(db, f"bulk-prefix-match-{i}", 1, {})
             out = _suggest_run_ids(db, "bulk-prefix-match", max_suggest=3)
         assert len(out) == 3
+
+
+class TestCmdReconcile:
+    """#426: reconcile subcommand — dry-run default, --apply mutates."""
+
+    @staticmethod
+    def _seed_abandoned(db_path: str) -> None:
+        with UnifiedDatabase(db_path) as db:
+            db._conn.execute(
+                "INSERT INTO bulk_scan_runs (run_id, started_at, status, target_repo_count) VALUES (?,?,?,?)",
+                ("r-dead", "2026-05-14T02:00:00+00:00", "checking", 100),
+            )
+            db._conn.commit()
+
+    def test_parser_registration_and_defaults(self) -> None:
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers(dest="command")
+        build_bulk_scan_parser(sub)
+        args = parser.parse_args(["bulk-scan", "reconcile"])
+        assert args.bulk_scan_command == "reconcile"
+        assert args.older_than_hours == 24.0
+        assert args.apply is False
+
+    def test_dry_run_lists_but_does_not_mutate(self, tmp_path, capsys) -> None:
+        db_path = str(tmp_path / "x.db")
+        self._seed_abandoned(db_path)
+        rc = _cmd_reconcile(_ns(db_path=db_path, older_than_hours=24.0, apply=False))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "r-dead" in out
+        assert "dry-run" in out
+        with UnifiedDatabase(db_path) as db:
+            assert storage.get_run(db, "r-dead")["status"] == "checking"
+
+    def test_apply_flips_to_aborted(self, tmp_path, capsys) -> None:
+        db_path = str(tmp_path / "x.db")
+        self._seed_abandoned(db_path)
+        rc = _cmd_reconcile(_ns(db_path=db_path, older_than_hours=24.0, apply=True))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "reconciled 1 run(s)" in out
+        with UnifiedDatabase(db_path) as db:
+            run = storage.get_run(db, "r-dead")
+        assert run["status"] == "aborted"
+        assert "reconciled: abandoned" in run["error"]
+
+    def test_no_abandoned_runs_message(self, tmp_path, capsys) -> None:
+        db_path = str(tmp_path / "x.db")
+        with UnifiedDatabase(db_path):
+            pass
+        rc = _cmd_reconcile(_ns(db_path=db_path, older_than_hours=24.0, apply=True))
+        assert rc == 0
+        assert "no abandoned runs" in capsys.readouterr().out
