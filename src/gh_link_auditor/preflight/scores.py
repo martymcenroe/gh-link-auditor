@@ -467,9 +467,10 @@ def score_c5_content_equivalence(
             verdict = sub.run(
                 prompt_path,
                 {
+                    "dead_url": dead_url,
                     "candidate_url": candidate_url,
                     "link_text": link_text,
-                    "landing_page": landing,
+                    "candidate_page": landing,
                 },
             )
         except Exception as exc:  # noqa: BLE001
