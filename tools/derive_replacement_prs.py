@@ -38,6 +38,7 @@ from gh_link_auditor import (  # noqa: E402
     policy_checker,  # noqa: F401
     redirect_resolver,  # noqa: F401
 )
+from gh_link_auditor.candidate_analysis import row_to_fix, row_to_verdict  # noqa: E402
 from gh_link_auditor.metrics.models import PROutcome  # noqa: E402
 from gh_link_auditor.pipeline.nodes.n6_submit_pr import n6_submit_pr  # noqa: E402
 from gh_link_auditor.preflight import PreflightVerdict, save_report  # noqa: E402
@@ -50,48 +51,12 @@ from tools.preflight_check import DEFAULT_REPORT_DIR, DEFAULT_THRESHOLD, run_pre
 # ---------------------------------------------------------------------------
 
 
-def _row_to_fix(row: dict) -> dict:
-    """Build a FixPatch dict from a bulk_scan_findings row.
-
-    N6's _apply_fixes uses str.replace on (source_file, original_url,
-    replacement_url). The unified_diff field exists in the TypedDict but
-    isn't consumed by N6 — empty string is fine.
-    """
-    return {
-        "source_file": row["source_file"],
-        "original_url": row["dead_url"],
-        "replacement_url": row["candidate_url"],
-        "unified_diff": "",
-    }
-
-
-def _row_to_verdict(row: dict) -> dict:
-    """Build a Verdict dict for use in the PR body.
-
-    ``pr_message.generate_pr_body_from_fixes`` looks up verdicts by
-    (dead_link.url, dead_link.source_file). We synthesize a Verdict that
-    matches our row so the PR body can include the same context.
-    """
-    return {
-        "dead_link": {
-            "url": row["dead_url"],
-            "source_file": row["source_file"],
-            "line_number": row["line_number"] or 0,
-            "link_text": "",
-            "http_status": None,
-            "error_type": "",
-        },
-        "candidate": {
-            "url": row["candidate_url"],
-            "source": row["method"] or "",
-            "title": None,
-            "snippet": None,
-            "tier": row["tier"] or 1,
-        },
-        "confidence": row["confidence"] if row["confidence"] is not None else 1.0,
-        "reasoning": "",
-        "approved": True,
-    }
+# Row->fix/verdict mapping lives in src (gh_link_auditor.candidate_analysis) so
+# the #403 analysis tool renders the PR section through the SAME mapping this
+# submitter uses -- one shape, one parser. These aliases keep every existing
+# call site and test working unchanged.
+_row_to_fix = row_to_fix
+_row_to_verdict = row_to_verdict
 
 
 def _rows_to_fixes(rows: list[dict]) -> list[dict]:
