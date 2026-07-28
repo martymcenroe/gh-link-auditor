@@ -21,7 +21,7 @@ from gh_link_auditor.models import BlacklistEntry, InteractionRecord, Interactio
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".ghla" / "ghla.db"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 class UnifiedDatabase:
@@ -200,6 +200,20 @@ class UnifiedDatabase:
                 total_prs INTEGER DEFAULT 0,
                 total_merges INTEGER DEFAULT 0,
                 is_blacklisted INTEGER DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # --- curation: operator triage of merge-graduated repos (#404) ---
+        # Graduation itself is NOT stored here -- it is derived from
+        # repo_trust.total_merges > 0, so there is no second source of truth
+        # to drift. This table holds only what the operator adds: a triage
+        # status and freeform notes.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS curation (
+                repo_id INTEGER PRIMARY KEY REFERENCES repos(id),
+                status TEXT NOT NULL DEFAULT 'unseen',
+                notes TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL
             )
         """)
@@ -443,6 +457,8 @@ class UnifiedDatabase:
             self._migrate_v8_to_v9()
         if from_version <= 9:
             self._migrate_v9_to_v10()
+        if from_version <= 10:
+            self._migrate_v10_to_v11()
 
     def _migrate_v1_to_v2(self) -> None:
         logger.info("Migrating schema v1 → v2")
@@ -708,6 +724,24 @@ class UnifiedDatabase:
         c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
         c.commit()
         logger.info("Migration to v10 complete")
+
+    def _migrate_v10_to_v11(self) -> None:
+        logger.info("Migrating schema v10 → v11")
+        c = self._conn
+        # Narrow migration: create only the new table, never
+        # _create_all_tables() -- the broad form held the sqlite file open
+        # long enough to break Windows tempdir cleanup (lesson 2026-05-24).
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS curation (
+                repo_id INTEGER PRIMARY KEY REFERENCES repos(id),
+                status TEXT NOT NULL DEFAULT 'unseen',
+                notes TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        c.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        c.commit()
+        logger.info("Migration to v11 complete")
 
     # ------------------------------------------------------------------
     # External migration: import from metrics.db
@@ -1565,6 +1599,61 @@ class UnifiedDatabase:
     # ------------------------------------------------------------------
     # Repo Trust State Machine
     # ------------------------------------------------------------------
+
+    def get_graduated_repos(self) -> list[dict[str, Any]]:
+        """Repos that have merged at least one campaign PR (#404).
+
+        Graduation is DERIVED from ``repo_trust.total_merges > 0`` rather
+        than stored as its own flag, so it cannot drift out of sync with
+        the merge counter that ``pr_tracker`` maintains. Operator triage
+        state (status/notes) is left-joined from ``curation``; repos the
+        operator has never triaged come back as ``unseen``.
+        """
+        rows = self._conn.execute("""
+            SELECT r.full_name, r.stars, r.contributors, r.pushed_at,
+                   rt.first_merge_at, rt.total_prs, rt.total_merges,
+                   rt.trust_level, rt.is_blacklisted,
+                   COALESCE(cu.status, 'unseen') AS status,
+                   COALESCE(cu.notes, '')       AS notes
+            FROM repo_trust rt
+            JOIN repos r ON r.id = rt.repo_id
+            LEFT JOIN curation cu ON cu.repo_id = rt.repo_id
+            WHERE rt.total_merges > 0
+            ORDER BY rt.first_merge_at
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_curation(self, repo_full_name: str, status: str, notes: str | None = None) -> None:
+        """Upsert the operator's triage state for a repo (#404).
+
+        ``notes=None`` leaves any existing notes untouched, so setting a
+        status never silently discards what the operator wrote.
+        """
+        repo_id = self.upsert_repo(repo_full_name)
+        now = _now_iso()
+        existing = self._conn.execute("SELECT notes FROM curation WHERE repo_id = ?", (repo_id,)).fetchone()
+        if existing is None:
+            self._conn.execute(
+                "INSERT INTO curation (repo_id, status, notes, updated_at) VALUES (?,?,?,?)",
+                (repo_id, status, notes or "", now),
+            )
+        else:
+            kept = existing["notes"] if notes is None else notes
+            self._conn.execute(
+                "UPDATE curation SET status = ?, notes = ?, updated_at = ? WHERE repo_id = ?",
+                (status, kept, now, repo_id),
+            )
+        self._conn.commit()
+
+    def get_curation(self, repo_full_name: str) -> dict[str, Any] | None:
+        """Operator triage state for one repo, or None if never triaged."""
+        row = self._conn.execute(
+            """SELECT cu.status, cu.notes, cu.updated_at
+               FROM curation cu JOIN repos r ON r.id = cu.repo_id
+               WHERE r.full_name = ?""",
+            (repo_full_name,),
+        ).fetchone()
+        return dict(row) if row else None
 
     def get_repo_trust(self, repo_full_name: str) -> dict[str, Any] | None:
         """Get trust record for a repo by full_name.

@@ -9,8 +9,11 @@ from gh_link_auditor.unified_db import SCHEMA_VERSION, UnifiedDatabase
 class TestSchemaV7:
     def test_schema_version(self) -> None:
         # Phase B preflight (#285) bumped to v9; #343 bumped to v10 for
-        # head_status / get_status columns on url_check_cache.
-        assert SCHEMA_VERSION == 10
+        # head_status / get_status columns on url_check_cache; #404 bumped
+        # to v11 for the curation table (operator triage of merge-graduated
+        # repos). Bumping this constant without a matching _migrate_vN_to_vN+1
+        # is what this pin exists to catch.
+        assert SCHEMA_VERSION == 11
 
     def test_fresh_db_has_bulk_scan_tables(self, tmp_path) -> None:
         with UnifiedDatabase(str(tmp_path / "x.db")) as db:
