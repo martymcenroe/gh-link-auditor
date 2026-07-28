@@ -16,6 +16,7 @@ from typing import Any, Callable
 from urllib.parse import unquote
 
 from gh_link_auditor.network import check_url
+from gh_link_auditor.preflight.gates import _is_redirect_to_renamed_location
 from gh_link_auditor.preflight.report import ScoreComponent
 from gh_link_auditor.repo_quality import fetch_repo_metadata
 
@@ -224,6 +225,25 @@ def score_c3_dead_http_status(
         return ScoreComponent(name="C3", points_awarded=10, max_points=10, evidence={"status_code": status_code})
     if 500 <= status_code < 600:
         return ScoreComponent(name="C3", points_awarded=5, max_points=10, evidence={"status_code": status_code})
+    # 2xx: normally "resurrected, fix is suspicious" -> 0. But when the 200
+    # only happens via a redirect to the very URL we propose, the redirect is
+    # evidence that our candidate IS the canonical target (#435). Gate 5 makes
+    # the same rename judgment via the same helper, so gate and score cannot
+    # disagree; matching is normalization-aware but never re-fetches.
+    final_url = result.get("final_url")
+    if _is_redirect_to_renamed_location(dead_url, final_url):
+        matches_candidate, _ = _are_urls_near_equivalent(final_url, candidate_url, http_check=None)
+        if matches_candidate:
+            return ScoreComponent(
+                name="C3",
+                points_awarded=10,
+                max_points=10,
+                evidence={
+                    "reason": "redirect_to_candidate",
+                    "status_code": status_code,
+                    "final_url": final_url,
+                },
+            )
     return ScoreComponent(name="C3", points_awarded=0, max_points=10, evidence={"status_code": status_code})
 
 

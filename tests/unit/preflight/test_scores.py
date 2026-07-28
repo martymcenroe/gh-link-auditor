@@ -142,6 +142,81 @@ class TestScoreC3:
         )
         assert result.points_awarded == 5
 
+    # --- #435: 200-via-redirect-to-our-candidate earns full credit ---
+
+    def test_full_points_when_200_redirects_to_candidate(self, db):
+        """The dead URL only 'works' by redirecting to the URL we propose."""
+        result = score_c3_dead_http_status(
+            "owner/r",
+            _candidate(),
+            db,
+            http_check=lambda url: {"status_code": 200, "final_url": "https://alive.example/x"},
+        )
+        assert result.points_awarded == 10
+        assert result.evidence["reason"] == "redirect_to_candidate"
+        assert result.evidence["final_url"] == "https://alive.example/x"
+
+    def test_full_points_on_github_org_rename(self, db):
+        """The act-now-coalition shape: same host, owner segment renamed."""
+        dead = "https://github.com/covid-projections/covid-data-model/blob/main/Makefile"
+        cand = "https://github.com/act-now-coalition/covid-data-model/blob/main/Makefile"
+        result = score_c3_dead_http_status(
+            "owner/r",
+            _candidate(dead_url=dead, candidate_url=cand),
+            db,
+            http_check=lambda url: {"status_code": 200, "final_url": cand},
+        )
+        assert result.points_awarded == 10
+        assert result.evidence["reason"] == "redirect_to_candidate"
+
+    def test_zero_when_200_without_redirect(self, db):
+        """Genuinely resurrected URL — the original heuristic still applies."""
+        result = score_c3_dead_http_status(
+            "owner/r",
+            _candidate(),
+            db,
+            http_check=lambda url: {"status_code": 200, "final_url": "https://dead.example/x"},
+        )
+        assert result.points_awarded == 0
+
+    def test_zero_when_redirect_lands_elsewhere(self, db):
+        """Redirect proves movement, but not that OUR candidate is the target."""
+        result = score_c3_dead_http_status(
+            "owner/r",
+            _candidate(),
+            db,
+            http_check=lambda url: {"status_code": 200, "final_url": "https://other.example/z"},
+        )
+        assert result.points_awarded == 0
+
+    def test_zero_when_same_host_scheme_normalization(self, db):
+        """http->https on the same host is not a rename (gate 5's conservatism).
+
+        Pins the boundary so a future widening can't silently credit trivial
+        normalization redirects.
+        """
+        result = score_c3_dead_http_status(
+            "owner/r",
+            _candidate(dead_url="http://x.example/p", candidate_url="https://x.example/p"),
+            db,
+            http_check=lambda url: {"status_code": 200, "final_url": "https://x.example/p"},
+        )
+        assert result.points_awarded == 0
+
+    def test_full_points_when_redirect_matches_candidate_modulo_index_html(self, db):
+        """final_url matching is normalization-aware (reuses _are_urls_near_equivalent)."""
+        result = score_c3_dead_http_status(
+            "owner/r",
+            _candidate(dead_url="https://dead.example/docs/", candidate_url="https://alive.example/docs/"),
+            db,
+            http_check=lambda url: {
+                "status_code": 200,
+                "final_url": "https://alive.example/docs/index.html",
+            },
+        )
+        assert result.points_awarded == 10
+        assert result.evidence["reason"] == "redirect_to_candidate"
+
 
 # ---------------------------------------------------------------------------
 # C4: candidate HTTP status
