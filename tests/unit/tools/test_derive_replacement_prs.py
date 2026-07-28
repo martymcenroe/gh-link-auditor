@@ -905,17 +905,24 @@ class TestMain:
         monkeypatch.setattr(scores_mod, "CORRECTNESS_SCORES", [])
         monkeypatch.setattr(derive_mod, "CORRECTNESS_SCORES", [])
 
-    def test_main_dry_run_exit_zero(self, db_path, monkeypatch):
+    def test_main_dry_run_exit_zero(self, db_path, monkeypatch, tmp_path):
         with UnifiedDatabase(db_path) as udb:
             _insert_finding(udb, repo_full_name="m/m")
-        rc = mod.main(["--db", db_path, "--dry-run", "--campaign-allowed"])
+        # #421: without --preflight-log-dir, main() writes reports into the
+        # repo's REAL data/preflight-reports/ (this test authored the stray
+        # "m/m" reports found there during the 2026-07-28 audit).
+        rc = mod.main(
+            ["--db", db_path, "--dry-run", "--campaign-allowed", "--preflight-log-dir", str(tmp_path)]
+        )
         assert rc == 0
 
-    def test_main_no_candidates(self, db_path):
+    def test_main_no_candidates(self, db_path, tmp_path):
         # Empty DB — main returns 0, prints summary with zeros
         with UnifiedDatabase(db_path):
             pass
-        rc = mod.main(["--db", db_path, "--auto-approve", "--campaign-allowed"])
+        rc = mod.main(
+            ["--db", db_path, "--auto-approve", "--campaign-allowed", "--preflight-log-dir", str(tmp_path)]
+        )
         assert rc == 0
 
     def test_main_refuses_without_campaign_allowed(self, db_path, capsys):
