@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from gh_link_auditor.unified_db import UnifiedDatabase
@@ -60,6 +60,56 @@ def get_run(db: UnifiedDatabase, run_id: str) -> dict[str, Any] | None:
 def list_runs(db: UnifiedDatabase, limit: int = 20) -> list[dict[str, Any]]:
     rows = db._conn.execute("SELECT * FROM bulk_scan_runs ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- Reconcile abandoned runs (#426) ---
+
+# The exact set update_run_status stamps completed_at for — keep in sync there.
+TERMINAL_RUN_STATUSES = ("done", "aborted", "quality_aborted")
+
+
+def find_abandoned_runs(
+    db: UnifiedDatabase,
+    older_than_hours: float = 24.0,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Non-terminal runs older than the threshold with no live process lock.
+
+    Conservative by construction: a run with ANY row in ``bulk_scan_locks``
+    is treated as live and never returned — the lock is the liveness signal
+    (#244); stale-lock cleanup is the lock owner's job. ``now`` is injectable
+    so tests never assert against wall-clock.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(hours=older_than_hours)).isoformat()
+    placeholders = ",".join("?" for _ in TERMINAL_RUN_STATUSES)
+    rows = db._conn.execute(
+        f"""SELECT * FROM bulk_scan_runs
+            WHERE status NOT IN ({placeholders})
+              AND started_at < ?
+              AND run_id NOT IN (SELECT run_id FROM bulk_scan_locks)
+            ORDER BY started_at""",  # noqa: S608
+        (*TERMINAL_RUN_STATUSES, cutoff),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def reconcile_abandoned_runs(
+    db: UnifiedDatabase,
+    older_than_hours: float = 24.0,
+    now: datetime | None = None,
+) -> list[str]:
+    """Flip abandoned runs to ``aborted`` with an explanatory error (#426)."""
+    abandoned = find_abandoned_runs(db, older_than_hours=older_than_hours, now=now)
+    for run in abandoned:
+        update_run_status(
+            db,
+            run["run_id"],
+            "aborted",
+            error=(f"reconciled: abandoned in status={run['status']!r} with no activity since {run['started_at']}"),
+        )
+        logger.info("reconciled abandoned run %s (was %s)", run["run_id"], run["status"])
+    return [run["run_id"] for run in abandoned]
 
 
 # --- Repos ---

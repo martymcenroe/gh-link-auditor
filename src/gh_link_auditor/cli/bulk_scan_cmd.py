@@ -59,6 +59,24 @@ def build_bulk_scan_parser(subparsers: argparse._SubParsersAction) -> None:
     listr.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH))
     listr.set_defaults(func=_cmd_list_runs)
 
+    reconcile = sub.add_parser(
+        "reconcile",
+        help="Mark abandoned runs (non-terminal, past threshold, no live lock) as aborted (#426)",
+    )
+    reconcile.add_argument("--db-path", type=str, default=str(DEFAULT_DB_PATH))
+    reconcile.add_argument(
+        "--older-than-hours",
+        type=float,
+        default=24.0,
+        help="Only touch runs whose started_at is older than this (default: 24)",
+    )
+    reconcile.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually flip statuses. Without it, dry-run: list what would change.",
+    )
+    reconcile.set_defaults(func=_cmd_reconcile)
+
     parser.set_defaults(func=lambda args: parser.print_help() or 0)
 
 
@@ -209,4 +227,21 @@ def _cmd_list_runs(args: argparse.Namespace) -> int:
         return 0
     for r in runs:
         print(f"  {r['run_id']}  {r['status']}  started={r['started_at']}  done={r.get('completed_at') or '-'}")
+    return 0
+
+
+def _cmd_reconcile(args: argparse.Namespace) -> int:
+    """Mark abandoned runs as aborted (#426). Dry-run unless --apply."""
+    with UnifiedDatabase(args.db_path) as db:
+        abandoned = storage.find_abandoned_runs(db, older_than_hours=args.older_than_hours)
+        if not abandoned:
+            print("no abandoned runs found")
+            return 0
+        for r in abandoned:
+            print(f"  {r['run_id']}  {r['status']}  started={r['started_at']}")
+        if not args.apply:
+            print(f"{len(abandoned)} abandoned run(s) found -- dry-run; re-run with --apply to mark them aborted")
+            return 0
+        flipped = storage.reconcile_abandoned_runs(db, older_than_hours=args.older_than_hours)
+    print(f"reconciled {len(flipped)} run(s) to status=aborted")
     return 0
