@@ -50,6 +50,12 @@ This project uses the **1xxxx numbering scheme** (project-specific implementatio
 
 ---
 
+## Campaign Operations
+
+Submission sessions follow `docs/runbooks/0001-shipping-the-approved-backlog.md` — refresh-first, 7-day pass-verdict freshness, throughput caps, pause triggers, open-PR aging. Read it before shipping any candidate.
+
+---
+
 ## Cross-Session Context
 
 The source of truth for prior sessions is `data/handoff-log.md` — append-only, managed by `/handoff` and consumed by `/onboard`.
