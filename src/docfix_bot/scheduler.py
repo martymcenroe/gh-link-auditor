@@ -74,8 +74,8 @@ def run_daily_scan(
         db_path = Path(config.get("state_db_path", "data/state/docfix_state.json"))
         state = StateStore(db_path)
 
-    targets_path = Path(config.get("targets_path", "data/config/targets.yaml"))
-    blocklist_path = Path(config.get("blocklist_path", "data/config/blocklist.yaml"))
+    targets_path = Path(config.get("targets_path", "data-g/config/targets.yaml"))
+    blocklist_path = Path(config.get("blocklist_path", "data-g/config/blocklist.yaml"))
 
     try:
         targets = load_targets(targets_path)
