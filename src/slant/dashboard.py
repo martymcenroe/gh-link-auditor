@@ -14,6 +14,7 @@ import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Callable
 
 from slant.models import Verdict, VerdictsFile
 
@@ -319,17 +320,29 @@ class SlantRequestHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"status": "ok"})
 
 
-def start_dashboard(verdicts_path: Path, port: int = 8913) -> None:
+def start_dashboard(
+    verdicts_path: Path,
+    port: int = 8913,
+    on_ready: Callable[[int], None] | None = None,
+) -> None:
     """Start HITL dashboard HTTP server.
 
     Binds to 127.0.0.1 only (localhost). Blocks until shutdown.
 
     Args:
         verdicts_path: Path to verdicts JSON file.
-        port: Port to bind to (default: 8913).
+        port: Port to bind to (default: 8913). Pass 0 to let the OS choose a
+            free port; the actual port is then reported via ``on_ready``.
+        on_ready: Called with the bound port once the socket is listening but
+            before ``serve_forever``. Lets a caller learn an OS-assigned port
+            without probing-and-closing one first, which is a bind-after-close
+            race (#447): between closing the probe socket and binding here,
+            the OS is free to hand that port to another process.
     """
     SlantRequestHandler.verdicts_path = verdicts_path
     server = HTTPServer(("127.0.0.1", port), SlantRequestHandler)
+    if on_ready is not None:
+        on_ready(server.server_address[1])
     try:
         server.serve_forever()
     except KeyboardInterrupt:
