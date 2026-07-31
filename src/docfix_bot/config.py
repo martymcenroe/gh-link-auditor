@@ -19,8 +19,11 @@ _DEFAULT_CONFIG: BotConfig = {
     "max_prs_per_day": 10,
     "max_api_calls_per_hour": 500,
     "min_fix_confidence": 0.8,
-    "targets_path": "data/config/targets.yaml",
-    "blocklist_path": "data/config/blocklist.yaml",
+    # #413: hand-authored config lives in data-g/ (the git-tracked sibling),
+    # not data/ -- the fleet-wide global gitignore excludes /data/, so anything
+    # new added there cannot be committed.
+    "targets_path": "data-g/config/targets.yaml",
+    "blocklist_path": "data-g/config/blocklist.yaml",
     "state_db_path": "data/state/docfix_state.json",
 }
 
