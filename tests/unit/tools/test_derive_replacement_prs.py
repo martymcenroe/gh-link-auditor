@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import datetime, timezone
 
 import pytest
@@ -920,6 +921,42 @@ class TestMain:
             pass
         rc = mod.main(["--db", db_path, "--auto-approve", "--campaign-allowed", "--preflight-log-dir", str(tmp_path)])
         assert rc == 0
+
+    def test_announces_startup_before_any_work(self, db_path, tmp_path, capsys):
+        """#399: the operator must see the script is alive, not a blank terminal."""
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(udb, repo_full_name="m/m")
+        mod.main(["--db", db_path, "--dry-run", "--campaign-allowed", "--preflight-log-dir", str(tmp_path)])
+        out = capsys.readouterr().out
+        assert "running preflight one-by-one" in out
+        assert "loaded 1 candidate(s) across 1 repo(s)" in out
+
+    def test_announces_each_repo_before_its_preflight(self, db_path, tmp_path, capsys):
+        with UnifiedDatabase(db_path) as udb:
+            _insert_finding(udb, repo_full_name="m/m")
+        mod.main(["--db", db_path, "--dry-run", "--campaign-allowed", "--preflight-log-dir", str(tmp_path)])
+        out = capsys.readouterr().out
+        assert "[m/m] preflight starting..." in out
+        # The announcement must precede the result, or it is not a heartbeat.
+        assert out.index("[m/m] preflight starting") < out.index("=== summary ===")
+
+    def test_configures_logging_so_library_info_surfaces(self, db_path, tmp_path):
+        """#399: without basicConfig, every logger.info in the gates is swallowed."""
+        with UnifiedDatabase(db_path):
+            pass
+        logging.getLogger().setLevel(logging.CRITICAL)  # simulate an unconfigured root
+        mod.main(["--db", db_path, "--auto-approve", "--campaign-allowed", "--preflight-log-dir", str(tmp_path)])
+        assert logging.getLogger().isEnabledFor(logging.INFO)
+
+    def test_silences_per_request_http_chatter(self, db_path, tmp_path):
+        """#399: httpx logs one line per API call and would bury the signal."""
+        with UnifiedDatabase(db_path):
+            pass
+        for noisy in ("httpx", "httpcore", "urllib3"):
+            logging.getLogger(noisy).setLevel(logging.NOTSET)
+        mod.main(["--db", db_path, "--auto-approve", "--campaign-allowed", "--preflight-log-dir", str(tmp_path)])
+        for noisy in ("httpx", "httpcore", "urllib3"):
+            assert not logging.getLogger(noisy).isEnabledFor(logging.INFO), noisy
 
     def test_main_refuses_without_campaign_allowed(self, db_path, capsys):
         """#278: without --campaign-allowed the tool must exit 2 with a pause message."""
