@@ -1057,6 +1057,15 @@ class UnifiedDatabase:
         )
         self._conn.commit()
 
+    def count_scanned_repos(self) -> int:
+        """Distinct repos inventoried by bulk scans (#449).
+
+        Counts distinct ``repo_full_name`` rather than rows so a repo that
+        appears in several runs is not double-counted.
+        """
+        row = self._conn.execute("SELECT COUNT(DISTINCT repo_full_name) AS n FROM bulk_scan_repos").fetchone()
+        return int(row["n"]) if row else 0
+
     def get_all_runs(self) -> list[RunReport]:
         cursor = self._conn.execute("SELECT * FROM run_reports ORDER BY started_at")
         rows = cursor.fetchall()

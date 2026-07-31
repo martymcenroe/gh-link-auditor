@@ -148,8 +148,13 @@ class TestGenerateCampaignMetrics:
         metrics = generate_campaign_metrics(db_path)
 
         assert metrics.total_runs == 3
-        assert metrics.total_repos_processed == 30
-        assert metrics.total_prs_submitted == 9
+        # #449: submitted counts pr_outcomes rows (5 recorded above), NOT the
+        # run_reports aggregate (which would say 9). run_reports has no
+        # production writer, so summing it reported 0 in the field while
+        # merged PRs were listed by name on the same screen.
+        assert metrics.total_prs_submitted == 5
+        # No bulk_scan_repos rows in this fixture, so nothing has been scanned.
+        assert metrics.total_repos_processed == 0
         assert metrics.total_prs_merged == 3
         assert metrics.total_prs_rejected == 1
         assert metrics.total_prs_open == 1
@@ -165,6 +170,48 @@ class TestGenerateCampaignMetrics:
         assert metrics.total_runs == 0
         assert metrics.acceptance_rate == 0.0
         assert metrics.avg_time_to_merge_hours == 0.0
+
+    def test_submitted_counts_outcomes_with_no_run_reports(self, tmp_path) -> None:
+        """#449 regression: the production shape — outcomes but zero run_reports.
+
+        This is exactly the state the real DB was in on 2026-07-28, when the
+        summary claimed "PRs submitted: 0" while listing 4 PRs by name.
+        """
+        db_path = tmp_path / "m.db"
+        collector = MetricsCollector(db_path)
+        try:
+            for i in range(4):
+                collector.record_pr_outcome(
+                    PROutcome(
+                        repo_full_name=f"o/r{i}",
+                        pr_url=f"https://github.com/o/r{i}/pull/1",
+                        submitted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                        status="merged" if i < 3 else "closed",
+                    )
+                )
+        finally:
+            collector.close()
+
+        metrics = generate_campaign_metrics(db_path)
+        assert metrics.total_runs == 0, "fixture must have no run_reports rows"
+        assert metrics.total_prs_submitted == 4
+        assert metrics.total_prs_merged == 3
+
+    def test_repos_scanned_counts_distinct_bulk_scan_repos(self, tmp_path) -> None:
+        """#449: repos scanned comes from bulk_scan_repos, deduped across runs."""
+        from gh_link_auditor.bulk_scan import storage
+        from gh_link_auditor.unified_db import UnifiedDatabase
+
+        db_path = tmp_path / "s.db"
+        with UnifiedDatabase(str(db_path)) as db:
+            storage.create_run(db, "run-a", 2, {})
+            storage.create_run(db, "run-b", 2, {})
+            storage.upsert_repo(db, "run-a", "o/one")
+            storage.upsert_repo(db, "run-a", "o/two")
+            storage.upsert_repo(db, "run-b", "o/one")  # same repo, second run
+
+        metrics = generate_campaign_metrics(db_path)
+        assert metrics.total_repos_processed == 2
 
 
 class TestFormatReportText:
