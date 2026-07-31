@@ -66,11 +66,16 @@ def generate_campaign_metrics(db_path: Path) -> CampaignMetrics:
     try:
         runs = collector.get_all_runs()
         outcomes = collector.get_all_pr_outcomes()
+        total_repos = collector.count_scanned_repos()
     finally:
         collector.close()
 
-    total_repos = sum(r.repos_scanned for r in runs)
-    total_prs = sum(r.total_prs_submitted for r in runs)
+    # #449: these two used to sum over run_reports, which has no production
+    # writer -- the summary reported "PRs submitted: 0" while listing merged
+    # PRs by name directly below it. Both now come from tables that are
+    # actually written: pr_outcomes (one row per submission) and
+    # bulk_scan_repos (one row per repo inventoried).
+    total_prs = len(outcomes)
 
     merged = sum(1 for o in outcomes if o.status == "merged")
     rejected = sum(1 for o in outcomes if o.status in ("closed", "rejected"))

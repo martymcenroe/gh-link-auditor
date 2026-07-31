@@ -31,5 +31,8 @@ class MetricsCollector:
     def get_all_pr_outcomes(self) -> list[PROutcome]:
         return self._db.get_all_pr_outcomes()
 
+    def count_scanned_repos(self) -> int:
+        return self._db.count_scanned_repos()
+
     def close(self) -> None:
         self._db.close()
