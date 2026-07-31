@@ -20,6 +20,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -277,8 +278,13 @@ def derive_and_submit(
             repo=args.repo,
         )
         repos = _group_by_repo(rows)
+        print(
+            f"loaded {len(rows)} candidate(s) across {len(repos)} repo(s); running preflight one-by-one...",
+            flush=True,
+        )
 
         for repo_full_name, repo_rows in repos.items():
+            print(f"\n[{repo_full_name}] preflight starting...", flush=True)
             repo_url = f"https://github.com/{repo_full_name}"
             maintainer = repo_full_name.partition("/")[0]
             if udb.is_blacklisted(repo_url, maintainer):
@@ -473,6 +479,22 @@ def main(argv: list[str] | None = None) -> int:
     if not args.campaign_allowed:
         print(_CAMPAIGN_PAUSED_MESSAGE, file=sys.stderr)
         return 2
+    # #399: without this, every logger.info in the preflight gates and
+    # n6_submit_pr sits below the root logger's default WARNING threshold and
+    # the operator watches a blank terminal for 20-30s, unable to tell
+    # "working" from "hung" before pinentry fires out of nowhere.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s :: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+    # Knock down third-party per-request chatter, same as cli/main.py. Without
+    # this, httpx logs one line per GitHub API call and buries the gate/N6
+    # progress the operator actually needs -- trading a blank terminal for a
+    # firehose is not an improvement.
+    for noisy in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     result = derive_and_submit(args)
     _print_summary(result)
     return 0
