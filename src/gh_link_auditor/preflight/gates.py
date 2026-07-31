@@ -747,7 +747,83 @@ def gate_redirect_target_related(
 # ---------------------------------------------------------------------------
 
 
+_URL_MUTATION_METHOD = "url_mutation"
+
+
+def gate_co_dead_host(
+    repo_full_name: str,
+    candidate: dict[str, Any],
+    db: Any,
+    *,
+    http_check: HttpCheck | None = None,
+) -> GateResult:
+    """Fail fast when a same-host ``url_mutation`` candidate is also dead (#396).
+
+    ``url_mutation`` rewrites a URL in place (strip ``index.html``, http->https),
+    so its candidate lands on the SAME host as the dead URL. When the host is
+    itself the source of the death, that candidate is co-dead and cannot be
+    rescued by rewriting the path — gate 6 would eventually catch it, but only
+    after the expensive subagent gates have already run.
+
+    This gate is registered FIRST precisely so that one cheap HEAD replaces
+    ~7-9s of gate evaluation plus the ``anti_ai`` subagent's token spend.
+
+    Applies ONLY to ``url_mutation``. Tier-2 methods (``pypi_homepage``,
+    ``project_readme``, ``github_api_redirect``) produce cross-host candidates
+    by construction, so this gate passes them through untouched.
+    """
+    method = (candidate.get("method") or "").strip()
+    dead_url = candidate.get("dead_url") or ""
+    candidate_url = candidate.get("candidate_url") or ""
+
+    if method != _URL_MUTATION_METHOD or not dead_url or not candidate_url:
+        return GateResult(
+            name="co_dead_host",
+            passed=True,
+            reason="not a url_mutation candidate; co-dead pre-filter does not apply",
+            evidence={"method": method},
+        )
+
+    from urllib.parse import urlparse
+
+    dead_host = urlparse(dead_url).netloc.lower()
+    cand_host = urlparse(candidate_url).netloc.lower()
+    if not dead_host or dead_host != cand_host:
+        return GateResult(
+            name="co_dead_host",
+            passed=True,
+            reason="candidate is on a different host; not a co-dead case",
+            evidence={"dead_host": dead_host, "candidate_host": cand_host},
+        )
+
+    check = http_check or _default_http_check
+    status_code = check(candidate_url).get("status_code")
+    if status_code is not None and 200 <= status_code < 400:
+        return GateResult(
+            name="co_dead_host",
+            passed=True,
+            reason=f"same-host candidate is alive ({status_code})",
+            evidence={"candidate_url": candidate_url, "status_code": status_code},
+        )
+
+    return GateResult(
+        name="co_dead_host",
+        passed=False,
+        reason=(
+            f"url_mutation candidate is on the same host as the dead URL and is itself "
+            f"unreachable ({status_code}); rewriting the path cannot rescue a dead host"
+        ),
+        evidence={
+            "dead_url": dead_url,
+            "candidate_url": candidate_url,
+            "host": dead_host,
+            "status_code": status_code,
+        },
+    )
+
+
 HARD_GATES: list[Callable[..., GateResult]] = [
+    gate_co_dead_host,
     gate_anti_ai,
     gate_repo_active,
     gate_blacklist,

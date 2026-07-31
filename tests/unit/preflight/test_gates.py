@@ -10,6 +10,7 @@ from gh_link_auditor.preflight.gates import (
     DEFAULT_STARS_FLOOR,
     HARD_GATES,
     gate_candidate_url_alive,
+    gate_co_dead_host,
     gate_dead_url_still_dead,
     gate_dead_url_still_present,
     gate_no_duplicate_pr,
@@ -248,6 +249,81 @@ class TestGateDeadUrlStillDead:
 # ---------------------------------------------------------------------------
 
 
+class TestGateCoDeadHost:
+    """#396: same-host url_mutation candidates on a dead host fail fast."""
+
+    GLM_DEAD = "http://glm.g-truc.net/html/index.html"
+    GLM_CAND = "http://glm.g-truc.net/html/"
+
+    def _mutation(self, **kw):
+        return _candidate(method="url_mutation", **kw)
+
+    def test_fails_when_same_host_candidate_also_dead(self, db):
+        """The BIT-DYN/omnimap + GVCLab/GSFixer case from 2026-05-26."""
+        calls = []
+
+        def check(url):
+            calls.append(url)
+            return {"status_code": 404}
+
+        result = gate_co_dead_host(
+            "owner/r",
+            self._mutation(dead_url=self.GLM_DEAD, candidate_url=self.GLM_CAND),
+            db,
+            http_check=check,
+        )
+        assert result.passed is False
+        assert result.evidence["host"] == "glm.g-truc.net"
+        assert calls == [self.GLM_CAND], "exactly one HEAD, on the candidate only"
+
+    def test_passes_when_same_host_candidate_is_alive(self, db):
+        result = gate_co_dead_host(
+            "owner/r",
+            self._mutation(dead_url=self.GLM_DEAD, candidate_url=self.GLM_CAND),
+            db,
+            http_check=lambda url: {"status_code": 200},
+        )
+        assert result.passed is True
+
+    def test_passes_for_different_host_without_any_http_call(self, db):
+        """A cross-host mutation is not a co-dead case — do not spend a HEAD."""
+
+        def boom(url):
+            raise AssertionError("must not probe a cross-host candidate")
+
+        result = gate_co_dead_host(
+            "owner/r",
+            self._mutation(dead_url="http://dead.example/a", candidate_url="http://other.example/a"),
+            db,
+            http_check=boom,
+        )
+        assert result.passed is True
+
+    def test_passes_tier2_methods_untouched(self, db):
+        """No regression on tier-2 methods (issue's explicit out-of-scope)."""
+
+        def boom(url):
+            raise AssertionError("must not probe a non-url_mutation candidate")
+
+        for method in ("github_api_redirect", "pypi_homepage", "project_readme", "sitemap_search"):
+            result = gate_co_dead_host(
+                "owner/r",
+                _candidate(method=method, dead_url=self.GLM_DEAD, candidate_url=self.GLM_CAND),
+                db,
+                http_check=boom,
+            )
+            assert result.passed is True, method
+
+    def test_passes_when_urls_missing(self, db):
+        assert gate_co_dead_host("owner/r", self._mutation(candidate_url=""), db).passed is True
+
+    def test_registered_before_the_subagent_gate(self):
+        """Ordering IS the feature: the cheap check must precede anti_ai."""
+        names = [g.__name__ for g in HARD_GATES]
+        assert names.index("gate_co_dead_host") < names.index("gate_anti_ai")
+        assert names[0] == "gate_co_dead_host"
+
+
 class TestGateCandidateUrlAlive:
     def test_passes_when_candidate_returns_200(self, db):
         result = gate_candidate_url_alive(
@@ -405,10 +481,13 @@ class TestGateStarsFloor:
 
 
 class TestHardGatesRegistry:
-    def test_registry_contains_all_ten_gates_after_pr_epsilon(self):
-        assert len(HARD_GATES) == 10
+    def test_registry_contains_every_gate(self):
+        # PR-epsilon shipped 10; #396 added gate_co_dead_host as a cheap
+        # pre-filter ahead of the subagent gates.
+        assert len(HARD_GATES) == 11
         gate_names = {fn.__name__ for fn in HARD_GATES}
         assert gate_names == {
+            "gate_co_dead_host",
             "gate_anti_ai",
             "gate_repo_active",
             "gate_blacklist",
