@@ -70,27 +70,45 @@ def _write_verdicts_file(path: Path, verdicts_file: VerdictsFile) -> None:
 
 
 def _start_test_server(verdicts_path: Path):
-    """Start dashboard on random port and return (port, thread)."""
-    import socketserver
+    """Start dashboard on an OS-assigned port and return (port, thread).
 
-    # Find a free port
-    with socketserver.TCPServer(("127.0.0.1", 0), None) as s:
-        port = s.server_address[1]
+    #447: the previous form opened a probe socket on port 0, read the port,
+    CLOSED it, then asked the server to bind that number. Between the close
+    and the bind the OS is free to hand that port to anything else --
+    including another test's probe in the same run -- so under full-suite
+    load the server sometimes failed to bind and the failure surfaced later
+    as a confusing request error.
+
+    The server now binds port 0 itself and reports the port it actually got,
+    so no port is ever closed and re-bound. Readiness is signalled by the
+    server instead of inferred, and failure to come up raises here.
+    """
+    ready = threading.Event()
+    bound: list[int] = []
+
+    def _on_ready(port: int) -> None:
+        bound.append(port)
+        ready.set()
 
     thread = threading.Thread(
         target=start_dashboard,
         args=(verdicts_path,),
-        kwargs={"port": port},
+        kwargs={"port": 0, "on_ready": _on_ready},
         daemon=True,
     )
     thread.start()
-    # Wait for server to start
+    if not ready.wait(timeout=10):
+        raise AssertionError("dashboard server did not bind within 10s")
+    port = bound[0]
+    # Socket is listening; wait for serve_forever to start accepting.
     for _ in range(50):
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1)  # noqa: S310
             break
         except (urllib.error.URLError, OSError):
             time.sleep(0.1)
+    else:
+        raise AssertionError(f"dashboard bound port {port} but never served a request")
     return port, thread
 
 
@@ -540,3 +558,34 @@ class TestStartDashboardCoverageGaps:
             with _patch.object(HTTPServer, "server_close") as mock_close:
                 start_dashboard(path, port=0)
                 mock_close.assert_called_once()
+
+
+class TestOnReadyContract:
+    """#447: port 0 + on_ready is what removes the bind-after-close race."""
+
+    def test_on_ready_receives_the_actually_bound_port(self, tmp_path):
+        from http.server import HTTPServer
+        from unittest.mock import patch as _patch
+
+        verdicts_file = _make_verdicts_file()
+        path = tmp_path / "verdicts.json"
+        _write_verdicts_file(path, verdicts_file)
+
+        seen: list[int] = []
+        with _patch.object(HTTPServer, "serve_forever", side_effect=KeyboardInterrupt):
+            start_dashboard(path, port=0, on_ready=seen.append)
+
+        assert len(seen) == 1
+        assert seen[0] > 0, "port 0 must be resolved to a real OS-assigned port"
+
+    def test_on_ready_is_optional(self, tmp_path):
+        """Production callers pass a fixed port and no callback."""
+        from http.server import HTTPServer
+        from unittest.mock import patch as _patch
+
+        verdicts_file = _make_verdicts_file()
+        path = tmp_path / "verdicts.json"
+        _write_verdicts_file(path, verdicts_file)
+
+        with _patch.object(HTTPServer, "serve_forever", side_effect=KeyboardInterrupt):
+            start_dashboard(path, port=0)  # must not raise
