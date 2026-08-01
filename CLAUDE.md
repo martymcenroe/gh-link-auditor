@@ -60,7 +60,9 @@ Submission sessions follow `docs/runbooks/0001-shipping-the-approved-backlog.md`
 
 The source of truth for prior sessions is `data/handoff-log.md` — append-only, managed by `/handoff` and consumed by `/onboard`.
 
-`docs/session-logs/` is deprecated (removed from tracking in branch `253-remove-session-logs`).
+`docs/session-logs/` is **gitignored, NOT retired.** `/handoff` still writes its session-log entry there every session — untracked and machine-local, so session narrative never leaks to GitHub (that is why it was removed from tracking in `253-remove-session-logs`).
+
+**Gitignoring an artifact says where it may travel, never whether it gets produced.** An agent that reads "not tracked" as "stop writing it" has silently dropped a skill step. Skill instructions are explicit authorization: the only valid reason to skip one is the skill's own instructions saying so.
 
 ---
 
