@@ -212,11 +212,21 @@ class TestGetLogger:
 
 
 class TestGracefulFallback:
-    def test_fallback_on_invalid_path(self, capfd):
-        # NUL is not a valid directory on any OS
-        logger = setup_logging(name="test_fallback", log_dir="/dev/null/impossible", console=True, file=True)
+    def test_fallback_on_invalid_path(self, capfd, tmp_path):
+        # #481: a folder under a regular file cannot be made on any OS. The
+        # old "/dev/null/impossible" could: on Windows it is
+        # C:\dev\null\impossible, so the file handler opened a log there and
+        # the fallback never ran.
+        blocker = tmp_path / "blocker"
+        blocker.write_text("x", encoding="utf-8")
+        log_dir = blocker / "impossible"
+
+        logger = setup_logging(name="test_fallback", log_dir=str(log_dir), console=True, file=True)
+
         # Should still have a console handler despite file failure
         assert any(isinstance(h, logging.StreamHandler) for h in logger.handlers)
+        assert not any(isinstance(h, RotatingFileHandler) for h in logger.handlers)
+        assert not log_dir.exists()
 
     def test_fallback_creates_console_handler_when_console_disabled(self):
         """When file=True, console=False, and log dir creation fails,
