@@ -319,8 +319,16 @@ class TestN6SubmitPr:
         assert trust["total_prs"] == 1
 
     def test_trust_update_failure_does_not_abort_pr(self, tmp_path: Path) -> None:
-        """If the trust DB write throws, the PR still wins."""
-        state = create_initial_state(target="https://github.com/org/repo", db_path="/nonexistent/dir/ghla.db")
+        """If the trust DB write throws, the PR still wins.
+
+        #480: the database is a real one under tmp_path, so the write that
+        throws is the one this test simulates. It used to be
+        "/nonexistent/dir/ghla.db": Linux refused to open it, so the simulated
+        failure was never reached, and on Windows it was
+        C:\\nonexistent\\dir\\ghla.db, which UnifiedDatabase created.
+        """
+        db_path = tmp_path / "trust" / "ghla.db"
+        state = create_initial_state(target="https://github.com/org/repo", db_path=str(db_path))
         state["target_type"] = "url"
         state["repo_owner"] = "org"
         state["repo_name_short"] = "repo"
@@ -356,11 +364,13 @@ class TestN6SubmitPr:
             patch(
                 "gh_link_auditor.pr_tracker.update_trust_on_submit",
                 side_effect=RuntimeError("simulated trust failure"),
-            ),
+            ) as trust_update,
         ):
             result = n6_submit_pr(state)
 
         assert result.get("pr_url") == "https://github.com/org/repo/pull/42"
+        trust_update.assert_called_once()
+        assert trust_update.call_args.args[1] == "org/repo"
 
     def test_handles_fork_failure(self) -> None:
         state = create_initial_state(target="https://github.com/org/repo")

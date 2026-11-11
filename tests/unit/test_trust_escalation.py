@@ -513,17 +513,26 @@ class TestGetRepoTrustLevel:
 
         assert _get_repo_trust_level(state) == "tier1_proven"
 
-    def test_returns_new_on_db_error(self) -> None:
+    def test_returns_new_on_db_error(self, tmp_path) -> None:
         from gh_link_auditor.pipeline.graph import _get_repo_trust_level
+
+        # #480: a database under a regular file cannot be opened on any OS.
+        # The old "/nonexistent/path/db.sqlite" could: on Windows it is
+        # C:\nonexistent\path\db.sqlite, which UnifiedDatabase created, so
+        # the lookup read a real, empty database instead of failing.
+        blocker = tmp_path / "blocker"
+        blocker.write_text("x", encoding="utf-8")
+        db_path = blocker / "db.sqlite"
 
         state = create_initial_state(target="https://github.com/org/repo")
         state["target_type"] = "url"
         state["repo_owner"] = "org"
         state["repo_name_short"] = "repo"
-        state["db_path"] = "/nonexistent/path/db.sqlite"
+        state["db_path"] = str(db_path)
 
         # Should not raise, just return "new"
         assert _get_repo_trust_level(state) == "new"
+        assert not db_path.exists()
 
 
 class TestPrPreviewGateTrustFiltering:
